@@ -115,6 +115,26 @@ Total ${TOTAL_SLIDES} slides.`;
 /** Tool the model uses to move the deck. */
 export const NAVIGATE_TOOL_NAME = 'navigate_to_slide';
 
+/**
+ * The result handed back to the model after it moves the deck.
+ *
+ * This carries the newly shown slide's teaching material, because the turn
+ * prompt was built for the slide the trainee was on before. Without the closing
+ * instruction the model tends to announce the change and stop, rather than
+ * answering what was actually asked.
+ */
+export function buildNavigationResult(slide: DeckSlide): string {
+  return `Slide ${slide.id} is now on the trainee's screen.
+
+${slideBriefing(slide)}
+
+The slide is already up. This reply is the only thing the trainee will hear, so it has to carry the whole answer.
+
+Teach the content now, covering the points listed above. Around forty-five seconds of speech, and longer if the question deserves it. This overrides any earlier instruction to keep the answer short.
+
+Never defer. Do not say "let's take a look at this slide", "the slide covers that", "let me bring that up", or anything else that promises an explanation instead of giving one. Do not name the slide number; the trainee can see it. Opening with a word or two of acknowledgement is fine, but the substance must follow immediately in the same reply.`;
+}
+
 function historyBlock(history: HistoryTurn[]): string {
   if (history.length === 0) return 'This is the start of the session.';
   return history

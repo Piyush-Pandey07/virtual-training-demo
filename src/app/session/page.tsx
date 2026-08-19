@@ -135,6 +135,8 @@ export default function SessionPage() {
               micState={session.micState}
               micLevel={session.micLevel}
               speaking={session.trainerSpeaking}
+              transcribing={session.transcribing}
+              transport={session.sttTransport}
             />
 
             <TranscriptPanel

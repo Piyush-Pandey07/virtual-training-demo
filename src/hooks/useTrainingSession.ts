@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clampSlideId, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
 import type { ChatEvent, HistoryTurn, SessionPhase, TranscriptEntry, TurnKind } from '@/lib/types';
 
-import { useDeepgramStt } from './useDeepgramStt';
+import { useSpeechInput, type SttTransport } from './useSpeechInput';
 import { useTtsPlayer } from './useTtsPlayer';
 
 export type ListeningMode = 'hands-free' | 'push-to-talk';
@@ -73,8 +73,12 @@ export interface UseTrainingSessionResult {
   streamingReply: string;
   coveredSlideIds: number[];
   error: string | null;
-  micState: ReturnType<typeof useDeepgramStt>['state'];
+  micState: ReturnType<typeof useSpeechInput>['state'];
   micLevel: number;
+  /** Which speech to text transport is live. Null before the session starts. */
+  sttTransport: SttTransport | null;
+  /** True while a batch utterance is being transcribed. */
+  transcribing: boolean;
   trainerSpeaking: boolean;
   listeningMode: ListeningMode;
   pushToTalkActive: boolean;
@@ -320,7 +324,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
     [handleSpeechStart],
   );
 
-  const stt = useDeepgramStt({
+  const stt = useSpeechInput({
     onUtterance: handleUtterance,
     onInterim: handleInterim,
     onError: setError,
@@ -446,6 +450,8 @@ export function useTrainingSession(): UseTrainingSessionResult {
     error,
     micState: stt.state,
     micLevel: stt.level,
+    sttTransport: stt.transport,
+    transcribing: stt.transcribing,
     trainerSpeaking: tts.speaking,
     listeningMode,
     pushToTalkActive,

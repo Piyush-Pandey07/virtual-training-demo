@@ -1,11 +1,19 @@
 'use client';
 
 import { TRAINER_NAME } from '@/lib/trainer';
+import type { SttTransport } from '@/hooks/useSpeechInput';
 import type { MicState, SessionPhase } from '@/lib/types';
 
 /** Plain-language status line, so the trainee always knows whose turn it is. */
-function statusFor(phase: SessionPhase, micState: MicState): { label: string; tone: string } {
+function statusFor(
+  phase: SessionPhase,
+  micState: MicState,
+  transcribing: boolean,
+): { label: string; tone: string } {
   if (phase === 'error') return { label: 'Something went wrong', tone: 'text-logo-red' };
+  // Batch transport only. Worth showing, because the transcript lands a beat
+  // after the trainee stops rather than appearing as they speak.
+  if (transcribing) return { label: 'Getting that down', tone: 'text-teal' };
   if (phase === 'connecting') return { label: 'Connecting', tone: 'text-muted' };
   if (phase === 'thinking') return { label: 'Thinking', tone: 'text-teal' };
   if (phase === 'speaking') return { label: `${TRAINER_NAME} is speaking`, tone: 'text-teal' };
@@ -23,6 +31,8 @@ interface TrainerPanelProps {
   micState: MicState;
   micLevel: number;
   speaking: boolean;
+  transcribing: boolean;
+  transport: SttTransport | null;
 }
 
 /**
@@ -30,8 +40,15 @@ interface TrainerPanelProps {
  * status, and a live microphone level so the trainee can see they are being
  * heard before they say anything important.
  */
-export function TrainerPanel({ phase, micState, micLevel, speaking }: TrainerPanelProps) {
-  const status = statusFor(phase, micState);
+export function TrainerPanel({
+  phase,
+  micState,
+  micLevel,
+  speaking,
+  transcribing,
+  transport,
+}: TrainerPanelProps) {
+  const status = statusFor(phase, micState, transcribing);
   const listening = phase === 'listening' && micState === 'live';
 
   return (
@@ -60,7 +77,7 @@ export function TrainerPanel({ phase, micState, micLevel, speaking }: TrainerPan
 
         <p className={`mt-0.5 flex items-center gap-1.5 text-sm ${status.tone}`}>
           {status.label}
-          {phase === 'thinking' && (
+          {(phase === 'thinking' || transcribing) && (
             <span className="dot-pulse inline-flex gap-0.5" aria-hidden="true">
               <span>.</span>
               <span>.</span>
@@ -85,6 +102,12 @@ export function TrainerPanel({ phase, micState, micLevel, speaking }: TrainerPan
             style={{ width: `${Math.min(100, Math.round(micLevel * 100))}%` }}
           />
         </div>
+
+        {transport === 'batch' && (
+          <p className="text-muted mt-1.5 text-xs">
+            Pause briefly when you finish speaking, then your question is sent across.
+          </p>
+        )}
       </div>
     </section>
   );

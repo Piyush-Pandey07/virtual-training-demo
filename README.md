@@ -39,8 +39,9 @@ cp .env.example .env.local
 You need two keys:
 
 - **`GEMINI_API_KEY`** from [Google AI Studio](https://aistudio.google.com/apikey).
-- **`DEEPGRAM_API_KEY`** from the [Deepgram console](https://console.deepgram.com). It needs at
-  least **Member** permissions, because the server uses it to mint short-lived browser tokens.
+- **`DEEPGRAM_API_KEY`** from the [Deepgram console](https://console.deepgram.com). A plain speech
+  key is enough to run the demo. Give it **Member** permissions if you want the better of the two
+  speech to text transports; see [Speech to text transports](#speech-to-text-transports) below.
 
 Then:
 
@@ -85,9 +86,27 @@ mic ─► AudioWorklet ─► 16 kHz PCM ────────────�
       Web Audio queue ─► speakers
 ```
 
-Both API keys stay on the server. The browser talks to Deepgram directly for transcription, but only
-with a short-lived token minted by `/api/deepgram/token`, because routing live audio through the
-server would add latency for no benefit.
+Both API keys stay on the server, on either transport.
+
+### Speech to text transports
+
+The app picks one automatically when the session starts, by asking the server for a browser token.
+
+**`stream`**, used when the key can mint tokens. The browser opens a WebSocket straight to Deepgram
+with a short-lived token from `/api/deepgram/token`. Live partial transcripts appear as the trainee
+speaks, and barge-in triggers off the transcript. This is the better experience, and needs a key with
+**Member** permissions, because `/v1/auth/grant` is a management operation.
+
+**`batch`**, the fallback when token minting returns a permissions error. The browser runs a small
+energy-based voice activity detector (onset count, pre-roll ring, silence hangover), buffers the
+utterance locally, and posts the PCM to `/api/stt`. No live captions, and the transcript lands a beat
+after the trainee stops speaking, but it needs no permission beyond speech itself.
+
+The key is never sent to the browser on either path. If your key cannot mint tokens, the alternative
+would be exposing a full-power speech key to every page load, which is why the batch route exists.
+
+You can tell which one is live: batch mode shows a short note under the microphone level, and the
+status line reads "Getting that down" while an utterance is being transcribed.
 
 ### Why raw PCM for playback
 
@@ -116,10 +135,12 @@ src/
     session/         The training room
     api/chat/        Gemini turn, streamed as server sent events
     api/tts/         Deepgram Aura proxy
+    api/stt/         Deepgram batch transcription, fallback transport
     api/deepgram/    Short-lived browser token
   components/        Slide stage, trainer panel, transcript, controls
   hooks/
-    useDeepgramStt   Microphone, worklet, and transcription socket
+    useMicCapture    Microphone, AudioContext, and capture worklet
+    useSpeechInput   Transport selection, transcription socket, batch VAD
     useTtsPlayer     Sentence chunking, playback queue, barge-in
     useTrainingSession  The session state machine
   lib/
@@ -164,11 +185,24 @@ npm run build
 
 ---
 
+## A note on the navigation tool
+
+Gemini will not emit speech in the same turn as a function call. It returns the call and stops,
+expecting the caller to execute the function and hand back a result. `/api/chat` therefore runs a
+second streaming pass with a `functionResponse` attached, and that response carries the newly shown
+slide's teaching brief plus an instruction to answer in full. Without the second pass the deck moves
+and the trainer says nothing; without the briefing in the response it announces the slide change
+instead of teaching, because the original turn prompt described the previous slide.
+
 ## Known limits
 
 - Speech to text is English only, set by the `language=en` parameter on the transcription socket.
-- Barge-in needs two or more transcribed words before it fires, so a single word interjection such as
-  "wait" will not stop the trainer. Push to talk is the reliable route in a noisy room.
+- Barge-in behaviour differs by transport. On `stream` it needs two or more transcribed words, so a
+  single word interjection such as "wait" will not stop the trainer. On `batch` it fires on sustained
+  energy, which is faster but will also trigger on a loud noise. Push to talk is the reliable route in
+  a noisy room either way.
+- The `batch` transport has no live partial transcript, because there is nothing to show until the
+  utterance has been sent and transcribed.
 - Conversation history sent to the model is capped at the last 24 turns, so a very long session will
   lose the earliest exchanges from context. The slide content is always present.
 - Session state lives in memory. A page refresh starts over.

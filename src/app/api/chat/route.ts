@@ -7,11 +7,18 @@
  * tool.
  */
 
-import { GoogleGenAI, Type, type Content, type FunctionDeclaration } from '@google/genai';
+import {
+  GoogleGenAI,
+  Type,
+  type Content,
+  type FunctionCall,
+  type FunctionDeclaration,
+} from '@google/genai';
 
 import { GEMINI_MODEL, requireEnv } from '@/lib/config';
 import { clampSlideId, getSlide, TOTAL_SLIDES } from '@/lib/deck';
 import {
+  buildNavigationResult,
   buildSystemInstruction,
   buildTurnPrompt,
   NAVIGATE_TOOL_NAME,
@@ -139,25 +146,36 @@ export async function POST(request: Request) {
 
       let spoken = '';
 
-      try {
+      const config = {
+        systemInstruction: buildSystemInstruction(traineeName),
+        temperature: 0.75,
+        maxOutputTokens: 1600,
+        // Narration needs to start fast. A minimal thinking budget keeps
+        // time to first word low without hurting answer quality much.
+        thinkingConfig: { thinkingBudget: kind === 'answer' ? 512 : 0 },
+        tools: [{ functionDeclarations: [navigateToolDeclaration] }],
+        abortSignal: request.signal,
+      };
+
+      /**
+       * Streams one pass. Slide changes are forwarded the moment they appear so
+       * the deck moves while the model is still composing, and any tool calls are
+       * returned so the caller can answer them.
+       */
+      const runPass = async (turnContents: Content[]) => {
+        const calls: FunctionCall[] = [];
+        let text = '';
+
         const result = await ai.models.generateContentStream({
           model: GEMINI_MODEL(),
-          contents,
-          config: {
-            systemInstruction: buildSystemInstruction(traineeName),
-            temperature: 0.75,
-            maxOutputTokens: 1600,
-            // Narration needs to start fast. A minimal thinking budget keeps
-            // time to first word low without hurting answer quality much.
-            thinkingConfig: { thinkingBudget: kind === 'answer' ? 512 : 0 },
-            tools: [{ functionDeclarations: [navigateToolDeclaration] }],
-            abortSignal: request.signal,
-          },
+          contents: turnContents,
+          config,
         });
 
         for await (const chunk of result) {
           for (const call of chunk.functionCalls ?? []) {
             if (call.name !== NAVIGATE_TOOL_NAME) continue;
+            calls.push(call);
             const requested = Number(call.args?.slideId);
             if (!Number.isFinite(requested)) continue;
             send({
@@ -169,9 +187,49 @@ export async function POST(request: Request) {
 
           const delta = chunk.text;
           if (delta) {
-            spoken += delta;
+            text += delta;
             send({ type: 'text', delta });
           }
+        }
+
+        return { calls, text };
+      };
+
+      try {
+        const first = await runPass(contents);
+        spoken = first.text;
+
+        // Gemini will not produce speech in the same turn as a tool call. It
+        // expects the function to be executed and its result handed back, so
+        // without this second pass a slide change would leave the trainer silent.
+        if (first.calls.length > 0 && !first.text.trim()) {
+          const followUp: Content[] = [
+            ...contents,
+            {
+              role: 'model',
+              parts: first.calls.map((call) => ({ functionCall: call })),
+            },
+            {
+              role: 'user',
+              parts: first.calls.map((call) => {
+                const shown = clampSlideId(Number(call.args?.slideId));
+                return {
+                  functionResponse: {
+                    ...(call.id ? { id: call.id } : {}),
+                    name: call.name ?? NAVIGATE_TOOL_NAME,
+                    response: {
+                      ok: true,
+                      slideId: shown,
+                      instruction: buildNavigationResult(getSlide(shown) ?? slide),
+                    },
+                  },
+                };
+              }),
+            },
+          ];
+
+          const second = await runPass(followUp);
+          spoken = second.text;
         }
 
         const finalText = sanitiseForSpeech(spoken);
