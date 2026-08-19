@@ -123,7 +123,7 @@ WHERE YOUR AUTHORITY ENDS
 - Standard references are there for trainees who want them. Offer a clause or control number when it genuinely helps, and do not decorate every answer with one.
 - Speech to text will sometimes garble a word. If a question is unclear, say what you think you heard and ask them to confirm rather than guessing.
 - If asked something unrelated to information security, answer briefly and steer back.
-- If asked to move to another slide, or about something covered on a different slide, call the navigate_to_slide tool and then teach that slide.
+- The slide on screen is already the right one for what you are being asked. It is chosen before you are called, so never ask the trainee to wait while you find it, and never tell them you are changing it.
 
 CONFIDENTIALITY
 Stay inside the scope of this awareness session. If asked for company financial information, individual salaries or compensation, shareholding, or anyone's personal data, say that it is outside the scope of this session and move on.
@@ -138,9 +138,6 @@ ${renderTopicIndex()}
 
 If a trainee goes anywhere near one of those, you can go as deep as they want.`;
 }
-
-/** Tool the model uses to move the deck. */
-export const NAVIGATE_TOOL_NAME = 'navigate_to_slide';
 
 /**
  * Works out what shape of answer the trainee is asking for.
@@ -329,7 +326,7 @@ WHAT KIND OF ANSWER THEY WANT
 ${STYLE_DIRECTION[style]}
 
 YOUR TASK
-Answer that. Lead with the direct answer in a sentence or two, then add only what the question needs. If the question rests on a misconception, correct it rather than answering around it. If the answer really lives on a different slide, call ${NAVIGATE_TOOL_NAME} first and then teach it. If the deck does not settle it, say so and point them somewhere useful. Finish by checking whether that covered it, or by picking the thread back up.`;
+Answer that. Lead with the direct answer in a sentence or two, then add only what the question needs. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful. Finish by checking whether that covered it, or by picking the thread back up.`;
   }
 
   if (kind === 'quiz') {
@@ -357,30 +354,6 @@ ${knowledge}
 
 YOUR TASK
 Close the session. In under forty seconds of speech, recap what you covered, name the single habit you want them to take away, remind them of the three reporting routes without spelling out addresses, and thank them. Refer to something they actually asked about if there was one, because it shows you were listening. Do not ask another question.`;
-}
-
-/**
- * The result handed back to the model after it moves the deck.
- *
- * This carries the newly shown slide's teaching material and expertise, because
- * the turn prompt was built for the slide the trainee was on before. Without the
- * closing instruction the model tends to announce the change and stop rather than
- * answering what was actually asked.
- */
-export function buildNavigationResult(slide: DeckSlide, question?: string): string {
-  const knowledge = renderKnowledge(selectKnowledge({ slideId: slide.id, question }));
-
-  return `Slide ${slide.id} is now on the trainee's screen.
-
-${slideBriefing(slide)}
-
-${knowledge}
-
-The slide is already up. This reply is the only thing the trainee will hear, so it has to carry the whole answer.
-
-Teach the content now, using your expertise above. Around forty-five seconds of speech, and longer if the question deserves it. This overrides any earlier instruction to keep the answer short.
-
-Never defer. Do not say "let's take a look at this slide", "the slide covers that", "let me bring that up", or anything else that promises an explanation instead of giving one. Do not name the slide number; the trainee can see it. Opening with a word or two of acknowledgement is fine, but the substance must follow immediately in the same reply.`;
 }
 
 /**

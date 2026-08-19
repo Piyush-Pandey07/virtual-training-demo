@@ -7,23 +7,13 @@
  * tool.
  */
 
-import {
-  GoogleGenAI,
-  Type,
-  type Content,
-  type FunctionCall,
-  type FunctionDeclaration,
-} from '@google/genai';
+import { GoogleGenAI, type Content } from '@google/genai';
 
 import { GEMINI_ANSWER_MODEL, GEMINI_MODEL, requireEnv } from '@/lib/config';
-import { clampSlideId, getSlide, TOTAL_SLIDES } from '@/lib/deck';
-import {
-  buildNavigationResult,
-  buildSystemInstruction,
-  buildTurnPrompt,
-  NAVIGATE_TOOL_NAME,
-  sanitiseForSpeech,
-} from '@/lib/trainer-prompt';
+import { clampSlideId, getSlide, TOTAL_SLIDES, type DeckSlide } from '@/lib/deck';
+import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
+import { bestSlideForQuestion } from '@/lib/knowledge';
+import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -31,31 +21,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const VALID_KINDS: TurnKind[] = ['narrate', 'answer', 'recap', 'quiz'];
-
-/**
- * Lets the trainer put a different slide on screen when a question is really
- * about another part of the deck. Declared here rather than alongside the prompt
- * text so the Gemini SDK never reaches the browser bundle.
- */
-const navigateToolDeclaration: FunctionDeclaration = {
-  name: NAVIGATE_TOOL_NAME,
-  description:
-    "Put a different slide on the trainee's screen. Call this when the trainee asks to go to, go back to, or revisit a specific slide or topic, so the slide they are looking at matches what you are talking about. Do not call it to advance through the deck in order, because the session controls handle that.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      slideId: {
-        type: Type.INTEGER,
-        description: `The slide number to show, between 1 and ${TOTAL_SLIDES}.`,
-      },
-      reason: {
-        type: Type.STRING,
-        description: 'A short note on why, for the session log. One sentence.',
-      },
-    },
-    required: ['slideId', 'reason'],
-  },
-};
 
 /** Keeps the prompt bounded on a long session without losing the recent thread. */
 const MAX_HISTORY_TURNS = 24;
@@ -135,23 +100,73 @@ export async function POST(request: Request) {
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const contents: Content[] = [
+  /**
+   * A navigation request is not a question.
+   *
+   * If one reaches the answer path, asking the model to "answer" it produces an
+   * acknowledgement ("right, let's move on") and no teaching, and no amount of
+   * instruction in the tool response overcomes the answer-turn framing already in
+   * the conversation. So the turn is coerced here instead: work out where they
+   * wanted to go, tell the client to move, and narrate that slide properly.
+   */
+  let effectiveKind = kind;
+  let effectiveSlide = slide;
+  let coercedNav: number | null = null;
+
+  if (kind === 'answer' && isNavigationOnly(question)) {
+    const goingBack = classifyUtterance(question) === 'back';
+    const target = slideId + (goingBack ? -1 : 1);
+
+    if (target > TOTAL_SLIDES) {
+      // They asked to move on from the last slide, so close the session.
+      effectiveKind = 'recap';
+    } else {
+      const clamped = clampSlideId(target);
+      effectiveKind = 'narrate';
+      effectiveSlide = getSlide(clamped) ?? slide;
+      coercedNav = clamped === slideId ? null : clamped;
+    }
+  } else if (kind === 'answer' && question) {
+    // A question whose subject lives on another slide moves the deck to it, so
+    // the trainee is looking at what they are being told about. This is decided
+    // here rather than by giving the model a navigation tool: Gemini does not emit
+    // speech in the same turn as a tool call, and every attempt to repair that
+    // with a second pass sometimes produced an acknowledgement instead of an
+    // answer. Deciding it from the knowledge base is deterministic, testable, and
+    // keeps the reply streaming from the first token.
+    const match = bestSlideForQuestion(question, slideId);
+    if (match) {
+      const matched = getSlide(match.slideId);
+      if (matched) {
+        effectiveSlide = matched;
+        coercedNav = match.slideId;
+      }
+    }
+  }
+
+  const history = parseHistory(body.history);
+  const learner = parseLearner(body.learner);
+
+  /** Builds a single-message conversation for one turn against one slide. */
+  const turnFor = (turnKind: TurnKind, turnSlide: DeckSlide): Content[] => [
     {
       role: 'user',
       parts: [
         {
           text: buildTurnPrompt({
-            kind,
-            slide,
-            history: parseHistory(body.history),
-            question,
+            kind: turnKind,
+            slide: turnSlide,
+            history,
+            question: turnKind === 'answer' ? question : undefined,
             coveredSlideIds,
-            learner: parseLearner(body.learner),
+            learner,
           }),
         },
       ],
     },
   ];
+
+  const contents = turnFor(effectiveKind, effectiveSlide);
 
   const encoder = new TextEncoder();
 
@@ -165,91 +180,40 @@ export async function POST(request: Request) {
 
       let spoken = '';
 
-      const model = kind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
+      // Sent before generation starts, so the deck moves as the trainer begins
+      // speaking rather than after the whole reply has arrived.
+      if (coercedNav !== null) {
+        send({
+          type: 'nav',
+          slideId: coercedNav,
+          reason: 'The trainee asked to move, so the deck was advanced.',
+        });
+      }
+
+      const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
         systemInstruction: buildSystemInstruction(traineeName),
         // Narration is fully briefed, so variation buys nothing and costs length
         // discipline. Questions are open-ended and benefit from a warmer setting.
-        temperature: kind === 'narrate' ? 0.55 : 0.75,
+        temperature: effectiveKind === 'narrate' ? 0.55 : 0.75,
         maxOutputTokens: 2400,
-        tools: [{ functionDeclarations: [navigateToolDeclaration] }],
         abortSignal: request.signal,
       };
 
-      /**
-       * Streams one pass. Slide changes are forwarded the moment they appear so
-       * the deck moves while the model is still composing, and any tool calls are
-       * returned so the caller can answer them.
-       */
-      const runPass = async (turnContents: Content[]) => {
-        const calls: FunctionCall[] = [];
-        let text = '';
-
+      try {
         const result = await ai.models.generateContentStream({
           model,
-          contents: turnContents,
+          contents,
           config,
         });
 
         for await (const chunk of result) {
-          for (const call of chunk.functionCalls ?? []) {
-            if (call.name !== NAVIGATE_TOOL_NAME) continue;
-            calls.push(call);
-            const requested = Number(call.args?.slideId);
-            if (!Number.isFinite(requested)) continue;
-            send({
-              type: 'nav',
-              slideId: clampSlideId(requested),
-              reason: String(call.args?.reason ?? 'Requested by the trainer.'),
-            });
-          }
-
           const delta = chunk.text;
           if (delta) {
-            text += delta;
+            spoken += delta;
             send({ type: 'text', delta });
           }
-        }
-
-        return { calls, text };
-      };
-
-      try {
-        const first = await runPass(contents);
-        spoken = first.text;
-
-        // Gemini will not produce speech in the same turn as a tool call. It
-        // expects the function to be executed and its result handed back, so
-        // without this second pass a slide change would leave the trainer silent.
-        if (first.calls.length > 0 && !first.text.trim()) {
-          const followUp: Content[] = [
-            ...contents,
-            {
-              role: 'model',
-              parts: first.calls.map((call) => ({ functionCall: call })),
-            },
-            {
-              role: 'user',
-              parts: first.calls.map((call) => {
-                const shown = clampSlideId(Number(call.args?.slideId));
-                return {
-                  functionResponse: {
-                    ...(call.id ? { id: call.id } : {}),
-                    name: call.name ?? NAVIGATE_TOOL_NAME,
-                    response: {
-                      ok: true,
-                      slideId: shown,
-                      instruction: buildNavigationResult(getSlide(shown) ?? slide, question),
-                    },
-                  },
-                };
-              }),
-            },
-          ];
-
-          const second = await runPass(followUp);
-          spoken = second.text;
         }
 
         const finalText = sanitiseForSpeech(spoken);
@@ -260,7 +224,11 @@ export async function POST(request: Request) {
               'The model returned no speech for this turn. This is usually a transient upstream issue, so try again.',
           });
         } else {
-          send({ type: 'done', text: finalText, suggestedFollowUps: slide.discussionPrompts });
+          send({
+            type: 'done',
+            text: finalText,
+            suggestedFollowUps: effectiveSlide.discussionPrompts,
+          });
         }
       } catch (error) {
         // An aborted request is the client hanging up, not a failure worth reporting.

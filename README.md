@@ -19,7 +19,8 @@ speech.
 | Corrects the misconception    | Topics carry the wrong beliefs trainees arrive with. "I would spot a phishing email" gets the belief addressed, not just the question. |
 | Adapts to the person          | Asking to simplify, to go deeper, for an example, or for the clause each produce a genuinely different reply, and the preference persists across the session. |
 | Follows the trainee's pace    | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                    |
-| Moves the deck when it should | The model has a `navigate_to_slide` tool, so asking about classification while on slide 2 brings slide 5 up before the answer.               |
+| Moves the deck when it should | Asking about classification while on slide 2 brings slide 5 up before the answer. The target is worked out from the knowledge base, not asked of the model. |
+| Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question. |
 | Works without a microphone    | If mic access is blocked, the session still runs and questions can be typed.                                                                 |
 
 ---
@@ -202,6 +203,7 @@ src/
   lib/
     deck.ts          What is on the slides, and the teaching brief for each
     knowledge/       What the trainer knows: 22 topics across 5 modules
+    intent.ts        Advance, back, repeat or question
     trainer-prompt.ts   System instruction, per-turn prompts, answer register
 docs/
   ISMS-Awareness-Session.pptx   The source deck
@@ -242,14 +244,47 @@ npm run build
 
 ---
 
-## A note on the navigation tool
+## Intent, and why navigation is not a tool
 
-Gemini will not emit speech in the same turn as a function call. It returns the call and stops,
-expecting the caller to execute the function and hand back a result. `/api/chat` therefore runs a
-second streaming pass with a `functionResponse` attached, and that response carries the newly shown
-slide's teaching brief plus an instruction to answer in full. Without the second pass the deck moves
-and the trainer says nothing; without the briefing in the response it announces the slide change
-instead of teaching, because the original turn prompt described the previous slide.
+Two things here were fixed the hard way, and both are worth knowing before changing them back.
+
+### Reading the trainee's intent
+
+`src/lib/intent.ts` classifies every utterance as `advance`, `back`, `repeat` or `question` before
+anything else happens. It exists because "please move to the next topic" was originally treated as a
+question. The trainer answered it correctly ("right, let's move on"), the deck advanced, and nothing
+ever taught the new slide. The session looked hung when it had done exactly what it was told.
+
+A question mark, or any question wording, always wins over a navigational reading, because mistaking
+a question for a nudge silently drops what the trainee wanted to know. Filler is stripped before
+matching, but the raw form is matched too: "no questions" strips to "questions", since "no" is also a
+filler word. Typed input goes through the same routing, so typing "next slide" does what saying it
+does.
+
+### Navigation is decided on the server, not by the model
+
+The model used to have a `navigate_to_slide` tool. Gemini does not emit speech in the same turn as a
+function call: it returns the call and stops. The obvious repair is to hand back a `functionResponse`
+and continue, but the original "answer the question" framing stays in context and the model treats the
+tool call as having dealt with the request, replying with an acknowledgement and no teaching. Roughly
+one turn in four. Rebuilding the turn from scratch against the new slide got that to one in five,
+because the model sometimes emits a short deferral *alongside* the call, which meant the rebuild never
+triggered. Strengthening the prompt made it worse: listing forbidden phrases primed the model to use
+them, and 4 of 4 runs deferred.
+
+So the tool is gone. `bestSlideForQuestion` scores the question against every topic's triggers and
+returns the slide that beats the current one by a margin. The route emits the `nav` event before
+generation starts and builds the answer prompt against that slide, so as far as the model is
+concerned the trainee asked about the slide already showing, and there is nothing to defer to.
+
+The result is one pass instead of two, deterministic and unit-testable, and it halved latency on
+navigating answers from about 4 to 6 seconds down to 2.5 to 3.8. Six consecutive runs of the case that
+used to fail now teach all four classification tiers.
+
+One detail worth recording: topic triggers include stems such as `classif` and `tailgat`, so matching
+is by word prefix for single-word triggers and by phrase for multi-word ones. Whole-word matching made
+every stem trigger in the base dead, and a question about classification scored zero against the
+classification topic.
 
 ## Known limits
 
@@ -269,3 +304,6 @@ instead of teaching, because the original turn prompt described the previous sli
 - The knowledge base is hand-written rather than retrieved from a document store, and topic selection
   is lexical rather than semantic. A question phrased with none of a topic's `triggers` will not pull
   it in, though the slide's own topics and the full deck text are always present.
+- Slide navigation is lexical for the same reason, so an unusually phrased question may leave the deck
+  where it is. The answer is still correct, because the full deck is always in the prompt; only the
+  slide on screen is wrong. Adding a trigger to the relevant topic is the fix.

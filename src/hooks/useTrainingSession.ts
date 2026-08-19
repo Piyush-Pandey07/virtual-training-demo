@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { clampSlideId, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
+import { classifyUtterance } from '@/lib/intent';
 import { detectAnswerStyle } from '@/lib/trainer-prompt';
 import type {
   ChatEvent,
@@ -36,29 +37,6 @@ export type ListeningMode = 'hands-free' | 'push-to-talk';
  * a cough or by its own voice leaking through the speakers.
  */
 const BARGE_IN_MIN_WORDS = 2;
-
-/** Phrases that mean "carry on" rather than "answer a question". */
-const ADVANCE_PATTERNS = [
-  /\bnext slide\b/i,
-  /\b(?:move|carry|go) on\b/i,
-  /\bkeep going\b/i,
-  /\bcontinue\b/i,
-  /\bwhat'?s next\b/i,
-  /\b(?:i'?m |i am )?(?:all )?(?:good|done|clear|fine)(?: with (?:that|this))?\b/i,
-  /\bno (?:more )?questions\b/i,
-  /\bnothing(?: else)?(?: for now)?\b/i,
-  /\bunderstood\b/i,
-  /\bmakes sense\b/i,
-];
-
-function looksLikeAdvance(text: string): boolean {
-  const trimmed = text.trim();
-  // A question is never a request to move on, whatever else it contains.
-  if (trimmed.includes('?')) return false;
-  // Long utterances are almost always substantive, not a nudge to continue.
-  if (trimmed.split(/\s+/).length > 8) return false;
-  return ADVANCE_PATTERNS.some((pattern) => pattern.test(trimmed));
-}
 
 const EMPTY_LEARNER: LearnerProfile = {
   questionsAsked: 0,
@@ -228,6 +206,8 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
       let spoken = '';
       let sawText = false;
+      /** Set when the model moved the deck during this turn. */
+      let navigatedTo: number | null = null;
 
       try {
         const response = await fetch('/api/chat', {
@@ -283,6 +263,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
               player.push(event.delta);
             } else if (event.type === 'nav') {
               const next = clampSlideId(event.slideId);
+              navigatedTo = next;
               setSlideId(next);
               slideIdRef.current = next;
             } else if (event.type === 'error') {
@@ -299,8 +280,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
           appendEntry(makeEntry('trainer', finalText, targetSlide));
         }
 
-        if (kind === 'narrate' && !coveredRef.current.includes(targetSlide)) {
-          const next = [...coveredRef.current, targetSlide].sort((a, b) => a - b);
+        // Where the server moved the deck, that slide is the one that was taught.
+        const taughtSlide = navigatedTo ?? targetSlide;
+        if (kind === 'narrate' && !coveredRef.current.includes(taughtSlide)) {
+          const next = [...coveredRef.current, taughtSlide].sort((a, b) => a - b);
           coveredRef.current = next;
           setCoveredSlideIds(next);
         }
@@ -330,7 +313,12 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
 
-      if (looksLikeAdvance(clean)) {
+      // Routing on intent is what stops "please move to the next topic" being
+      // treated as a question, answered with "right, let's move on", and leaving
+      // the next slide on screen with nobody teaching it.
+      const intent = classifyUtterance(clean);
+
+      if (intent === 'advance') {
         const next = slideIdRef.current + 1;
         if (next > TOTAL_SLIDES) {
           void runTurn('recap');
@@ -339,6 +327,19 @@ export function useTrainingSession(): UseTrainingSessionResult {
         setSlideId(next);
         slideIdRef.current = next;
         void runTurn('narrate', { slideId: next });
+        return;
+      }
+
+      if (intent === 'back') {
+        const previous = clampSlideId(slideIdRef.current - 1);
+        setSlideId(previous);
+        slideIdRef.current = previous;
+        void runTurn('narrate', { slideId: previous });
+        return;
+      }
+
+      if (intent === 'repeat') {
+        void runTurn('narrate', { slideId: slideIdRef.current });
         return;
       }
 
@@ -465,13 +466,41 @@ export function useTrainingSession(): UseTrainingSessionResult {
   }, [runTurn]);
 
   const askByText = useCallback(
-    (question: string) => {
-      const clean = question.trim();
+    (text: string) => {
+      const clean = text.trim();
       if (!clean) return;
       ttsRef.current.interrupt();
       turnAbortRef.current?.abort();
       busyRef.current = false;
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
+
+      // Typing "next slide" should do what saying it does, so this goes through
+      // the same intent routing rather than always being treated as a question.
+      const intent = classifyUtterance(clean);
+
+      if (intent === 'advance') {
+        const next = slideIdRef.current + 1;
+        if (next > TOTAL_SLIDES) {
+          void runTurn('recap');
+          return;
+        }
+        setSlideId(next);
+        slideIdRef.current = next;
+        void runTurn('narrate', { slideId: next });
+        return;
+      }
+      if (intent === 'back') {
+        const previous = clampSlideId(slideIdRef.current - 1);
+        setSlideId(previous);
+        slideIdRef.current = previous;
+        void runTurn('narrate', { slideId: previous });
+        return;
+      }
+      if (intent === 'repeat') {
+        void runTurn('narrate', { slideId: slideIdRef.current });
+        return;
+      }
+
       noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },

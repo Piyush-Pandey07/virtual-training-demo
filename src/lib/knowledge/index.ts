@@ -48,14 +48,29 @@ function normalise(text: string): string {
 }
 
 /**
- * Scores a topic against a question. Triggers are matched as whole phrases so
- * that short ones such as "mfa" cannot fire inside an unrelated word.
+ * Scores a topic against a question.
+ *
+ * Single-word triggers match on word prefix, so the stem "classif" catches
+ * "classification" and "classify", and "tailgat" catches "tailgating". Matching
+ * whole words only meant every stem trigger in the base was dead: a question about
+ * classification scored zero against the classification topic.
+ *
+ * Multi-word triggers still match as phrases, since "client site" should not fire
+ * on "client" alone.
  */
 function scoreAgainstQuestion(topic: KnowledgeTopic, normalisedQuestion: string): number {
   let score = 0;
+  const questionWords = normalisedQuestion.trim().split(' ');
+
   for (const trigger of topic.triggers) {
-    const needle = normalise(trigger);
-    if (needle.trim() && normalisedQuestion.includes(needle)) {
+    const needle = normalise(trigger).trim();
+    if (!needle) continue;
+
+    const hit = needle.includes(' ')
+      ? normalisedQuestion.includes(` ${needle} `)
+      : questionWords.some((word) => word.startsWith(needle));
+
+    if (hit) {
       // Longer, more specific triggers are stronger evidence than short ones.
       score += trigger.length >= 8 ? 3 : 2;
     }
@@ -177,6 +192,76 @@ export function selectKnowledge({
   }
 
   return selected;
+}
+
+/**
+ * A slide must beat the current one by this margin before the deck is moved.
+ * Without a margin, a passing lexical hit on another slide would yank the
+ * trainee's screen away from what they were looking at. Scores land in the low
+ * single digits, so the margin is deliberately small.
+ */
+const NAV_SCORE_MARGIN = 2;
+
+/** Below this, a match is too weak to move the deck on. */
+const NAV_MIN_SCORE = 2;
+
+/**
+ * Slide 1 is the title card and teaches nothing, so it is never a destination for
+ * a question even when a topic legitimately lists it.
+ */
+const NAV_EXCLUDED_SLIDES = new Set([1]);
+
+export interface SlideMatch {
+  slideId: number;
+  score: number;
+}
+
+/**
+ * Works out which slide a question is really about.
+ *
+ * This replaces asking the model to call a navigation tool. Gemini does not emit
+ * speech in the same turn as a tool call, and repairing that with a second pass
+ * proved unreliable: the model would sometimes acknowledge the move instead of
+ * teaching. Deciding here is deterministic, testable, needs one pass, and keeps
+ * the reply streaming from the first token.
+ *
+ * Returns null when the question belongs on the slide already showing, or when no
+ * other slide is a clearly better fit.
+ */
+export function bestSlideForQuestion(question: string, currentSlideId: number): SlideMatch | null {
+  const asked = question.trim();
+  if (!asked) return null;
+
+  const normalised = normalise(asked);
+  const bySlide = new Map<number, number>();
+
+  for (const topic of ALL_TOPICS) {
+    const score = scoreAgainstQuestion(topic, normalised);
+    if (score <= 0) continue;
+    // A topic can support more than one slide, so credit each of them.
+    for (const slideId of topic.slideIds) {
+      bySlide.set(slideId, Math.max(bySlide.get(slideId) ?? 0, score));
+    }
+  }
+
+  const currentScore = bySlide.get(currentSlideId) ?? 0;
+
+  let best: SlideMatch | null = null;
+  for (const [slideId, score] of bySlide) {
+    if (slideId === currentSlideId) continue;
+    if (NAV_EXCLUDED_SLIDES.has(slideId)) continue;
+    if (score < NAV_MIN_SCORE) continue;
+    if (score < currentScore + NAV_SCORE_MARGIN) continue;
+    // On a tie, the earlier slide wins. Where a topic spans consecutive slides,
+    // the first is the one that introduces it: slides 6 and 7 are both titled
+    // "Report an Incident", and 6 carries the primary reporting routes while 7 is
+    // the continuation with the phone numbers.
+    if (!best || score > best.score || (score === best.score && slideId < best.slideId)) {
+      best = { slideId, score };
+    }
+  }
+
+  return best;
 }
 
 /** Renders one topic at full depth, for the material the turn is built on. */
