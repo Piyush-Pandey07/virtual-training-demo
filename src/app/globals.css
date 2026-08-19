@@ -1,0 +1,110 @@
+@import 'tailwindcss';
+
+/*
+ * Technavious brand tokens.
+ *
+ * Deep Charcoal ground, Azure Blue as the primary and accent, Teal Tint for
+ * hover and secondary emphasis. Amber Orange is retired under the brand
+ * guidelines and is deliberately absent.
+ */
+@theme {
+  --color-charcoal: #1b1b1d;
+  --color-charcoal-soft: #232326;
+  --color-charcoal-line: #34343a;
+  --color-azure: #0077b6;
+  --color-azure-bright: #0a8fd6;
+  --color-teal: #00b4d8;
+  --color-mist: #f7f7f7;
+  --color-muted: #9a9aa4;
+  --color-logo-red: #e1251b;
+
+  --font-sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-charcoal);
+  color: var(--color-mist);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring that reads clearly against the charcoal ground. */
+:focus-visible {
+  outline: 2px solid var(--color-teal);
+  outline-offset: 2px;
+}
+
+/* Transcript scroller. Slim, and only visible where it is needed. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-charcoal-line) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--color-charcoal-line);
+  border-radius: 4px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Three dots, used while a reply is being generated. */
+@keyframes dot-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.dot-pulse > span {
+  animation: dot-pulse 1.3s ease-in-out infinite;
+}
+.dot-pulse > span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.dot-pulse > span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+/* Concentric rings behind the trainer avatar while it speaks. */
+@keyframes ring-out {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+.ring-out {
+  animation: ring-out 1.9s ease-out infinite;
+}
+.ring-out-delayed {
+  animation: ring-out 1.9s ease-out infinite;
+  animation-delay: 0.95s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-out,
+  .ring-out-delayed,
+  .dot-pulse > span {
+    animation: none;
+  }
+}

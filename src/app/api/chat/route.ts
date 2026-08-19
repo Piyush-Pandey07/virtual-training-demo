@@ -1,0 +1,208 @@
+/**
+ * POST /api/chat
+ *
+ * Streams the trainer's next spoken turn as server sent events. Text arrives as
+ * `text` deltas so the client can start speaking before generation finishes, and
+ * a slide change arrives as a `nav` event when the model calls the navigation
+ * tool.
+ */
+
+import { GoogleGenAI, Type, type Content, type FunctionDeclaration } from '@google/genai';
+
+import { GEMINI_MODEL, requireEnv } from '@/lib/config';
+import { clampSlideId, getSlide, TOTAL_SLIDES } from '@/lib/deck';
+import {
+  buildSystemInstruction,
+  buildTurnPrompt,
+  NAVIGATE_TOOL_NAME,
+  sanitiseForSpeech,
+} from '@/lib/trainer-prompt';
+import type { ChatEvent, ChatRequest, HistoryTurn, TurnKind } from '@/lib/types';
+
+export const runtime = 'nodejs';
+/** Streaming only makes sense uncached. */
+export const dynamic = 'force-dynamic';
+
+const VALID_KINDS: TurnKind[] = ['narrate', 'answer', 'recap', 'quiz'];
+
+/**
+ * Lets the trainer put a different slide on screen when a question is really
+ * about another part of the deck. Declared here rather than alongside the prompt
+ * text so the Gemini SDK never reaches the browser bundle.
+ */
+const navigateToolDeclaration: FunctionDeclaration = {
+  name: NAVIGATE_TOOL_NAME,
+  description:
+    "Put a different slide on the trainee's screen. Call this when the trainee asks to go to, go back to, or revisit a specific slide or topic, so the slide they are looking at matches what you are talking about. Do not call it to advance through the deck in order, because the session controls handle that.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      slideId: {
+        type: Type.INTEGER,
+        description: `The slide number to show, between 1 and ${TOTAL_SLIDES}.`,
+      },
+      reason: {
+        type: Type.STRING,
+        description: 'A short note on why, for the session log. One sentence.',
+      },
+    },
+    required: ['slideId', 'reason'],
+  },
+};
+
+/** Keeps the prompt bounded on a long session without losing the recent thread. */
+const MAX_HISTORY_TURNS = 24;
+
+function badRequest(message: string) {
+  return Response.json({ error: message }, { status: 400 });
+}
+
+function parseHistory(raw: unknown): HistoryTurn[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (turn): turn is HistoryTurn =>
+        !!turn &&
+        typeof turn === 'object' &&
+        typeof (turn as HistoryTurn).text === 'string' &&
+        ((turn as HistoryTurn).speaker === 'trainer' ||
+          (turn as HistoryTurn).speaker === 'trainee'),
+    )
+    .map((turn) => ({
+      speaker: turn.speaker,
+      text: turn.text.slice(0, 4000),
+      slideId: clampSlideId(Number(turn.slideId)),
+    }))
+    .slice(-MAX_HISTORY_TURNS);
+}
+
+export async function POST(request: Request) {
+  let body: ChatRequest;
+  try {
+    body = (await request.json()) as ChatRequest;
+  } catch {
+    return badRequest('Request body must be JSON.');
+  }
+
+  const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';
+  const slideId = clampSlideId(Number(body.slideId));
+  const slide = getSlide(slideId);
+  if (!slide) return badRequest(`slideId must be between 1 and ${TOTAL_SLIDES}.`);
+
+  const question = typeof body.question === 'string' ? body.question.trim().slice(0, 2000) : '';
+  if (kind === 'answer' && !question) {
+    return badRequest("A question is required when kind is 'answer'.");
+  }
+
+  const traineeName =
+    typeof body.traineeName === 'string' ? body.traineeName.trim().slice(0, 80) : undefined;
+
+  const coveredSlideIds = Array.isArray(body.coveredSlideIds)
+    ? [...new Set(body.coveredSlideIds.map((id) => clampSlideId(Number(id))))].sort((a, b) => a - b)
+    : [];
+
+  let apiKey: string;
+  try {
+    apiKey = requireEnv('GEMINI_API_KEY');
+  } catch (error) {
+    return Response.json({ error: (error as Error).message }, { status: 500 });
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const contents: Content[] = [
+    {
+      role: 'user',
+      parts: [
+        {
+          text: buildTurnPrompt({
+            kind,
+            slide,
+            history: parseHistory(body.history),
+            question,
+            coveredSlideIds,
+          }),
+        },
+      ],
+    },
+  ];
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const send = (event: ChatEvent) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      };
+
+      let spoken = '';
+
+      try {
+        const result = await ai.models.generateContentStream({
+          model: GEMINI_MODEL(),
+          contents,
+          config: {
+            systemInstruction: buildSystemInstruction(traineeName),
+            temperature: 0.75,
+            maxOutputTokens: 1600,
+            // Narration needs to start fast. A minimal thinking budget keeps
+            // time to first word low without hurting answer quality much.
+            thinkingConfig: { thinkingBudget: kind === 'answer' ? 512 : 0 },
+            tools: [{ functionDeclarations: [navigateToolDeclaration] }],
+            abortSignal: request.signal,
+          },
+        });
+
+        for await (const chunk of result) {
+          for (const call of chunk.functionCalls ?? []) {
+            if (call.name !== NAVIGATE_TOOL_NAME) continue;
+            const requested = Number(call.args?.slideId);
+            if (!Number.isFinite(requested)) continue;
+            send({
+              type: 'nav',
+              slideId: clampSlideId(requested),
+              reason: String(call.args?.reason ?? 'Requested by the trainer.'),
+            });
+          }
+
+          const delta = chunk.text;
+          if (delta) {
+            spoken += delta;
+            send({ type: 'text', delta });
+          }
+        }
+
+        const finalText = sanitiseForSpeech(spoken);
+        if (!finalText) {
+          send({
+            type: 'error',
+            message:
+              'The model returned no speech for this turn. This is usually a transient upstream issue, so try again.',
+          });
+        } else {
+          send({ type: 'done', text: finalText, suggestedFollowUps: slide.discussionPrompts });
+        }
+      } catch (error) {
+        // An aborted request is the client hanging up, not a failure worth reporting.
+        if (!request.signal.aborted) {
+          const message = error instanceof Error ? error.message : 'Unknown error calling Gemini.';
+          send({ type: 'error', message });
+        }
+      } finally {
+        closed = true;
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}

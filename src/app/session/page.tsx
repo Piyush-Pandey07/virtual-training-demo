@@ -1,0 +1,165 @@
+'use client';
+
+import Link from 'next/link';
+import { useState } from 'react';
+
+import { BrandHeader } from '@/components/BrandHeader';
+import { SessionControls } from '@/components/SessionControls';
+import { SlideRail } from '@/components/SlideRail';
+import { SlideStage } from '@/components/SlideStage';
+import { TrainerPanel } from '@/components/TrainerPanel';
+import { TranscriptPanel } from '@/components/TranscriptPanel';
+import { useTrainingSession } from '@/hooks/useTrainingSession';
+import { DECK_TITLE, ESTIMATED_MINUTES, getSlide, TOTAL_SLIDES } from '@/lib/deck';
+import { TRAINER_NAME } from '@/lib/trainer';
+
+/** Pre-session screen. Collects an optional name and unlocks audio on the click. */
+function Lobby({ onStart, connecting }: { onStart: (name: string) => void; connecting: boolean }) {
+  const [name, setName] = useState('');
+
+  return (
+    <div className="mx-auto w-full max-w-lg px-5 py-16">
+      <h1 className="text-3xl font-bold">{DECK_TITLE}</h1>
+      <p className="text-muted mt-3 leading-relaxed">
+        {TRAINER_NAME} will present {TOTAL_SLIDES} slides and answer anything you ask along the way.
+        Around {ESTIMATED_MINUTES} minutes, plus your questions.
+      </p>
+
+      <label htmlFor="trainee-name" className="mt-8 block text-sm font-semibold">
+        Your first name
+        <span className="text-muted ml-2 font-normal">optional</span>
+      </label>
+      <input
+        id="trainee-name"
+        type="text"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !connecting) onStart(name);
+        }}
+        placeholder="So the trainer can address you"
+        className="bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal mt-2 w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset"
+      />
+
+      <button
+        type="button"
+        onClick={() => onStart(name)}
+        disabled={connecting}
+        className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 w-full rounded-md px-6 py-3 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {connecting ? 'Connecting' : 'Start the session'}
+      </button>
+
+      <p className="text-muted mt-4 text-sm">
+        Your browser will ask for microphone access. Headphones are recommended, otherwise the
+        trainer&apos;s voice can carry into your microphone. If you would rather not use a
+        microphone, start anyway and type your questions instead.
+      </p>
+    </div>
+  );
+}
+
+export default function SessionPage() {
+  const session = useTrainingSession();
+  const slide = getSlide(session.slideId);
+  const showLobby = session.phase === 'idle';
+  const busy = session.phase === 'thinking' || session.phase === 'connecting';
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <BrandHeader>
+        <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
+          Leave session
+        </Link>
+      </BrandHeader>
+
+      {session.error && (
+        <div
+          role="alert"
+          className="border-logo-red/40 bg-logo-red/10 flex items-start gap-3 border-b px-5 py-3 sm:px-8"
+        >
+          <p className="text-mist flex-1 text-sm">{session.error}</p>
+          <button
+            type="button"
+            onClick={session.dismissError}
+            className="text-muted hover:text-mist shrink-0 text-sm font-semibold transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {showLobby ? (
+        <main className="flex-1">
+          <Lobby
+            connecting={session.phase === 'connecting'}
+            onStart={(name) => void session.startSession(name)}
+          />
+        </main>
+      ) : (
+        <main className="mx-auto grid w-full max-w-[1600px] flex-1 gap-5 px-5 py-5 sm:px-8 lg:grid-cols-[minmax(0,1fr)_400px]">
+          {/* Slide and controls. */}
+          <div className="flex min-w-0 flex-col gap-4">
+            {slide && <SlideStage slide={slide} dimmed={busy} />}
+
+            <SlideRail
+              currentId={session.slideId}
+              coveredIds={session.coveredSlideIds}
+              onSelect={session.goToSlide}
+              disabled={busy}
+            />
+
+            <SessionControls
+              phase={session.phase}
+              micState={session.micState}
+              slideId={session.slideId}
+              trainerSpeaking={session.trainerSpeaking}
+              listeningMode={session.listeningMode}
+              pushToTalkActive={session.pushToTalkActive}
+              onPrevious={session.previousSlide}
+              onNext={session.nextSlide}
+              onRepeat={session.repeatSlide}
+              onQuiz={session.askQuiz}
+              onInterrupt={session.interruptTrainer}
+              onEnd={session.endSession}
+              onAskByText={session.askByText}
+              onListeningModeChange={session.setListeningMode}
+              onPushToTalkChange={session.setPushToTalkActive}
+            />
+          </div>
+
+          {/* Trainer presence and transcript. */}
+          <aside className="flex min-h-0 flex-col gap-4 lg:sticky lg:top-5 lg:h-[calc(100vh-7rem)]">
+            <TrainerPanel
+              phase={session.phase}
+              micState={session.micState}
+              micLevel={session.micLevel}
+              speaking={session.trainerSpeaking}
+            />
+
+            <TranscriptPanel
+              entries={session.transcript}
+              streamingReply={session.streamingReply}
+              interim={session.interim}
+            />
+
+            {session.phase === 'ended' && (
+              <div className="border-charcoal-line bg-charcoal-soft rounded-xl border p-4">
+                <p className="text-sm font-semibold">Session complete</p>
+                <p className="text-muted mt-1 text-sm">
+                  You covered {session.coveredSlideIds.length} of {TOTAL_SLIDES} slides.
+                </p>
+                <Link
+                  href="/"
+                  className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                >
+                  Back to the start
+                </Link>
+              </div>
+            )}
+          </aside>
+        </main>
+      )}
+    </div>
+  );
+}
