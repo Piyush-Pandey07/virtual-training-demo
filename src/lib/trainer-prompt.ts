@@ -17,6 +17,7 @@
 
 import {
   DECK_OWNER,
+  DECK_SUBJECT_SPOKEN,
   DECK_SUBTITLE,
   DECK_TITLE,
   SLIDES,
@@ -287,7 +288,11 @@ ${knowledge}
 YOUR TASK
 Teach this slide now. ${
       isFirst
-        ? 'This is the opening of the session, so introduce yourself and set out what is coming.'
+        ? `This is the opening of the session.
+
+Your very first sentence must welcome the trainee to the virtual training session and name what the session is on, so they know what they have joined. Something in the shape of "Welcome to the virtual training session on ${DECK_SUBJECT_SPOKEN}." Put it in your own words and keep it natural, but the welcome and the subject both have to be there, and they come before you introduce yourself.
+
+Then introduce yourself and set out what is coming.`
         : 'Link from what you were just saying in a sentence, then teach this slide.'
     }${
       isLast

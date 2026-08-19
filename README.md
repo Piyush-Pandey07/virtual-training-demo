@@ -21,6 +21,7 @@ speech.
 | Follows the trainee's pace    | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                    |
 | Moves the deck when it should | Asking about classification while on slide 2 brings slide 5 up before the answer. The target is worked out from the knowledge base, not asked of the model. |
 | Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question. |
+| Opens by naming the session   | The first sentence welcomes the trainee to the virtual training session and names its subject, before the trainer introduces itself. |
 | Works without a microphone    | If mic access is blocked, the session still runs and questions can be typed.                                                                 |
 
 ---
@@ -167,6 +168,16 @@ Sending all 92,000 characters every turn would dilute attention as well as costi
 then translates it; "go deeper" gives the mechanism. The preference is remembered in a `LearnerProfile`
 that also tracks which slides drew questions, so the trainer weights later examples towards what this
 person actually cares about.
+
+### The opening
+
+Slide 1 requires a specific first sentence: a welcome to the virtual training session naming what the
+session is on, before the trainer introduces itself. The wording is left to the model but both parts
+are mandatory, set in slide 1's `narrationBrief` and reinforced in the turn task.
+
+The subject is taken from `DECK_SUBJECT_SPOKEN`, not `DECK_SUBTITLE`. The formal subtitle reads
+"ISO/IEC 27001", which the speech engine renders as "ISO IEC" and is not how anyone introduces a
+session out loud. The spoken form drops the slash. The written subtitle is still used on the page.
 
 ### Length
 

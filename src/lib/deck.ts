@@ -41,7 +41,19 @@ export interface DeckSlide {
 }
 
 export const DECK_TITLE = 'ISMS Awareness Session';
+
+/** Formal subtitle, for the page. */
 export const DECK_SUBTITLE = 'ISO/IEC 27001 Information Security Management System';
+
+/**
+ * How the subject is said out loud.
+ *
+ * The formal subtitle is a written form. "ISO/IEC" comes out of the speech engine
+ * as "ISO IEC", which is not what a trainer says, so the spoken form drops the
+ * slash and reads the way a person would introduce the session.
+ */
+export const DECK_SUBJECT_SPOKEN = 'ISO 27001 information security management system awareness';
+
 export const DECK_OWNER = 'Technavious';
 
 export const SLIDES: DeckSlide[] = [
@@ -55,8 +67,9 @@ export const SLIDES: DeckSlide[] = [
     speakerNotes: [],
     internalNotes: [],
     narrationBrief:
-      'Open the session. Greet the trainee by name if you know it, say who you are, and set out what the next few minutes cover: the everyday threats, what an ISMS actually is, the policies that apply to them personally, how Technavious classifies information, and how to report a problem. Make clear they can interrupt and ask anything at any point. Keep it to a few sentences and finish by asking whether they are ready to begin.',
+      'Open the session. Your first sentence must welcome them to the virtual training session and name what it is on, so they know exactly what they have joined before anything else. Then say who you are, and if you know their name use it. Set out what the next few minutes cover: the everyday threats, what an ISMS actually is, the policies that apply to them personally, how Technavious classifies information, and how to report a problem. Make clear they can interrupt and ask anything at any point. Keep it to a few sentences and finish by asking whether they are ready to begin.',
     keyPoints: [
+      'Open by welcoming them to the virtual training session and naming its subject, which is ISO 27001 information security management system awareness. This comes first, before your own introduction.',
       'This is an ISO 27001 information security awareness session for Technavious staff.',
       'It is a conversation, not a lecture. The trainee can interrupt at any time.',
       'Five topics ahead: threats, what an ISMS is, end user policies, information classification, incident reporting.',
