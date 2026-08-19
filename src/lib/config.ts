@@ -23,7 +23,19 @@ function envIntOr(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export const GEMINI_MODEL = () => envOr('GEMINI_MODEL', 'gemini-2.5-flash');
+/**
+ * Model used for the trainer's turns. gemini-3.7-flash benchmarked both faster
+ * and more concrete than 2.5-flash on this workload, which matters twice over
+ * here because the reply is spoken and latency is audible.
+ */
+export const GEMINI_MODEL = () => envOr('GEMINI_MODEL', 'gemini-3.7-flash');
+
+/**
+ * Model used for answering questions, which is the hardest thing the trainer
+ * does. Defaults to the same model; point it at a pro model if you would trade
+ * some latency for depth.
+ */
+export const GEMINI_ANSWER_MODEL = () => envOr('GEMINI_ANSWER_MODEL', GEMINI_MODEL());
 export const DEEPGRAM_STT_MODEL = () => envOr('DEEPGRAM_STT_MODEL', 'nova-3');
 export const DEEPGRAM_TTS_MODEL = () => envOr('DEEPGRAM_TTS_MODEL', 'aura-2-thalia-en');
 

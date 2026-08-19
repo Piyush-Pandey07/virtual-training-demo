@@ -16,7 +16,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { clampSlideId, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
-import type { ChatEvent, HistoryTurn, SessionPhase, TranscriptEntry, TurnKind } from '@/lib/types';
+import { detectAnswerStyle } from '@/lib/trainer-prompt';
+import type {
+  ChatEvent,
+  HistoryTurn,
+  LearnerProfile,
+  SessionPhase,
+  TranscriptEntry,
+  TurnKind,
+} from '@/lib/types';
 
 import { useSpeechInput, type SttTransport } from './useSpeechInput';
 import { useTtsPlayer } from './useTtsPlayer';
@@ -52,6 +60,14 @@ function looksLikeAdvance(text: string): boolean {
   return ADVANCE_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
+const EMPTY_LEARNER: LearnerProfile = {
+  questionsAsked: 0,
+  curiousAbout: [],
+  prefersSimpler: false,
+  prefersDepth: false,
+  askedForStandard: false,
+};
+
 let entryCounter = 0;
 function makeEntry(
   speaker: TranscriptEntry['speaker'],
@@ -72,6 +88,8 @@ export interface UseTrainingSessionResult {
   /** Trainer text as it streams in, before playback finishes. */
   streamingReply: string;
   coveredSlideIds: number[];
+  /** Running read on the trainee, sent to the model each turn. */
+  learner: LearnerProfile;
   error: string | null;
   micState: ReturnType<typeof useSpeechInput>['state'];
   micLevel: number;
@@ -104,6 +122,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [streamingReply, setStreamingReply] = useState('');
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>([]);
+  const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
   const [listeningMode, setListeningMode] = useState<ListeningMode>('hands-free');
   const [pushToTalkActive, setPushToTalkActive] = useState(false);
@@ -113,6 +132,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const slideIdRef = useRef(1);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const coveredRef = useRef<number[]>([]);
+  const learnerRef = useRef<LearnerProfile>(EMPTY_LEARNER);
   const traineeNameRef = useRef<string | undefined>(undefined);
   const phaseRef = useRef<SessionPhase>('idle');
   const turnAbortRef = useRef<AbortController | null>(null);
@@ -130,6 +150,9 @@ export function useTrainingSession(): UseTrainingSessionResult {
   useEffect(() => {
     coveredRef.current = coveredSlideIds;
   }, [coveredSlideIds]);
+  useEffect(() => {
+    learnerRef.current = learner;
+  }, [learner]);
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
@@ -151,6 +174,27 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
   const appendEntry = useCallback((entry: TranscriptEntry) => {
     setTranscript((current) => [...current, entry]);
+  }, []);
+
+  /**
+   * Folds one question into the running read on the trainee. Kept in a single
+   * place so a spoken question and a typed one update it identically.
+   */
+  const noteQuestion = useCallback((question: string, slideId: number) => {
+    const style = detectAnswerStyle(question);
+    setLearner((current) => {
+      const next: LearnerProfile = {
+        questionsAsked: current.questionsAsked + 1,
+        curiousAbout: current.curiousAbout.includes(slideId)
+          ? current.curiousAbout
+          : [...current.curiousAbout, slideId].sort((a, b) => a - b),
+        prefersSimpler: current.prefersSimpler || style === 'simpler',
+        prefersDepth: current.prefersDepth || style === 'deeper',
+        askedForStandard: current.askedForStandard || style === 'standard',
+      };
+      learnerRef.current = next;
+      return next;
+    });
   }, []);
 
   const buildHistory = useCallback(
@@ -196,6 +240,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
             history: buildHistory(),
             traineeName: traineeNameRef.current,
             coveredSlideIds: coveredRef.current,
+            learner: learnerRef.current,
           }),
           signal: controller.signal,
         });
@@ -297,9 +342,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
         return;
       }
 
+      noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, runTurn],
+    [appendEntry, noteQuestion, runTurn],
   );
 
   /** Cuts the trainer off when the trainee starts talking over it. */
@@ -361,6 +407,8 @@ export function useTrainingSession(): UseTrainingSessionResult {
       transcriptRef.current = [];
       setCoveredSlideIds([]);
       coveredRef.current = [];
+      setLearner(EMPTY_LEARNER);
+      learnerRef.current = EMPTY_LEARNER;
 
       await runTurn('narrate', { slideId: 1 });
     },
@@ -424,9 +472,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
       turnAbortRef.current?.abort();
       busyRef.current = false;
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
+      noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, runTurn],
+    [appendEntry, noteQuestion, runTurn],
   );
 
   const interruptTrainer = useCallback(() => {
@@ -447,6 +496,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
     interim: stt.interim,
     streamingReply,
     coveredSlideIds,
+    learner,
     error,
     micState: stt.state,
     micLevel: stt.level,

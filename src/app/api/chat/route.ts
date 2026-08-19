@@ -15,7 +15,7 @@ import {
   type FunctionDeclaration,
 } from '@google/genai';
 
-import { GEMINI_MODEL, requireEnv } from '@/lib/config';
+import { GEMINI_ANSWER_MODEL, GEMINI_MODEL, requireEnv } from '@/lib/config';
 import { clampSlideId, getSlide, TOTAL_SLIDES } from '@/lib/deck';
 import {
   buildNavigationResult,
@@ -24,7 +24,7 @@ import {
   NAVIGATE_TOOL_NAME,
   sanitiseForSpeech,
 } from '@/lib/trainer-prompt';
-import type { ChatEvent, ChatRequest, HistoryTurn, TurnKind } from '@/lib/types';
+import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
 
 export const runtime = 'nodejs';
 /** Streaming only makes sense uncached. */
@@ -83,6 +83,24 @@ function parseHistory(raw: unknown): HistoryTurn[] {
     .slice(-MAX_HISTORY_TURNS);
 }
 
+/** The learner profile comes from the browser, so it is bounded before use. */
+function parseLearner(raw: unknown): LearnerProfile | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Partial<LearnerProfile>;
+  const asked = Number(value.questionsAsked);
+  return {
+    questionsAsked: Number.isFinite(asked) ? Math.min(Math.max(Math.round(asked), 0), 999) : 0,
+    curiousAbout: Array.isArray(value.curiousAbout)
+      ? [...new Set(value.curiousAbout.map((id) => clampSlideId(Number(id))))]
+          .sort((a, b) => a - b)
+          .slice(0, TOTAL_SLIDES)
+      : [],
+    prefersSimpler: Boolean(value.prefersSimpler),
+    prefersDepth: Boolean(value.prefersDepth),
+    askedForStandard: Boolean(value.askedForStandard),
+  };
+}
+
 export async function POST(request: Request) {
   let body: ChatRequest;
   try {
@@ -128,6 +146,7 @@ export async function POST(request: Request) {
             history: parseHistory(body.history),
             question,
             coveredSlideIds,
+            learner: parseLearner(body.learner),
           }),
         },
       ],
@@ -146,13 +165,14 @@ export async function POST(request: Request) {
 
       let spoken = '';
 
+      const model = kind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
+
       const config = {
         systemInstruction: buildSystemInstruction(traineeName),
-        temperature: 0.75,
-        maxOutputTokens: 1600,
-        // Narration needs to start fast. A minimal thinking budget keeps
-        // time to first word low without hurting answer quality much.
-        thinkingConfig: { thinkingBudget: kind === 'answer' ? 512 : 0 },
+        // Narration is fully briefed, so variation buys nothing and costs length
+        // discipline. Questions are open-ended and benefit from a warmer setting.
+        temperature: kind === 'narrate' ? 0.55 : 0.75,
+        maxOutputTokens: 2400,
         tools: [{ functionDeclarations: [navigateToolDeclaration] }],
         abortSignal: request.signal,
       };
@@ -167,7 +187,7 @@ export async function POST(request: Request) {
         let text = '';
 
         const result = await ai.models.generateContentStream({
-          model: GEMINI_MODEL(),
+          model,
           contents: turnContents,
           config,
         });
@@ -220,7 +240,7 @@ export async function POST(request: Request) {
                     response: {
                       ok: true,
                       slideId: shown,
-                      instruction: buildNavigationResult(getSlide(shown) ?? slide),
+                      instruction: buildNavigationResult(getSlide(shown) ?? slide, question),
                     },
                   },
                 };

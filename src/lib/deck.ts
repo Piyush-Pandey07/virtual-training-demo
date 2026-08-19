@@ -65,7 +65,7 @@ export const SLIDES: DeckSlide[] = [
       'Before we start, have you sat through an information security session before?',
       'Ready to make a start?',
     ],
-    targetSeconds: 35,
+    targetSeconds: 40,
   },
   {
     id: 2,
@@ -86,7 +86,7 @@ export const SLIDES: DeckSlide[] = [
       'Push the OutThink Platform in a slide and call to action and training minutes consideration',
     ],
     narrationBrief:
-      'Walk through the six threat categories on the slide. Give each one a single concrete, recognisable example from an office or data centre setting rather than a textbook definition. Spend the most time on spear phishing and passwords, because those are where individual behaviour matters most. Close by making the point that all six come down to daily habits rather than technology.',
+      'Name all six threat categories so the trainee knows the shape of the slide, but do not give all six equal time, because that turns into a list. Go properly into spear phishing and passwords, with one concrete example each from a data centre or consultancy setting, because those two are where individual behaviour matters most. Cover the other four in a clause apiece. Close by making the point that all six come down to daily habits rather than technology, and offer to go deeper on any of them.',
     keyPoints: [
       'Malware: software that gets onto a device and does harm, often arriving through an attachment, a downloaded installer, or an unknown USB stick.',
       'Spear phishing: a targeted message crafted for one person, using real names, projects, or suppliers to look legitimate. Far harder to spot than bulk spam.',
@@ -99,7 +99,7 @@ export const SLIDES: DeckSlide[] = [
       'Which of these six do you think you run into most often?',
       'Has a message ever landed in your inbox that you were not quite sure about?',
     ],
-    targetSeconds: 95,
+    targetSeconds: 150,
   },
   {
     id: 3,
@@ -134,7 +134,7 @@ export const SLIDES: DeckSlide[] = [
       'Does the difference between a one-off security fix and a management system make sense so far?',
       'Any part of that definition you would like me to unpack?',
     ],
-    targetSeconds: 105,
+    targetSeconds: 125,
   },
   {
     id: 4,
@@ -174,7 +174,7 @@ export const SLIDES: DeckSlide[] = [
       'Which of these eight would you like me to go into properly?',
       'Have you had to apply any of these on a client site?',
     ],
-    targetSeconds: 100,
+    targetSeconds: 125,
   },
   {
     id: 5,
@@ -219,7 +219,7 @@ export const SLIDES: DeckSlide[] = [
       'Take a client site survey report. Where would you place that?',
       'Shall I give you a worked example of classifying something you handle day to day?',
     ],
-    targetSeconds: 135,
+    targetSeconds: 155,
   },
   {
     id: 6,
@@ -251,7 +251,7 @@ export const SLIDES: DeckSlide[] = [
       'If you spotted a colleague screen unlocked and unattended, what would you do?',
       'Is it clear what does and does not count as an incident?',
     ],
-    targetSeconds: 95,
+    targetSeconds: 115,
   },
   {
     id: 7,
@@ -280,7 +280,7 @@ export const SLIDES: DeckSlide[] = [
       'Anything from the whole session you would like me to go back over?',
       'Shall I put a few quick questions to you to check it has landed?',
     ],
-    targetSeconds: 90,
+    targetSeconds: 95,
   },
 ];
 

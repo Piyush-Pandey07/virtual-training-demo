@@ -13,9 +13,11 @@ speech.
 
 | Behaviour                     | How it works                                                                                                                                |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Teaches rather than reads out  | Each slide carries a teaching brief and a list of points the trainer must cover, written from the slide text and the presenter notes.       |
+| Teaches rather than reads out  | A 22-topic knowledge base of ISO 27001 expertise sits behind the deck: attack mechanics, worked sector examples, misconceptions, and clause references.  |
 | Interrupt any time            | Speech detected while the trainer is talking stops playback within a chunk, aborts the generation in flight, and hands the floor over.       |
-| Answers stay grounded         | The whole deck goes into the prompt. The trainer is told to say when something is outside the deck rather than inventing Technavious policy.  |
+| Answers stay grounded         | The deck is the authority on Technavious policy, the knowledge base is general expertise, and the trainer says which is which. Each topic records what it must not guess at. |
+| Corrects the misconception    | Topics carry the wrong beliefs trainees arrive with. "I would spot a phishing email" gets the belief addressed, not just the question. |
+| Adapts to the person          | Asking to simplify, to go deeper, for an example, or for the clause each produce a genuinely different reply, and the preference persists across the session. |
 | Follows the trainee's pace    | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                    |
 | Moves the deck when it should | The model has a `navigate_to_slide` tool, so asking about classification while on slide 2 brings slide 5 up before the answer.               |
 | Works without a microphone    | If mic access is blocked, the session still runs and questions can be typed.                                                                 |
@@ -122,6 +124,60 @@ trainer starts talking while the rest is still being written.
 
 ---
 
+## The knowledge base
+
+`src/lib/deck.ts` is what is on screen. `src/lib/knowledge/` is what the trainer knows. Keeping them
+apart is what stops the trainer either reciting the slide or inventing policy.
+
+Twenty-two topics across five modules: `foundations` (what an ISMS is, how the standard is built, the
+CIA triad), `threats` (the six on slide 2, in mechanism-level detail), `classification`, `policies`
+(all eight, with what each asks of a person on an ordinary day), and `incidents`.
+
+Every topic has the same shape:
+
+| Field | What it carries |
+| --- | --- |
+| `explanation` | The substance, one idea per entry, written to be spoken. |
+| `examples` | Worked illustrations from data centre consultancy: single-line diagrams, TVRA reports, commissioning records, client sites. |
+| `misconceptions` | The wrong belief, and the correction. The trainer addresses the belief rather than answering around it. |
+| `standardRefs` | ISO/IEC 27001:2022 clause and Annex A control references, for trainees who want the clause. |
+| `analogy` | One comparison that makes an abstract control land. |
+| `faqs` | Questions trainees genuinely ask, with the expert answer. |
+| `outOfScope` | What this deck does not settle. The trainer names the gap and points at the controlled document instead of guessing. |
+| `triggers` | Phrases that pull the topic in when a question reaches for it. |
+
+### Selection
+
+Sending all 92,000 characters every turn would dilute attention as well as costing latency, so
+`selectKnowledge` assembles each turn:
+
+- **Narration:** every topic on the slide, at full depth. The job is to teach the whole slide.
+- **A question:** the slide's topics compete on relevance. The ones the question reaches for stay at
+  full depth, the rest are demoted to a compact form, and up to three topics from elsewhere in the
+  deck are pulled in. Asking about phishing on slide 2 loads the phishing topic at depth and the other
+  five threats compactly, which cuts that prompt from 27k to 19k characters and stops the answer being
+  buried under material about passwords.
+- **Recap or quiz:** the whole base, compactly, because those turns range over everything.
+
+### Answer register
+
+`detectAnswerStyle` reads what shape of answer was asked for, and the prompt changes accordingly.
+"I am a bit lost" drops all jargon and shortens; "which Annex A control" gives the reference and
+then translates it; "go deeper" gives the mechanism. The preference is remembered in a `LearnerProfile`
+that also tracks which slides drew questions, so the trainer weights later examples towards what this
+person actually cares about.
+
+### Length
+
+Narration is budgeted in words rather than seconds, because a model can count words and has no
+reliable sense of duration. `spokenWordBudget` converts each slide's `targetSeconds` at 150 words per
+minute. In testing this moved narration from roughly 200% of target down to within about 25 to 45%,
+and it is what stops the eight-policy slide being read out as an eight-item list. Narration also runs
+at a lower temperature than question answering, since it is fully briefed and variation only costs
+length discipline.
+
+---
+
 ## Layout
 
 ```
@@ -144,8 +200,9 @@ src/
     useTtsPlayer     Sentence chunking, playback queue, barge-in
     useTrainingSession  The session state machine
   lib/
-    deck.ts          Deck content and teaching briefs
-    trainer-prompt.ts   System instruction and per-turn prompts
+    deck.ts          What is on the slides, and the teaching brief for each
+    knowledge/       What the trainer knows: 22 topics across 5 modules
+    trainer-prompt.ts   System instruction, per-turn prompts, answer register
 docs/
   ISMS-Awareness-Session.pptx   The source deck
 ```
@@ -206,3 +263,9 @@ instead of teaching, because the original turn prompt described the previous sli
 - Conversation history sent to the model is capped at the last 24 turns, so a very long session will
   lose the earliest exchanges from context. The slide content is always present.
 - Session state lives in memory. A page refresh starts over.
+- Narration length still runs over its target on the densest slides, by up to about 45% on slides 2,
+  5 and 6. The word budget brought this down a long way but does not pin it. Adjusting a slide's
+  `targetSeconds` in `deck.ts` is the lever.
+- The knowledge base is hand-written rather than retrieved from a document store, and topic selection
+  is lexical rather than semantic. A question phrased with none of a topic's `triggers` will not pull
+  it in, though the slide's own topics and the full deck text are always present.

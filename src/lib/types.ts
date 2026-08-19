@@ -11,6 +11,29 @@ export type TurnKind =
   /** Put a short set of check questions to the trainee. */
   | 'quiz';
 
+/**
+ * The shape of answer a question is asking for. Detected from the wording, so a
+ * request to simplify and a request to go deeper get genuinely different replies.
+ */
+export type AnswerStyle = 'default' | 'simpler' | 'example' | 'standard' | 'deeper';
+
+/**
+ * A running read on the trainee, so the trainer adapts across the session rather
+ * than treating every turn as the first one.
+ */
+export interface LearnerProfile {
+  /** How many questions they have asked. */
+  questionsAsked: number;
+  /** Slides they have asked about, most engaged first is not required. */
+  curiousAbout: number[];
+  /** They have asked for something to be simplified at least once. */
+  prefersSimpler: boolean;
+  /** They have asked for more depth at least once. */
+  prefersDepth: boolean;
+  /** They have asked about the standard itself, so clause references are welcome. */
+  askedForStandard: boolean;
+}
+
 /** Who said a given line. */
 export type Speaker = 'trainer' | 'trainee';
 
@@ -47,6 +70,8 @@ export interface ChatRequest {
   traineeName?: string;
   /** Slides the trainer has already taught, so it can refer back accurately. */
   coveredSlideIds?: number[];
+  /** What the session has learned about the trainee so far. */
+  learner?: LearnerProfile;
 }
 
 /** Server sent events emitted by POST /api/chat. */
