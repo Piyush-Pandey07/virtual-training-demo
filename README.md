@@ -24,6 +24,7 @@ speech.
 | Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question. |
 | Opens by naming the session   | The first sentence welcomes the trainee to the virtual training session and names its subject, before the trainer introduces itself. |
 | Works without a microphone    | If mic access is blocked, the session still runs and questions can be typed.                                                                 |
+| Answers stay short            | Follow-ups are budgeted by register, from 65 words for "simpler" up to 170 for "go deeper", so a question gets an answer rather than a lecture. |
 
 ---
 
@@ -250,6 +251,46 @@ that was right, and wrong answers get corrected plainly rather than left standin
 One instruction earned its place by trial: warmth is not length. "Warm and unhurried" read as licence
 to run long and pushed narration to 60% over budget, so the persona now says that brevity is part of
 the kindness, because it leaves room for the trainee to speak.
+
+### No transcript
+
+The session shows the slide, the trainer's presence and the controls. There is no scrolling
+conversation log, because it made the page read as a chat window rather than a training session.
+
+The transcript still exists in state and is still what the model receives as history; only the display
+is gone. What survived is the live caption under the trainer's status, since with the log removed that
+is the only signal that speech was heard correctly, and speech to text does mishear the occasional
+term. Without it, a garbled question looks like the trainer misunderstood.
+
+Removing the display also let `streamingReply` go, which was calling `setState` on every token with
+nothing rendering the result.
+
+### Slide transitions
+
+Every slide is mounted once and revealed by opacity. Keying a single image on the slide id unmounted
+and remounted it on every change, which restarted the loader and showed a blank frame between slides.
+It was most obvious going backwards, where the trainee expects an instant cut to something already
+seen.
+
+The images are also loaded eagerly rather than lazily. Being in the viewport at zero opacity is not
+enough to make the lazy loader fetch them, so only two of seven were ever decoded and the first jump to
+slide 3 still flashed. The whole deck is about 600 kB and is needed within one session anyway.
+
+Navigation stays enabled while a turn is generating. It used to be locked for the ten seconds a
+narration takes, so pressing Next mid-generation did nothing and the controls felt broken. Moving the
+deck already interrupts playback and aborts the request in flight, and turns carry a sequence token so
+a superseded one cannot alter state.
+
+### Answer length
+
+Answers are budgeted per register: 65 words when asked to simplify, 70 by default, 95 for an example or
+a clause reference, 170 when explicitly asked to go deeper. The answer turn previously had no length
+instruction at all, only narration did, so follow-ups ran to 250 words, which is a minute and a half of
+speech for one question.
+
+The prompt also bans opening with praise for the question. Three consecutive answers began "That is a
+really good question", which is warm once in a session and filler every turn. Answers now lead with the
+answer: "Yes, you absolutely do report that."
 
 ### The opening
 

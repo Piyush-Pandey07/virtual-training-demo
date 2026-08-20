@@ -8,7 +8,6 @@ import { SessionControls } from '@/components/SessionControls';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
 import { TrainerPanel } from '@/components/TrainerPanel';
-import { TranscriptPanel } from '@/components/TranscriptPanel';
 import { useTrainingSession } from '@/hooks/useTrainingSession';
 import { DECK_TITLE, ESTIMATED_MINUTES, getSlide, TOTAL_SLIDES } from '@/lib/deck';
 import { TRAINER_NAME } from '@/lib/trainer';
@@ -135,69 +134,66 @@ export default function SessionPage() {
           />
         </main>
       ) : (
-        <main className="mx-auto grid w-full max-w-[1600px] flex-1 gap-5 px-5 py-5 sm:px-8 lg:grid-cols-[minmax(0,1fr)_400px]">
-          {/* Slide and controls. */}
-          <div className="flex min-w-0 flex-col gap-4">
-            {slide && <SlideStage slide={slide} dimmed={busy} />}
+        // No transcript. The session reads as a presentation rather than a chat
+        // window, so the slide takes the room the conversation log used to.
+        <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-5 sm:px-8">
+          {slide && <SlideStage slide={slide} dimmed={busy} />}
 
-            <SlideRail
-              currentId={session.slideId}
-              coveredIds={session.coveredSlideIds}
-              onSelect={session.goToSlide}
-              disabled={busy}
-            />
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <SlideRail
+                currentId={session.slideId}
+                coveredIds={session.coveredSlideIds}
+                onSelect={session.goToSlide}
+                disabled={busy}
+              />
 
-            <SessionControls
-              phase={session.phase}
-              micState={session.micState}
-              slideId={session.slideId}
-              trainerSpeaking={session.trainerSpeaking}
-              listeningMode={session.listeningMode}
-              pushToTalkActive={session.pushToTalkActive}
-              onPrevious={session.previousSlide}
-              onNext={session.nextSlide}
-              onRepeat={session.repeatSlide}
-              onQuiz={session.askQuiz}
-              onInterrupt={session.interruptTrainer}
-              onEnd={session.endSession}
-              onAskByText={session.askByText}
-              onListeningModeChange={session.setListeningMode}
-              onPushToTalkChange={session.setPushToTalkActive}
-            />
+              <SessionControls
+                phase={session.phase}
+                micState={session.micState}
+                slideId={session.slideId}
+                trainerSpeaking={session.trainerSpeaking}
+                listeningMode={session.listeningMode}
+                pushToTalkActive={session.pushToTalkActive}
+                onPrevious={session.previousSlide}
+                onNext={session.nextSlide}
+                onRepeat={session.repeatSlide}
+                onQuiz={session.askQuiz}
+                onInterrupt={session.interruptTrainer}
+                onEnd={session.endSession}
+                onAskByText={session.askByText}
+                onListeningModeChange={session.setListeningMode}
+                onPushToTalkChange={session.setPushToTalkActive}
+              />
+            </div>
+
+            <aside className="flex flex-col gap-4">
+              <TrainerPanel
+                phase={session.phase}
+                micState={session.micState}
+                micLevel={session.micLevel}
+                speaking={session.trainerSpeaking}
+                transcribing={session.transcribing}
+                transport={session.sttTransport}
+                heard={session.interim}
+              />
+
+              {session.phase === 'ended' && (
+                <div className="border-charcoal-line bg-charcoal-soft rounded-xl border p-4">
+                  <p className="text-sm font-semibold">Session complete</p>
+                  <p className="text-muted mt-1 text-sm">
+                    You covered {session.coveredSlideIds.length} of {TOTAL_SLIDES} slides.
+                  </p>
+                  <Link
+                    href="/"
+                    className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                  >
+                    Back to the start
+                  </Link>
+                </div>
+              )}
+            </aside>
           </div>
-
-          {/* Trainer presence and transcript. */}
-          <aside className="flex min-h-0 flex-col gap-4 lg:sticky lg:top-5 lg:h-[calc(100vh-7rem)]">
-            <TrainerPanel
-              phase={session.phase}
-              micState={session.micState}
-              micLevel={session.micLevel}
-              speaking={session.trainerSpeaking}
-              transcribing={session.transcribing}
-              transport={session.sttTransport}
-            />
-
-            <TranscriptPanel
-              entries={session.transcript}
-              streamingReply={session.streamingReply}
-              interim={session.interim}
-            />
-
-            {session.phase === 'ended' && (
-              <div className="border-charcoal-line bg-charcoal-soft rounded-xl border p-4">
-                <p className="text-sm font-semibold">Session complete</p>
-                <p className="text-muted mt-1 text-sm">
-                  You covered {session.coveredSlideIds.length} of {TOTAL_SLIDES} slides.
-                </p>
-                <Link
-                  href="/"
-                  className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
-                >
-                  Back to the start
-                </Link>
-              </div>
-            )}
-          </aside>
         </main>
       )}
     </div>

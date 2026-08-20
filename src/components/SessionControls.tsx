@@ -54,10 +54,20 @@ export function SessionControls({
   onPushToTalkChange,
 }: SessionControlsProps) {
   const [draft, setDraft] = useState('');
-  const busy = phase === 'thinking' || phase === 'connecting';
   const ended = phase === 'ended';
-  // Nothing that teaches should still be clickable after the wrap-up.
-  const locked = busy || ended;
+
+  /**
+   * Navigation stays live while a turn is generating.
+   *
+   * It used to be locked for the whole ten seconds a narration takes to come
+   * back, so pressing Next mid-generation did nothing at all and the controls felt
+   * broken. Moving the deck already interrupts playback and aborts the request in
+   * flight, and turns carry a sequence token so a superseded one cannot alter
+   * state, which makes an early press safe rather than merely tolerated.
+   *
+   * Connecting is different: there is no session to navigate yet.
+   */
+  const locked = phase === 'connecting' || ended;
   // A blocked or broken microphone is a standing condition, not a passing error,
   // so it stays on screen rather than living in the dismissible banner.
   const micUnavailable = micState === 'denied' || micState === 'error';

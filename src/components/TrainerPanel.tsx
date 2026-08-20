@@ -33,12 +33,19 @@ interface TrainerPanelProps {
   speaking: boolean;
   transcribing: boolean;
   transport: SttTransport | null;
+  /** Live partial transcript of what the trainee is saying right now. */
+  heard: string;
 }
 
 /**
  * The trainer's presence: an avatar that reacts while speaking, the current
  * status, and a live microphone level so the trainee can see they are being
  * heard before they say anything important.
+ *
+ * With the transcript gone this is the only feedback that speech was picked up
+ * correctly, so it also shows the words as they are recognised. That matters
+ * because speech to text does mishear the occasional term, and without it a
+ * garbled question looks like the trainer simply misunderstood.
  */
 export function TrainerPanel({
   phase,
@@ -47,68 +54,80 @@ export function TrainerPanel({
   speaking,
   transcribing,
   transport,
+  heard,
 }: TrainerPanelProps) {
   const status = statusFor(phase, micState, transcribing);
   const listening = phase === 'listening' && micState === 'live';
 
   return (
-    <section className="border-charcoal-line bg-charcoal-soft flex items-center gap-4 rounded-xl border p-4">
-      <div className="relative grid h-14 w-14 shrink-0 place-items-center">
-        {speaking && (
-          <>
-            <span className="ring-out border-teal absolute inset-0 rounded-full border-2" />
-            <span className="ring-out-delayed border-teal absolute inset-0 rounded-full border-2" />
-          </>
-        )}
-        <span
-          className={`relative grid h-12 w-12 place-items-center rounded-full text-lg font-bold transition-colors ${
-            speaking ? 'bg-teal text-charcoal' : 'bg-azure text-mist'
-          }`}
-        >
-          {TRAINER_NAME.charAt(0)}
-        </span>
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <p className="text-mist text-sm font-semibold">
-          {TRAINER_NAME}
-          <span className="text-muted ml-2 font-normal">Information security trainer</span>
-        </p>
-
-        <p className={`mt-0.5 flex items-center gap-1.5 text-sm ${status.tone}`}>
-          {status.label}
-          {(phase === 'thinking' || transcribing) && (
-            <span className="dot-pulse inline-flex gap-0.5" aria-hidden="true">
-              <span>.</span>
-              <span>.</span>
-              <span>.</span>
-            </span>
+    <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-4">
+      <div className="flex items-center gap-4">
+        <div className="relative grid h-14 w-14 shrink-0 place-items-center">
+          {speaking && (
+            <>
+              <span className="ring-out border-teal absolute inset-0 rounded-full border-2" />
+              <span className="ring-out-delayed border-teal absolute inset-0 rounded-full border-2" />
+            </>
           )}
-        </p>
-
-        {/* Microphone level. Only meaningful while the trainee has the floor. */}
-        <div
-          className="bg-charcoal mt-2 h-1 w-full overflow-hidden rounded-full"
-          role="meter"
-          aria-label="Microphone level"
-          aria-valuenow={Math.round(micLevel * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div
-            className={`h-full rounded-full transition-[width] duration-75 ${
-              listening ? 'bg-azure-bright' : 'bg-charcoal-line'
+          <span
+            className={`relative grid h-12 w-12 place-items-center rounded-full text-lg font-bold transition-colors ${
+              speaking ? 'bg-teal text-charcoal' : 'bg-azure text-mist'
             }`}
-            style={{ width: `${Math.min(100, Math.round(micLevel * 100))}%` }}
-          />
+          >
+            {TRAINER_NAME.charAt(0)}
+          </span>
         </div>
 
-        {transport === 'batch' && (
-          <p className="text-muted mt-1.5 text-xs">
-            Pause briefly when you finish speaking, then your question is sent across.
+        <div className="min-w-0 flex-1">
+          <p className="text-mist text-sm font-semibold">
+            {TRAINER_NAME}
+            <span className="text-muted ml-2 font-normal">Information security trainer</span>
           </p>
-        )}
+
+          <p className={`mt-0.5 flex items-center gap-1.5 text-sm ${status.tone}`}>
+            {status.label}
+            {(phase === 'thinking' || transcribing) && (
+              <span className="dot-pulse inline-flex gap-0.5" aria-hidden="true">
+                <span>.</span>
+                <span>.</span>
+                <span>.</span>
+              </span>
+            )}
+          </p>
+
+          {/* Microphone level. Only meaningful while the trainee has the floor. */}
+          <div
+            className="bg-charcoal mt-2 h-1 w-full overflow-hidden rounded-full"
+            role="meter"
+            aria-label="Microphone level"
+            aria-valuenow={Math.round(micLevel * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className={`h-full rounded-full transition-[width] duration-75 ${
+                listening ? 'bg-azure-bright' : 'bg-charcoal-line'
+              }`}
+              style={{ width: `${Math.min(100, Math.round(micLevel * 100))}%` }}
+            />
+          </div>
+
+          {transport === 'batch' && (
+            <p className="text-muted mt-1.5 text-xs">
+              Pause briefly when you finish speaking, then your question is sent across.
+            </p>
+          )}
+        </div>
       </div>
+
+      {heard.trim() && (
+        <p
+          className="border-charcoal-line text-muted mt-3 border-t pt-3 text-sm italic"
+          aria-live="polite"
+        >
+          {heard}
+        </p>
+      )}
     </section>
   );
 }

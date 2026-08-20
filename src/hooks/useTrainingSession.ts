@@ -63,8 +63,6 @@ export interface UseTrainingSessionResult {
   transcript: TranscriptEntry[];
   /** Live partial transcript of the trainee, shown as a caption. */
   interim: string;
-  /** Trainer text as it streams in, before playback finishes. */
-  streamingReply: string;
   coveredSlideIds: number[];
   /** Running read on the trainee, sent to the model each turn. */
   learner: LearnerProfile;
@@ -98,7 +96,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const [phase, setPhase] = useState<SessionPhase>('idle');
   const [slideId, setSlideId] = useState(1);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [streamingReply, setStreamingReply] = useState('');
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>([]);
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
@@ -223,7 +220,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
       const turnId = turnSeqRef.current;
       const isCurrent = () => turnSeqRef.current === turnId;
 
-      setStreamingReply('');
       setPhase('thinking');
 
       let spoken = '';
@@ -281,7 +277,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
                 setPhase('speaking');
               }
               spoken += event.delta;
-              setStreamingReply(spoken);
               player.push(event.delta);
             } else if (event.type === 'nav') {
               const next = clampSlideId(event.slideId);
@@ -315,7 +310,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
           setCoveredSlideIds(next);
         }
 
-        setStreamingReply('');
         setPhase(kind === 'recap' ? 'ended' : 'listening');
       } catch (caught) {
         if ((caught as Error).name !== 'AbortError' && isCurrent()) {
@@ -384,7 +378,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     ttsRef.current.interrupt();
     turnAbortRef.current?.abort();
     busyRef.current = false;
-    setStreamingReply('');
     setPhase('listening');
   }, []);
 
@@ -454,7 +447,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     busyRef.current = false;
     ttsRef.current.interrupt();
     sttRef.current.stop();
-    setStreamingReply('');
     setPhase('ended');
   }, []);
 
@@ -544,7 +536,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     ttsRef.current.interrupt();
     turnAbortRef.current?.abort();
     busyRef.current = false;
-    setStreamingReply('');
     if (phaseRef.current !== 'ended') setPhase('listening');
   }, []);
 
@@ -556,7 +547,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     slideIndex,
     transcript,
     interim: stt.interim,
-    streamingReply,
     coveredSlideIds,
     learner,
     error,

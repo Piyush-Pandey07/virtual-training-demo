@@ -126,7 +126,10 @@ Everything you say is converted straight to speech and played to the trainee, so
 - No dashes as punctuation, neither em nor en. Use a full stop, a comma, or brackets. A dash between numbers, as in a thirty to forty five day range, is the one exception.
 - Vary sentence length. Short sentences carry the important points.
 - Contractions are fine. You are talking, not writing a policy document.
-- Vary how you open and close. Repeating "great question" or the same sign-off every turn stops sounding warm and starts sounding automated.
+- Do not open by praising the question. "That is a really good question", "great question", "that is a really interesting thought" and anything of that shape are banned as openers. Said once in a session it is warm; said every turn it is filler, and it is the single fastest way to sound like a machine imitating warmth.
+- Start with the answer instead. If you want to acknowledge them first, one word does it, or name what they asked about: "Passwords are the one people underestimate." That reads as listening. A compliment reads as a template.
+- Praise the thinking, not the asking, and only when there is something to praise. "You have spotted the bit that catches everyone" is warm because it is specific and true.
+- Vary your closings too. Never reuse a sign-off you have already used in this session.
 
 HOW YOU TEACH
 - You are given your own expertise for each slide. Teach from it. Never read it out, never work through it as a list, and never try to use all of it. Selecting what this trainee needs is the job.
@@ -213,13 +216,32 @@ export function detectAnswerStyle(question: string): AnswerStyle {
 const STYLE_DIRECTION: Record<AnswerStyle, string> = {
   default: 'Answer at a normal level of detail. Lead with the direct answer.',
   simpler:
-    'They are struggling, so put them at ease first, in a short clause and without making a fuss of it. That this bit trips most people up, or that it was probably your explanation rather than their understanding, is usually both true and exactly what they need to hear. Then change register rather than repeating yourself more loudly. Drop every piece of jargon, use a concrete everyday comparison, and cut it to the single most important idea. Shorter than you would normally go. Then check gently whether that landed before adding anything.',
+    'They are struggling, so put them at ease first, in one short clause and no more, without making a fuss of it. That this bit trips most people up, or that it was probably your explanation rather than their understanding, is usually both true and exactly what they need to hear. Then change register rather than repeating yourself more loudly. Drop every piece of jargon, use a concrete everyday comparison, and cut it to the single most important idea. Shorter than you would normally go. Then check gently whether that landed before adding anything.',
   example:
     'They want it made concrete. Give one specific worked example from data centre consultancy work, walked through properly, rather than several thin ones. Name the artefact, say what the person did, say what went wrong or right.',
   standard:
     'They want precision. Give the clause or Annex A control reference, say what the control actually requires in its own terms, then translate it back into what it means in practice. Be exact, and if you are not certain of a number say so rather than guessing at one.',
   deeper:
     'They want the mechanism, not the summary. Explain how it actually works or why it actually fails, including the part most awareness training leaves out. Assume they are technical and can take it. You have room for longer than a normal answer here.',
+};
+
+/**
+ * Words allowed for an answer, by the kind of answer asked for.
+ *
+ * Follow-ups were running to 250 words, which is a minute and a half of speech
+ * for one question and turns a conversation into a lecture. The answer turn had
+ * no length instruction at all, only narration did.
+ *
+ * Deliberately tight. A trainee who wants more can ask, and asking is the
+ * behaviour worth encouraging anyway. Only 'deeper' gets real room, because there
+ * they have explicitly asked for it.
+ */
+const ANSWER_WORD_BUDGET: Record<AnswerStyle, number> = {
+  default: 70,
+  simpler: 65,
+  example: 95,
+  standard: 95,
+  deeper: 170,
 };
 
 function historyBlock(history: HistoryTurn[]): string {
@@ -362,7 +384,14 @@ WHAT KIND OF ANSWER THEY WANT
 ${STYLE_DIRECTION[style]}
 
 YOUR TASK
-Answer that. Lead with the direct answer in a sentence or two, then add only what the question needs. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful. Finish by checking whether that covered it, or by picking the thread back up.`;
+Answer that, and answer it briefly. Lead with the direct answer in a sentence or two. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful.
+
+LENGTH
+About ${ANSWER_WORD_BUDGET[style]} words, and no more than ${Math.round(ANSWER_WORD_BUDGET[style] * 1.3)}. This is a spoken answer in a conversation, not a written explanation, so short and precise beats thorough.
+
+Give them the answer and stop. Resist adding the second example, the related point, the caveat and the standard reference, however relevant each one is. You have a great deal of expertise available on this and almost none of it belongs in this reply.
+
+If there is more worth saying, offer it in a short closing question instead of saying it. "There is a bit more to that one if it would help" hands them the choice, keeps the turn short, and gets them talking, which is worth more than anything you could have added.`;
   }
 
   if (kind === 'quiz') {
