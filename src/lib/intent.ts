@@ -51,6 +51,17 @@ const ADVANCE_PATTERNS: RegExp[] = [
   /\bready\b/i,
 ];
 
+/**
+ * Negated readiness, which must not be read as a request to advance.
+ *
+ * "I'm not ready" contains "ready" and matched the advance pattern, so the deck
+ * moved on at exactly the moment the trainee was asking it not to. Only the words
+ * that flip meaning under negation are listed here, because a blanket negation
+ * check would break "no questions", where the negation is the whole point.
+ */
+const NEGATED_ADVANCE =
+  /\b(?:not|n'?t|never|hardly|barely)\s+(?:\w+\s+){0,2}(?:ready|clear|good|fine|done|sorted|sure|understood|following)\b/i;
+
 /** Phrases that mean "go back". */
 const BACK_PATTERNS: RegExp[] = [
   /\b(?:previous|prior|last)\s+(?:slide|topic|section|one|page)\b/i,
@@ -128,6 +139,11 @@ export function classifyUtterance(raw: string): Utterance {
   }
 
   if (matchesAny(forms, BACK_PATTERNS)) return 'back';
+
+  // Checked before advance, because the advance patterns match the un-negated
+  // word and would otherwise read "I'm not ready" as a request to move on.
+  if (matchesAny(forms, [NEGATED_ADVANCE])) return 'question';
+
   if (matchesAny(forms, ADVANCE_PATTERNS)) return 'advance';
 
   return 'question';

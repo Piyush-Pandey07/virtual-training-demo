@@ -116,6 +116,8 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const turnAbortRef = useRef<AbortController | null>(null);
   /** Set while a turn is being generated, so overlapping requests are dropped. */
   const busyRef = useRef(false);
+  /** Increments on every turn, so a superseded one knows not to change state. */
+  const turnSeqRef = useRef(0);
   const listeningModeRef = useRef<ListeningMode>('hands-free');
   const pushToTalkRef = useRef(false);
 
@@ -197,9 +199,29 @@ export function useTrainingSession(): UseTrainingSessionResult {
       const targetSlide = clampSlideId(opts.slideId ?? slideIdRef.current);
       const player = ttsRef.current;
 
+      // Silence whatever is still playing before queueing anything new. The button
+      // handlers each did this themselves, but the voice path did not, so it
+      // depended on barge-in having fired. A single-word "next" is below the
+      // barge-in threshold, and the new turn's audio would then be scheduled
+      // behind the old turn's rather than replacing it.
+      player.interrupt();
+
       turnAbortRef.current?.abort();
       const controller = new AbortController();
       turnAbortRef.current = controller;
+
+      /**
+       * Identifies this turn for the rest of its life.
+       *
+       * Interrupting a turn resolves its pending waitUntilDone, so its completion
+       * path runs a moment later, after the replacing turn has already set itself
+       * up. Without this token the old turn would then overwrite the new turn's
+       * phase and clear busyRef while it was still running, letting a third turn
+       * start on top of it.
+       */
+      turnSeqRef.current += 1;
+      const turnId = turnSeqRef.current;
+      const isCurrent = () => turnSeqRef.current === turnId;
 
       setStreamingReply('');
       setPhase('thinking');
@@ -275,10 +297,15 @@ export function useTrainingSession(): UseTrainingSessionResult {
         player.flush();
         await player.waitUntilDone();
 
+        // Recorded even if this turn has been superseded, because it was
+        // generated and at least partly heard, and the model needs it as context.
         const finalText = spoken.trim();
         if (finalText) {
           appendEntry(makeEntry('trainer', finalText, targetSlide));
         }
+
+        // Everything below belongs to whichever turn currently holds the floor.
+        if (!isCurrent()) return;
 
         // Where the server moved the deck, that slide is the one that was taught.
         const taughtSlide = navigatedTo ?? targetSlide;
@@ -291,12 +318,13 @@ export function useTrainingSession(): UseTrainingSessionResult {
         setStreamingReply('');
         setPhase(kind === 'recap' ? 'ended' : 'listening');
       } catch (caught) {
-        if ((caught as Error).name !== 'AbortError') {
+        if ((caught as Error).name !== 'AbortError' && isCurrent()) {
           setError((caught as Error).message);
           setPhase('error');
         }
       } finally {
-        busyRef.current = false;
+        // Only the turn that still holds the floor may release it.
+        if (isCurrent()) busyRef.current = false;
       }
     },
     [appendEntry, buildHistory],
@@ -374,6 +402,11 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const stt = useSpeechInput({
     onUtterance: handleUtterance,
     onInterim: handleInterim,
+    // Without this, barge-in only worked on the streaming transport, which is the
+    // one that needs a Deepgram key with Member permissions. On the batch
+    // transport there are no interim results, so onInterim never fires and the
+    // trainer could not be interrupted at all.
+    onSpeechStart: handleSpeechStart,
     onError: setError,
   });
   const sttRef = useRef(stt);

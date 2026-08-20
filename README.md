@@ -306,11 +306,26 @@ only. The file in `docs/` is untouched.
 ## Checks
 
 ```bash
+npm test
 npm run typecheck
 npm run lint
 npm run format:check
 npm run build
 ```
+
+72 tests, on Node's built-in runner via tsx, no framework. They cover the parts that
+have actually had bugs:
+
+- **`src/lib/intent.test.ts`** pins every phrasing that has broken a session or was
+  observed in one, including the negations that used to advance the deck when the
+  trainee said the opposite.
+- **`src/lib/knowledge/knowledge.test.ts`** checks base integrity (unique ids, no
+  slide without expertise, no topic that can never be retrieved) and every
+  navigation decision.
+- **`src/lib/source-hygiene.test.ts`** fails on control characters in source. A regex
+  written through a shell heredoc had its escapes processed twice, so `` became a
+  literal backspace byte. The file looked right, TypeScript compiled it, and the
+  pattern silently never matched. Nothing else in the toolchain catches that.
 
 ---
 
@@ -368,6 +383,11 @@ classification topic.
 - Conversation history sent to the model is capped at the last 24 turns, so a very long session will
   lose the earliest exchanges from context. The slide content is always present.
 - Session state lives in memory. A page refresh starts over.
+- Interrupting the trainer while a turn is still generating can put the transcript
+  slightly out of order, because a reply is committed when it finishes rather than
+  when it starts. What was said is right; the ordering can read oddly.
+- On the streaming transport the socket opens just after the microphone does, so the
+  first fraction of a second is dropped if the trainee starts talking instantly.
 - Narration length still runs over its target on the densest slides, by up to about 45% on slides 2,
   5 and 6. The word budget brought this down a long way but does not pin it. Adjusting a slide's
   `targetSeconds` in `deck.ts` is the lever.

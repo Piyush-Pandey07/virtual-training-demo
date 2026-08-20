@@ -56,6 +56,8 @@ export function SessionControls({
   const [draft, setDraft] = useState('');
   const busy = phase === 'thinking' || phase === 'connecting';
   const ended = phase === 'ended';
+  // Nothing that teaches should still be clickable after the wrap-up.
+  const locked = busy || ended;
   // A blocked or broken microphone is a standing condition, not a passing error,
   // so it stays on screen rather than living in the dismissible banner.
   const micUnavailable = micState === 'denied' || micState === 'error';
@@ -106,14 +108,14 @@ export function SessionControls({
           type="button"
           className={SECONDARY}
           onClick={onPrevious}
-          disabled={busy || slideId <= 1}
+          disabled={locked || slideId <= 1}
         >
           Previous
         </button>
-        <button type="button" className={SECONDARY} onClick={onRepeat} disabled={busy}>
+        <button type="button" className={SECONDARY} onClick={onRepeat} disabled={locked}>
           Explain again
         </button>
-        <button type="button" className={PRIMARY} onClick={onNext} disabled={busy}>
+        <button type="button" className={PRIMARY} onClick={onNext} disabled={locked}>
           {slideId >= TOTAL_SLIDES ? 'Wrap up' : 'Next slide'}
         </button>
 
@@ -125,7 +127,7 @@ export function SessionControls({
 
         <span className="grow" />
 
-        <button type="button" className={SECONDARY} onClick={onQuiz} disabled={busy}>
+        <button type="button" className={SECONDARY} onClick={onQuiz} disabled={locked}>
           Test me
         </button>
         <button
@@ -217,7 +219,7 @@ export function SessionControls({
           type="button"
           className={PRIMARY}
           onClick={submitDraft}
-          disabled={!draft.trim() || busy}
+          disabled={!draft.trim() || locked}
         >
           Ask
         </button>
