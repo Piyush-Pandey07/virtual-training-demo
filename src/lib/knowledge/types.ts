@@ -36,6 +36,18 @@ export interface KnowledgeTopic {
   /** Slides this topic supports. Drives what is loaded for a narration turn. */
   slideIds: number[];
   /**
+   * How much this topic matters when narrating its slide. Lower comes first.
+   *
+   * A slide with six or eight topics cannot have all of them taught at depth in
+   * the time available, and asking the model to be brief while handing it 27,000
+   * characters of expertise does not work: it uses what it is given. So the deck
+   * says what matters most and the rest is carried compactly, present if the
+   * trainee asks but not competing for the narration.
+   *
+   * Defaults to 50, which keeps unranked topics in authoring order.
+   */
+  narrationPriority?: number;
+  /**
    * Words and phrases that should pull this topic in when a question is asked,
    * regardless of which slide is on screen. Matched case-insensitively against
    * the question.

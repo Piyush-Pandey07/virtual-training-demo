@@ -12,6 +12,7 @@ import type { KnowledgeTopic } from './types';
 export const THREATS: KnowledgeTopic[] = [
   {
     id: 'threat-malware',
+    narrationPriority: 40,
     title: 'Malware',
     slideIds: [2],
     triggers: ['malware', 'virus', 'ransomware', 'trojan', 'usb', 'antivirus', 'infected', 'macro'],
@@ -61,6 +62,7 @@ export const THREATS: KnowledgeTopic[] = [
 
   {
     id: 'threat-spear-phishing',
+    narrationPriority: 10,
     title: 'Spear phishing and social engineering',
     slideIds: [2],
     triggers: [
@@ -131,6 +133,7 @@ export const THREATS: KnowledgeTopic[] = [
 
   {
     id: 'threat-malicious-links',
+    narrationPriority: 45,
     title: 'Malicious links',
     slideIds: [2],
     triggers: ['link', 'url', 'hover', 'shortened', 'qr', 'domain', 'lookalike', 'typosquat'],
@@ -171,6 +174,7 @@ export const THREATS: KnowledgeTopic[] = [
 
   {
     id: 'threat-passwords',
+    narrationPriority: 20,
     title: 'Passwords and authentication',
     slideIds: [2],
     triggers: [
@@ -245,6 +249,7 @@ export const THREATS: KnowledgeTopic[] = [
 
   {
     id: 'threat-public-browsing',
+    narrationPriority: 48,
     title: 'Working and browsing in public',
     slideIds: [2],
     triggers: [
@@ -304,6 +309,7 @@ export const THREATS: KnowledgeTopic[] = [
 
   {
     id: 'threat-data-compromise',
+    narrationPriority: 30,
     title: 'Data compromise, including the accidental kind',
     slideIds: [2, 6],
     triggers: [

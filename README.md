@@ -18,6 +18,7 @@ speech.
 | Answers stay grounded         | The deck is the authority on Technavious policy, the knowledge base is general expertise, and the trainer says which is which. Each topic records what it must not guess at. |
 | Corrects the misconception    | Topics carry the wrong beliefs trainees arrive with. "I would spot a phishing email" gets the belief addressed, not just the question. |
 | Adapts to the person          | Asking to simplify, to go deeper, for an example, or for the clause each produce a genuinely different reply, and the preference persists across the session. |
+| Warm without going soft       | Encouraging and patient in manner, and unmoved on the facts. A wrong belief still gets corrected, just with the reasoning behind it acknowledged first. |
 | Follows the trainee's pace    | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                    |
 | Moves the deck when it should | Asking about classification while on slide 2 brings slide 5 up before the answer. The target is worked out from the knowledge base, not asked of the model. |
 | Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question. |
@@ -228,6 +229,28 @@ then translates it; "go deeper" gives the mechanism. The preference is remembere
 that also tracks which slides drew questions, so the trainer weights later examples towards what this
 person actually cares about.
 
+### Manner
+
+The trainer is warm, patient and encouraging. That is a real requirement rather than a coat of paint,
+because security awareness training that reads as finger-wagging gets ignored, and a trainee who feels
+judged stops asking.
+
+The risk in asking a model to be soft is that it starts agreeing with things to seem agreeable, which
+would destroy the most useful thing this trainer does. So the persona is explicit that kindness and
+accuracy are not in tension: a mistaken belief is still corrected, the red line about personal
+accounts is still a red line, and "I don't know" is still said out loud. What changes is the route
+there. Almost every misconception in the knowledge base is held for a sensible reason, so the trainer
+names that reason first and then moves them on, which is both gentler and more persuasive than a flat
+contradiction.
+
+There is separate guidance for the moment a trainee attempts an answer, since that is where confidence
+is won or lost. Right answers get confirmed without hedging, partly right answers lead with the part
+that was right, and wrong answers get corrected plainly rather than left standing to spare feelings.
+
+One instruction earned its place by trial: warmth is not length. "Warm and unhurried" read as licence
+to run long and pushed narration to 60% over budget, so the persona now says that brevity is part of
+the kindness, because it leaves room for the trainee to speak.
+
 ### The opening
 
 Slide 1 requires a specific first sentence: a welcome to the virtual training session naming what the
@@ -240,12 +263,21 @@ session out loud. The spoken form drops the slash. The written subtitle is still
 
 ### Length
 
+Three things hold narration near its budget, and the third turned out to matter most.
+
 Narration is budgeted in words rather than seconds, because a model can count words and has no
 reliable sense of duration. `spokenWordBudget` converts each slide's `targetSeconds` at 150 words per
 minute. In testing this moved narration from roughly 200% of target down to within about 25 to 45%,
 and it is what stops the eight-policy slide being read out as an eight-item list. Narration also runs
 at a lower temperature than question answering, since it is fully briefed and variation only costs
 length discipline.
+
+The one that moved the needle furthest was neither: it was giving the model less to say. Slide 2
+carries seven topics and 27,000 characters of expertise, and the model uses what it is given however
+the prompt is worded. Each topic now declares a `narrationPriority`, only the top few go in at depth,
+and the rest ride along compactly for the trainee who asks. Slide 2's brief says spend the time on
+spear phishing and passwords, so those are the two that survive the cap. Nothing is lost from the
+trainee's side, because the slide's own key points still name all six threats.
 
 ---
 
@@ -388,9 +420,11 @@ classification topic.
   when it starts. What was said is right; the ordering can read oddly.
 - On the streaming transport the socket opens just after the microphone does, so the
   first fraction of a second is dropped if the trainee starts talking instantly.
-- Narration length still runs over its target on the densest slides, by up to about 45% on slides 2,
-  5 and 6. The word budget brought this down a long way but does not pin it. Adjusting a slide's
-  `targetSeconds` in `deck.ts` is the lever.
+- Narration length still runs over target on the three densest slides, 2, 4 and 5, by 43 to 51%. Three
+  separate levers brought this down from 200%: a word budget, a lower temperature for narration, and
+  capping how many topics go in at depth. It is not pinned, and prompt wording has stopped helping.
+  The levers left are `targetSeconds` in `deck.ts` and `MAX_CORE_ON_NARRATION` in the knowledge module.
+  The content is good; those slides simply have more worth saying than fits.
 - The knowledge base is hand-written rather than retrieved from a document store, and topic selection
   is lexical rather than semantic. A question phrased with none of a topic's `triggers` will not pull
   it in, though the slide's own topics and the full deck text are always present.

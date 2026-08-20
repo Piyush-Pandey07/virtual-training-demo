@@ -5,6 +5,7 @@ import type { KnowledgeTopic } from './types';
 export const FOUNDATIONS: KnowledgeTopic[] = [
   {
     id: 'isms-what-it-is',
+    narrationPriority: 10,
     title: 'What a management system is, and what makes it an ISMS',
     slideIds: [1, 3],
     triggers: [
@@ -69,6 +70,7 @@ export const FOUNDATIONS: KnowledgeTopic[] = [
 
   {
     id: 'iso27001-structure',
+    narrationPriority: 30,
     title: 'How the standard is put together',
     slideIds: [3],
     triggers: [
@@ -114,6 +116,7 @@ export const FOUNDATIONS: KnowledgeTopic[] = [
 
   {
     id: 'isms-benefits',
+    narrationPriority: 20,
     title: 'Why an organisation bothers',
     slideIds: [3],
     triggers: [
@@ -147,6 +150,7 @@ export const FOUNDATIONS: KnowledgeTopic[] = [
 
   {
     id: 'cia-triad',
+    narrationPriority: 60,
     title: 'Confidentiality, integrity and availability',
     slideIds: [2, 6, 7],
     triggers: [

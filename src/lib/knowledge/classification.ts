@@ -11,6 +11,7 @@ import type { KnowledgeTopic } from './types';
 export const CLASSIFICATION: KnowledgeTopic[] = [
   {
     id: 'classification-tiers',
+    narrationPriority: 10,
     title: 'The four tiers and how to choose between them',
     slideIds: [5],
     triggers: [
@@ -96,6 +97,7 @@ export const CLASSIFICATION: KnowledgeTopic[] = [
 
   {
     id: 'classification-handling',
+    narrationPriority: 20,
     title: 'Handling, labelling and storage in practice',
     slideIds: [5],
     triggers: [

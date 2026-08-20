@@ -11,6 +11,7 @@ import type { KnowledgeTopic } from './types';
 export const POLICIES: KnowledgeTopic[] = [
   {
     id: 'policies-overview',
+    narrationPriority: 10,
     title: 'Why there are eight, and how to hold them in mind',
     slideIds: [4],
     triggers: ['policies', 'policy list', 'eight', 'which policy', 'all the policies'],
@@ -46,6 +47,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-physical-security',
+    narrationPriority: 40,
     title: 'Physical Security Policy',
     slideIds: [4],
     triggers: [
@@ -84,6 +86,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-clear-desk-screen',
+    narrationPriority: 20,
     title: 'Clear Desk and Clear Screen Policy',
     slideIds: [4, 6],
     triggers: [
@@ -124,6 +127,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-backup',
+    narrationPriority: 48,
     title: 'Backup Policy',
     slideIds: [4],
     triggers: [
@@ -163,6 +167,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-teleworking-mobile',
+    narrationPriority: 45,
     title: 'Teleworking and Mobile Device Policy',
     slideIds: [4],
     triggers: [
@@ -206,6 +211,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-media-handling',
+    narrationPriority: 52,
     title: 'Media Handling Policy',
     slideIds: [4],
     triggers: [
@@ -250,6 +256,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-acceptable-use',
+    narrationPriority: 30,
     title: 'Acceptable Use Policy',
     slideIds: [4],
     triggers: [
@@ -299,6 +306,7 @@ export const POLICIES: KnowledgeTopic[] = [
 
   {
     id: 'policy-document-control',
+    narrationPriority: 55,
     title: 'Document Control Procedure',
     slideIds: [4],
     triggers: [

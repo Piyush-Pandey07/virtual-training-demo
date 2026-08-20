@@ -11,6 +11,7 @@ import type { KnowledgeTopic } from './types';
 export const INCIDENTS: KnowledgeTopic[] = [
   {
     id: 'incident-what-counts',
+    narrationPriority: 10,
     title: 'What counts as an incident',
     slideIds: [6, 7],
     triggers: [
@@ -86,6 +87,7 @@ export const INCIDENTS: KnowledgeTopic[] = [
 
   {
     id: 'incident-reporting-routes',
+    narrationPriority: 20,
     title: 'How to report',
     slideIds: [6, 7],
     triggers: [

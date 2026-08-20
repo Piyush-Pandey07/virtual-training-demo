@@ -102,6 +102,15 @@ const MIN_CROSS_SLIDE_SCORE = 3;
  */
 const MAX_CORE_ON_QUESTION = 3;
 
+/**
+ * How many of a slide's topics are taught at full depth when narrating it.
+ *
+ * Four is what fits. Slide 2 has seven topics and slide 4 has eight, and a slide
+ * budgeted at two and a half minutes cannot do justice to that many, so the rest
+ * ride along compactly for the trainee who asks.
+ */
+const MAX_CORE_ON_NARRATION = 4;
+
 export interface SelectKnowledgeArgs {
   slideId: number;
   /** Present for question-answering turns. */
@@ -132,10 +141,28 @@ export function selectKnowledge({
   const asked = question?.trim();
 
   if (!asked) {
-    for (const topic of slideTopics) {
-      selected.push({ topic, weight: 'core', reason: `on slide ${slideId}` });
+    // Narration. The slide's most important topics go in at depth and the rest
+    // travel compactly.
+    //
+    // Handing over every topic on a busy slide was the actual cause of narration
+    // running fifty per cent past its budget: slide 2 carries seven topics and
+    // 27,000 characters, and the model used what it was given however the prompt
+    // was worded. Choosing here is more effective than asking it to be brief, and
+    // nothing is lost, because the demoted topics are still present and the slide's
+    // own key points still name everything on screen.
+    const ranked = [...slideTopics].sort(
+      (a, b) => (a.narrationPriority ?? 50) - (b.narrationPriority ?? 50),
+    );
+
+    ranked.forEach((topic, index) => {
+      const core = index < MAX_CORE_ON_NARRATION;
+      selected.push({
+        topic,
+        weight: core ? 'core' : 'supporting',
+        reason: core ? `on slide ${slideId}` : `on slide ${slideId}, beyond the narration budget`,
+      });
       taken.add(topic.id);
-    }
+    });
   } else {
     const normalised = normalise(asked);
 

@@ -45,9 +45,38 @@ describe('knowledge base integrity', () => {
 });
 
 describe('selectKnowledge', () => {
-  it('makes every slide topic core when narrating, since the job is the whole slide', () => {
+  it('carries every topic on the slide when narrating, none dropped', () => {
     const selected = selectKnowledge({ slideId: 2 });
-    assert.ok(selected.length > 1);
+    const onSlide = ALL_TOPICS.filter((t) => t.slideIds.includes(2));
+    assert.equal(selected.length, onSlide.length);
+  });
+
+  /**
+   * Handing over all seven of slide 2's topics at depth was what made narration
+   * run half again past its budget. The model uses what it is given, whatever the
+   * prompt says about brevity, so the choosing happens here.
+   */
+  it('teaches only the slide priorities at depth, and carries the rest compactly', () => {
+    const selected = selectKnowledge({ slideId: 2 });
+    const core = selected.filter((s) => s.weight === 'core');
+    assert.ok(core.length <= 4, `${core.length} topics at full depth is too many to teach`);
+    assert.ok(
+      selected.some((s) => s.weight === 'supporting'),
+      'nothing was demoted',
+    );
+  });
+
+  it('promotes by declared narration priority, not authoring order', () => {
+    const core = selectKnowledge({ slideId: 2 })
+      .filter((s) => s.weight === 'core')
+      .map((s) => s.topic.id);
+    // Slide 2's brief says spend the time on these two, so they must survive the cap.
+    assert.ok(core.includes('threat-spear-phishing'));
+    assert.ok(core.includes('threat-passwords'));
+  });
+
+  it('keeps a small slide entirely at depth, since there is room for it', () => {
+    const selected = selectKnowledge({ slideId: 5 });
     assert.ok(selected.every((s) => s.weight === 'core'));
   });
 
