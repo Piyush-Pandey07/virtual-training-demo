@@ -59,8 +59,7 @@ Open http://localhost:3000.
 
 > Headphones are recommended. On speakers, the trainer's own voice can carry into the microphone and
 > get transcribed. Browser echo cancellation is enabled and there is a word-count threshold before a
-> barge-in registers, but headphones remove the problem outright. There is also a push to talk mode
-> for noisy rooms.
+> barge-in registers, but headphones remove the problem outright.
 
 ### Optional settings
 
@@ -449,8 +448,9 @@ classification topic.
 - Speech to text is English only, set by the `language=en` parameter on the transcription socket.
 - Barge-in behaviour differs by transport. On `stream` it needs two or more transcribed words, so a
   single word interjection such as "wait" will not stop the trainer. On `batch` it fires on sustained
-  energy, which is faster but will also trigger on a loud noise. Push to talk is the reliable route in
-  a noisy room either way.
+  energy, which is faster but will also trigger on a loud noise. Headphones are the reliable answer in a
+  noisy room, since the microphone is always open and there is no push to talk mode: the toggle was
+  removed at the client's request, and it is recoverable from git history if a room ever needs it.
 - The `batch` transport has no live partial transcript, because there is nothing to show until the
   utterance has been sent and transcribed.
 - Conversation history sent to the model is capped at the last 24 turns, so a very long session will

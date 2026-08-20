@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import type { ListeningMode } from '@/hooks/useTrainingSession';
 import { TOTAL_SLIDES } from '@/lib/deck';
 import type { MicState, SessionPhase } from '@/lib/types';
 
@@ -11,8 +10,6 @@ interface SessionControlsProps {
   micState: MicState;
   slideId: number;
   trainerSpeaking: boolean;
-  listeningMode: ListeningMode;
-  pushToTalkActive: boolean;
   onPrevious: () => void;
   onNext: () => void;
   onRepeat: () => void;
@@ -20,8 +17,6 @@ interface SessionControlsProps {
   onInterrupt: () => void;
   onEnd: () => void;
   onAskByText: (question: string) => void;
-  onListeningModeChange: (mode: ListeningMode) => void;
-  onPushToTalkChange: (active: boolean) => void;
 }
 
 const BUTTON =
@@ -32,17 +27,17 @@ const PRIMARY = `${BUTTON} bg-azure text-mist hover:bg-teal hover:text-charcoal`
 /**
  * Session controls, plus a typed fallback for asking a question.
  *
- * Push to talk exists because a live demo is often given in a room with other
- * people talking, or on speakers where the trainer's own voice can leak into the
- * microphone. Holding a key removes both problems.
+ * The microphone is always open while the session runs. There was a listening
+ * mode toggle offering push to talk as an alternative, which was removed at the
+ * client's request: the two-way choice is a decision the trainee should not have
+ * to make, and hands free was already the default. Push to talk is recoverable
+ * from git history if a noisy room ever makes it worth having back.
  */
 export function SessionControls({
   phase,
   micState,
   slideId,
   trainerSpeaking,
-  listeningMode,
-  pushToTalkActive,
   onPrevious,
   onNext,
   onRepeat,
@@ -50,8 +45,6 @@ export function SessionControls({
   onInterrupt,
   onEnd,
   onAskByText,
-  onListeningModeChange,
-  onPushToTalkChange,
 }: SessionControlsProps) {
   const [draft, setDraft] = useState('');
   const ended = phase === 'ended';
@@ -68,41 +61,10 @@ export function SessionControls({
    * Connecting is different: there is no session to navigate yet.
    */
   const locked = phase === 'connecting' || ended;
+
   // A blocked or broken microphone is a standing condition, not a passing error,
   // so it stays on screen rather than living in the dismissible banner.
   const micUnavailable = micState === 'denied' || micState === 'error';
-
-  // Space holds the microphone open in push to talk. Ignored while typing.
-  useEffect(() => {
-    if (listeningMode !== 'push-to-talk') return;
-
-    const isTypingTarget = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-
-    const down = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat || isTypingTarget(event.target)) return;
-      event.preventDefault();
-      onPushToTalkChange(true);
-    };
-    const up = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || isTypingTarget(event.target)) return;
-      event.preventDefault();
-      onPushToTalkChange(false);
-    };
-
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-    };
-  }, [listeningMode, onPushToTalkChange]);
-
-  // Leaving push to talk must not strand the microphone in the held state.
-  useEffect(() => {
-    if (listeningMode !== 'push-to-talk' && pushToTalkActive) onPushToTalkChange(false);
-  }, [listeningMode, pushToTalkActive, onPushToTalkChange]);
 
   const submitDraft = () => {
     const question = draft.trim();
@@ -159,57 +121,10 @@ export function SessionControls({
               : 'Voice input could not start. You can carry on by typing your questions below.'}
           </p>
         ) : (
-          <>
-            <div
-              className="ring-charcoal-line inline-flex overflow-hidden rounded-md ring-1 ring-inset"
-              role="group"
-              aria-label="Listening mode"
-            >
-              {(['hands-free', 'push-to-talk'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => onListeningModeChange(mode)}
-                  aria-pressed={listeningMode === mode}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    listeningMode === mode
-                      ? 'bg-azure text-mist'
-                      : 'text-muted hover:text-mist bg-transparent'
-                  }`}
-                >
-                  {mode === 'hands-free' ? 'Hands free' : 'Push to talk'}
-                </button>
-              ))}
-            </div>
-
-            {listeningMode === 'push-to-talk' ? (
-              <button
-                type="button"
-                onMouseDown={() => onPushToTalkChange(true)}
-                onMouseUp={() => onPushToTalkChange(false)}
-                onMouseLeave={() => pushToTalkActive && onPushToTalkChange(false)}
-                onTouchStart={(event) => {
-                  event.preventDefault();
-                  onPushToTalkChange(true);
-                }}
-                onTouchEnd={() => onPushToTalkChange(false)}
-                className={`${BUTTON} ${
-                  pushToTalkActive
-                    ? 'bg-teal text-charcoal'
-                    : 'bg-charcoal text-mist hover:bg-charcoal-line'
-                }`}
-              >
-                {pushToTalkActive
-                  ? 'Listening, release when done'
-                  : 'Hold to talk, or hold the space bar'}
-              </button>
-            ) : (
-              <p className="text-muted text-xs">
-                Just speak. Interrupting is fine. Headphones keep the trainer&apos;s voice out of
-                your microphone.
-              </p>
-            )}
-          </>
+          <p className="text-muted text-xs">
+            Just speak. Interrupting is fine. Headphones keep the trainer&apos;s voice out of your
+            microphone.
+          </p>
         )}
       </div>
 

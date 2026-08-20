@@ -30,8 +30,6 @@ import type {
 import { useSpeechInput, type SttTransport } from './useSpeechInput';
 import { useTtsPlayer } from './useTtsPlayer';
 
-export type ListeningMode = 'hands-free' | 'push-to-talk';
-
 /**
  * A barge-in needs more than one stray syllable, or the trainer gets cut off by
  * a cough or by its own voice leaking through the speakers.
@@ -74,8 +72,6 @@ export interface UseTrainingSessionResult {
   /** True while a batch utterance is being transcribed. */
   transcribing: boolean;
   trainerSpeaking: boolean;
-  listeningMode: ListeningMode;
-  pushToTalkActive: boolean;
 
   startSession: (traineeName?: string) => Promise<void>;
   endSession: () => void;
@@ -87,8 +83,6 @@ export interface UseTrainingSessionResult {
   /** Types a question instead of speaking it. Useful when there is no microphone. */
   askByText: (question: string) => void;
   interruptTrainer: () => void;
-  setListeningMode: (mode: ListeningMode) => void;
-  setPushToTalkActive: (active: boolean) => void;
   dismissError: () => void;
 }
 
@@ -99,8 +93,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>([]);
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
-  const [listeningMode, setListeningMode] = useState<ListeningMode>('hands-free');
-  const [pushToTalkActive, setPushToTalkActive] = useState(false);
   const [traineeName, setTraineeName] = useState<string | undefined>();
 
   /** Refs mirror state that async callbacks need to read without going stale. */
@@ -115,8 +107,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const busyRef = useRef(false);
   /** Increments on every turn, so a superseded one knows not to change state. */
   const turnSeqRef = useRef(0);
-  const listeningModeRef = useRef<ListeningMode>('hands-free');
-  const pushToTalkRef = useRef(false);
 
   useEffect(() => {
     slideIdRef.current = slideId;
@@ -133,12 +123,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
-  useEffect(() => {
-    listeningModeRef.current = listeningMode;
-  }, [listeningMode]);
-  useEffect(() => {
-    pushToTalkRef.current = pushToTalkActive;
-  }, [pushToTalkActive]);
   useEffect(() => {
     traineeNameRef.current = traineeName;
   }, [traineeName]);
@@ -330,8 +314,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
       const clean = text.trim();
       if (!clean) return;
       if (phaseRef.current === 'ended') return;
-      // In push to talk, only speech captured while the key is held counts.
-      if (listeningModeRef.current === 'push-to-talk' && !pushToTalkRef.current) return;
 
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
 
@@ -373,7 +355,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
   /** Cuts the trainer off when the trainee starts talking over it. */
   const handleSpeechStart = useCallback(() => {
-    if (listeningModeRef.current === 'push-to-talk' && !pushToTalkRef.current) return;
     if (!ttsRef.current.speaking) return;
     ttsRef.current.interrupt();
     turnAbortRef.current?.abort();
@@ -406,15 +387,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
   useEffect(() => {
     sttRef.current = stt;
   }, [stt]);
-
-  // In push to talk, the microphone stays muted unless the key is held.
-  useEffect(() => {
-    if (listeningMode === 'push-to-talk') {
-      stt.setMuted(!pushToTalkActive);
-    } else {
-      stt.setMuted(false);
-    }
-  }, [listeningMode, pushToTalkActive, stt]);
 
   const startSession = useCallback(
     async (name?: string) => {
@@ -555,8 +527,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     sttTransport: stt.transport,
     transcribing: stt.transcribing,
     trainerSpeaking: tts.speaking,
-    listeningMode,
-    pushToTalkActive,
     startSession,
     endSession,
     nextSlide,
@@ -566,8 +536,6 @@ export function useTrainingSession(): UseTrainingSessionResult {
     askQuiz,
     askByText,
     interruptTrainer,
-    setListeningMode,
-    setPushToTalkActive,
     dismissError: () => setError(null),
   };
 }

@@ -153,8 +153,6 @@ export default function SessionPage() {
                 micState={session.micState}
                 slideId={session.slideId}
                 trainerSpeaking={session.trainerSpeaking}
-                listeningMode={session.listeningMode}
-                pushToTalkActive={session.pushToTalkActive}
                 onPrevious={session.previousSlide}
                 onNext={session.nextSlide}
                 onRepeat={session.repeatSlide}
@@ -162,8 +160,6 @@ export default function SessionPage() {
                 onInterrupt={session.interruptTrainer}
                 onEnd={session.endSession}
                 onAskByText={session.askByText}
-                onListeningModeChange={session.setListeningMode}
-                onPushToTalkChange={session.setPushToTalkActive}
               />
             </div>
 
