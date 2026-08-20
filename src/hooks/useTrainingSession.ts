@@ -158,6 +158,26 @@ export function useTrainingSession(): UseTrainingSessionResult {
     });
   }, []);
 
+  /**
+   * Takes the floor from whatever turn currently holds it.
+   *
+   * Every caller repeated these four lines, and one of them getting it wrong is
+   * what made End session fail: it cleared busyRef and aborted, but left the turn
+   * token intact, so the cancelled turn resumed a microtask later, appended its
+   * entry and set the phase back to 'listening'. The "Session complete" panel
+   * appeared and then vanished, and the trainee had to press End twice on a
+   * session whose microphone was already gone.
+   *
+   * Bumping the token is the piece that matters: a turn that no longer holds the
+   * floor must not touch phase, coveredSlideIds or busyRef when it unwinds.
+   */
+  const cancelCurrentTurn = useCallback(() => {
+    turnSeqRef.current += 1;
+    turnAbortRef.current?.abort();
+    busyRef.current = false;
+    ttsRef.current.interrupt();
+  }, []);
+
   const buildHistory = useCallback(
     (): HistoryTurn[] =>
       transcriptRef.current.map((entry) => ({
@@ -175,6 +195,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
   const runTurn = useCallback(
     async (kind: TurnKind, opts: { question?: string; slideId?: number } = {}) => {
       if (busyRef.current) return;
+      // An ended session stays ended. Without this, any control that reaches
+      // runTurn could restart the trainer after the microphone had been torn
+      // down, leaving a session that looks live but cannot hear.
+      if (phaseRef.current === 'ended' && kind !== 'recap') return;
       busyRef.current = true;
 
       const targetSlide = clampSlideId(opts.slideId ?? slideIdRef.current);
@@ -296,6 +320,13 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
         setPhase(kind === 'recap' ? 'ended' : 'listening');
       } catch (caught) {
+        // An interrupted turn still said something, and the model needs it as
+        // context: without this the trainee's next question is answered as though
+        // the last half-minute of narration never happened.
+        const partial = spoken.trim();
+        if ((caught as Error).name === 'AbortError' && partial) {
+          appendEntry(makeEntry('trainer', partial, targetSlide));
+        }
         if ((caught as Error).name !== 'AbortError' && isCurrent()) {
           setError((caught as Error).message);
           setPhase('error');
@@ -314,6 +345,20 @@ export function useTrainingSession(): UseTrainingSessionResult {
       const clean = text.trim();
       if (!clean) return;
       if (phaseRef.current === 'ended') return;
+
+      /**
+       * Take the floor before routing, exactly as the typed path already did.
+       *
+       * Without this, anything said while a turn was generating hit the busyRef
+       * guard in runTurn and was thrown away in silence. Barge-in did not save it,
+       * because barge-in only fires while audio is actually playing and there is
+       * none during the three to eight seconds Gemini takes. Asking a question in
+       * that window simply lost it, and with the transcript panel gone there was
+       * no trace at all. The advance case was worse: the deck moved to the next
+       * slide and the narration for it was dropped, which is the stalled session
+       * that started this whole line of work.
+       */
+      cancelCurrentTurn();
 
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
 
@@ -350,17 +395,15 @@ export function useTrainingSession(): UseTrainingSessionResult {
       noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, noteQuestion, runTurn],
+    [appendEntry, cancelCurrentTurn, noteQuestion, runTurn],
   );
 
   /** Cuts the trainer off when the trainee starts talking over it. */
   const handleSpeechStart = useCallback(() => {
     if (!ttsRef.current.speaking) return;
-    ttsRef.current.interrupt();
-    turnAbortRef.current?.abort();
-    busyRef.current = false;
+    cancelCurrentTurn();
     setPhase('listening');
-  }, []);
+  }, [cancelCurrentTurn]);
 
   const handleInterim = useCallback(
     (text: string) => {
@@ -415,37 +458,31 @@ export function useTrainingSession(): UseTrainingSessionResult {
   );
 
   const endSession = useCallback(() => {
-    turnAbortRef.current?.abort();
-    busyRef.current = false;
-    ttsRef.current.interrupt();
+    cancelCurrentTurn();
     sttRef.current.stop();
     setPhase('ended');
-  }, []);
+  }, [cancelCurrentTurn]);
 
   const goToSlide = useCallback(
     (id: number) => {
       const next = clampSlideId(id);
-      ttsRef.current.interrupt();
-      turnAbortRef.current?.abort();
-      busyRef.current = false;
+      cancelCurrentTurn();
       setSlideId(next);
       slideIdRef.current = next;
       void runTurn('narrate', { slideId: next });
     },
-    [runTurn],
+    [cancelCurrentTurn, runTurn],
   );
 
   const nextSlide = useCallback(() => {
     const next = slideIdRef.current + 1;
     if (next > TOTAL_SLIDES) {
-      ttsRef.current.interrupt();
-      turnAbortRef.current?.abort();
-      busyRef.current = false;
+      cancelCurrentTurn();
       void runTurn('recap');
       return;
     }
     goToSlide(next);
-  }, [goToSlide, runTurn]);
+  }, [cancelCurrentTurn, goToSlide, runTurn]);
 
   const previousSlide = useCallback(() => {
     goToSlide(slideIdRef.current - 1);
@@ -456,19 +493,15 @@ export function useTrainingSession(): UseTrainingSessionResult {
   }, [goToSlide]);
 
   const askQuiz = useCallback(() => {
-    ttsRef.current.interrupt();
-    turnAbortRef.current?.abort();
-    busyRef.current = false;
+    cancelCurrentTurn();
     void runTurn('quiz');
-  }, [runTurn]);
+  }, [cancelCurrentTurn, runTurn]);
 
   const askByText = useCallback(
     (text: string) => {
       const clean = text.trim();
       if (!clean) return;
-      ttsRef.current.interrupt();
-      turnAbortRef.current?.abort();
-      busyRef.current = false;
+      cancelCurrentTurn();
       appendEntry(makeEntry('trainee', clean, slideIdRef.current));
 
       // Typing "next slide" should do what saying it does, so this goes through
@@ -501,15 +534,13 @@ export function useTrainingSession(): UseTrainingSessionResult {
       noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, noteQuestion, runTurn],
+    [appendEntry, cancelCurrentTurn, noteQuestion, runTurn],
   );
 
   const interruptTrainer = useCallback(() => {
-    ttsRef.current.interrupt();
-    turnAbortRef.current?.abort();
-    busyRef.current = false;
+    cancelCurrentTurn();
     if (phaseRef.current !== 'ended') setPhase('listening');
-  }, []);
+  }, [cancelCurrentTurn]);
 
   const slideIndex = useMemo(() => SLIDES.findIndex((slide) => slide.id === slideId), [slideId]);
 

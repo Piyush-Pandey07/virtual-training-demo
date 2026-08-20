@@ -51,6 +51,18 @@ export function useMicCapture({ onChunk, onError }: Options): UseMicCaptureResul
   const streamRef = useRef<MediaStream | null>(null);
   const workletRef = useRef<AudioWorkletNode | null>(null);
   const mutedRef = useRef(false);
+  /**
+   * Invalidates an in-flight start().
+   *
+   * Opening the microphone means awaiting getUserMedia and then awaiting the
+   * worklet module, and either can still be pending when the component unmounts or
+   * the session ends. stop() only clears refs, so a start() that resumes afterwards
+   * would assign a live stream and a running AudioContext to refs nobody holds any
+   * more: the recording indicator stays lit for the life of the tab and the worklet
+   * keeps posting chunks with no way to stop it. Every await re-checks this token
+   * and disposes what it acquired instead.
+   */
+  const runIdRef = useRef(0);
 
   const onChunkRef = useRef(onChunk);
   const onErrorRef = useRef(onError);
@@ -60,6 +72,9 @@ export function useMicCapture({ onChunk, onError }: Options): UseMicCaptureResul
   }, [onChunk, onError]);
 
   const stop = useCallback(() => {
+    // Any start() still waiting on an await belongs to a previous run now.
+    runIdRef.current += 1;
+
     workletRef.current?.port.close();
     workletRef.current?.disconnect();
     workletRef.current = null;
@@ -77,6 +92,11 @@ export function useMicCapture({ onChunk, onError }: Options): UseMicCaptureResul
 
   const start = useCallback(async () => {
     if (streamRef.current) return true;
+    // Claiming a token here also makes stop-then-start correct, because the
+    // abandoned run can no longer match.
+    runIdRef.current += 1;
+    const runId = runIdRef.current;
+    const superseded = () => runIdRef.current !== runId;
     setState('requesting');
 
     // Ask for the processing that keeps the trainer's own voice out of the
@@ -103,6 +123,13 @@ export function useMicCapture({ onChunk, onError }: Options): UseMicCaptureResul
       );
       return false;
     }
+
+    // Release the device rather than merely bailing out. A stale run must not
+    // call stop(), because a newer start() may already own the refs.
+    if (superseded()) {
+      stream.getTracks().forEach((track) => track.stop());
+      return false;
+    }
     streamRef.current = stream;
 
     // Creating the context at the capture rate means the browser resamples the
@@ -111,6 +138,12 @@ export function useMicCapture({ onChunk, onError }: Options): UseMicCaptureResul
       const context = new AudioContext({ sampleRate: CAPTURE_SAMPLE_RATE });
       contextRef.current = context;
       await context.audioWorklet.addModule('/worklets/pcm-processor.js');
+
+      if (superseded()) {
+        void context.close().catch(() => undefined);
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
 
       const source = context.createMediaStreamSource(stream);
       const worklet = new AudioWorkletNode(context, 'pcm-processor');

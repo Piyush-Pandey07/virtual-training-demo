@@ -161,7 +161,14 @@ with a short-lived token from `/api/deepgram/token`. Live partial transcripts ap
 speaks, and barge-in triggers off the transcript. This is the better experience, and needs a key with
 **Member** permissions, because `/v1/auth/grant` is a management operation.
 
-**`batch`**, the fallback when token minting returns a permissions error. The browser runs a small
+**`batch`**, the fallback when token minting returns a permissions error, and also where a live
+socket lands if it drops mid-session. Losing the socket used to be terminal: the dead socket stayed
+in place, every chunk was dropped silently, and the interface still said "Listening, go ahead" while
+the trainee talked to a session that could no longer hear them. It now tears down and switches
+transport in place, which works because the microphone is independent of the socket and `/api/stt`
+uses the same key.
+
+The browser runs a small
 energy-based voice activity detector (onset count, pre-roll ring, silence hangover), buffers the
 utterance locally, and posts the PCM to `/api/stt`. No live captions, and the transcript lands a beat
 after the trainee stops speaking, but it needs no permission beyond speech itself.
@@ -448,9 +455,13 @@ classification topic.
 - Speech to text is English only, set by the `language=en` parameter on the transcription socket.
 - Barge-in behaviour differs by transport. On `stream` it needs two or more transcribed words, so a
   single word interjection such as "wait" will not stop the trainer. On `batch` it fires on sustained
-  energy, which is faster but will also trigger on a loud noise. Headphones are the reliable answer in a
-  noisy room, since the microphone is always open and there is no push to talk mode: the toggle was
-  removed at the client's request, and it is recoverable from git history if a room ever needs it.
+  energy, which is faster but will also trigger on a loud noise. The onset threshold is now derived
+  from the transcription floor, so anything loud enough to interrupt is always long enough to be sent,
+  but a genuine 300 ms noise will still take the floor. Headphones are the reliable answer in a noisy
+  room, since the microphone is always open and there is no push to talk mode: the toggle was removed
+  at the client's request, and it is recoverable from git history if a room ever needs it.
+- Interrupting the trainer returns the floor and does not resume the narration, by design. "Explain
+  again" restarts the slide. This is the same behaviour as the Stop talking button.
 - The `batch` transport has no live partial transcript, because there is nothing to show until the
   utterance has been sent and transcribed.
 - Conversation history sent to the model is capped at the last 24 turns, so a very long session will

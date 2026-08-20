@@ -102,6 +102,19 @@ export default function SessionPage() {
   const showLobby = session.phase === 'idle';
   const busy = session.phase === 'thinking' || session.phase === 'connecting';
 
+  /**
+   * The slide rail was gated on `busy`, which is the wrong condition twice over.
+   *
+   * It left the chips live in the `ended` phase, so clicking one restarted the
+   * trainer on a session whose microphone had already been torn down: the
+   * "Session complete" card vanished and the trainer talked on with no way to
+   * hear anyone. It also disabled the chips for the whole ten seconds a turn
+   * takes, which contradicts Previous and Next right beside them.
+   *
+   * `busy` is still right for dimming the slide, which is exactly what it means.
+   */
+  const navLocked = session.phase === 'connecting' || session.phase === 'ended';
+
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
@@ -145,7 +158,7 @@ export default function SessionPage() {
                 currentId={session.slideId}
                 coveredIds={session.coveredSlideIds}
                 onSelect={session.goToSlide}
-                disabled={busy}
+                disabled={navLocked}
               />
 
               <SessionControls

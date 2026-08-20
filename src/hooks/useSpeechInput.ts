@@ -41,9 +41,6 @@ const UTTERANCE_END_MS = 1_000;
 /** Loudness above which a chunk counts as speech. */
 const VAD_SPEECH_RMS = 0.02;
 
-/** Consecutive speech chunks before speech is declared. Rejects clicks and coughs. */
-const VAD_ONSET_CHUNKS = 3;
-
 /** Silence after speech before the utterance is considered finished. */
 const VAD_HANGOVER_MS = 700;
 
@@ -52,6 +49,18 @@ const VAD_PREROLL_CHUNKS = 5;
 
 /** Discard anything shorter than this once trimmed. */
 const VAD_MIN_SPEECH_MS = 250;
+
+/**
+ * Consecutive speech chunks before speech is declared. Rejects clicks and coughs.
+ *
+ * Derived from the floor above rather than set independently, because declaring
+ * speech is what cuts the trainer off mid-sentence. These were 3 chunks (192 ms)
+ * against a 250 ms floor, leaving a 58 ms window where a throat clear was loud
+ * enough to stop the narration and then too short to be transcribed, so the
+ * trainee lost the rest of the slide and got nothing in return. Deriving one from
+ * the other means any onset that interrupts is always long enough to be sent.
+ */
+const VAD_ONSET_CHUNKS = Math.ceil(VAD_MIN_SPEECH_MS / CHUNK_MS);
 
 /** Flush regardless past this length, so a stuck detector cannot buffer forever. */
 const VAD_MAX_UTTERANCE_MS = 30_000;
@@ -286,93 +295,126 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     setTranscribing(false);
   }, [resetBatchState, teardownSocket]);
 
-  const openSocket = useCallback((credentials: DeepgramTokenResponse) => {
-    const url = new URL('wss://api.deepgram.com/v1/listen');
-    url.searchParams.set('model', credentials.model);
-    url.searchParams.set('encoding', 'linear16');
-    url.searchParams.set('sample_rate', String(CAPTURE_SAMPLE_RATE));
-    url.searchParams.set('channels', '1');
-    url.searchParams.set('interim_results', 'true');
-    url.searchParams.set('smart_format', 'true');
-    url.searchParams.set('punctuate', 'true');
-    url.searchParams.set('endpointing', String(ENDPOINTING_MS));
-    url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
-    url.searchParams.set('vad_events', 'true');
-    url.searchParams.set('language', 'en');
+  const openSocket = useCallback(
+    (credentials: DeepgramTokenResponse) => {
+      const url = new URL('wss://api.deepgram.com/v1/listen');
+      url.searchParams.set('model', credentials.model);
+      url.searchParams.set('encoding', 'linear16');
+      url.searchParams.set('sample_rate', String(CAPTURE_SAMPLE_RATE));
+      url.searchParams.set('channels', '1');
+      url.searchParams.set('interim_results', 'true');
+      url.searchParams.set('smart_format', 'true');
+      url.searchParams.set('punctuate', 'true');
+      url.searchParams.set('endpointing', String(ENDPOINTING_MS));
+      url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
+      url.searchParams.set('vad_events', 'true');
+      url.searchParams.set('language', 'en');
 
-    const socket = new WebSocket(url, [credentials.scheme, credentials.token]);
-    socket.binaryType = 'arraybuffer';
-    socketRef.current = socket;
+      const socket = new WebSocket(url, [credentials.scheme, credentials.token]);
+      socket.binaryType = 'arraybuffer';
+      socketRef.current = socket;
 
-    const flushPending = () => {
-      const text = pendingRef.current.trim();
-      pendingRef.current = '';
-      speakingRef.current = false;
-      setInterim('');
-      if (text) optionsRef.current.onUtterance(text);
-    };
-
-    socket.onopen = () => {
-      keepaliveRef.current = setInterval(() => {
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
-        }
-      }, KEEPALIVE_MS);
-    };
-
-    socket.onmessage = (event) => {
-      if (typeof event.data !== 'string') return;
-
-      let message: DeepgramTranscriptMessage;
-      try {
-        message = JSON.parse(event.data) as DeepgramTranscriptMessage;
-      } catch {
-        return;
-      }
-
-      if (message.type === 'UtteranceEnd') {
-        flushPending();
-        return;
-      }
-      if (message.type !== 'Results') return;
-
-      const transcript = message.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
-      if (!transcript) return;
-
-      if (!speakingRef.current) {
-        speakingRef.current = true;
-        optionsRef.current.onSpeechStart?.();
-      }
-
-      if (message.is_final) {
-        pendingRef.current = `${pendingRef.current} ${transcript}`.trim();
+      const flushPending = () => {
+        const text = pendingRef.current.trim();
+        pendingRef.current = '';
+        speakingRef.current = false;
         setInterim('');
-        if (message.speech_final) flushPending();
-      } else {
-        const live = `${pendingRef.current} ${transcript}`.trim();
-        setInterim(live);
-        optionsRef.current.onInterim?.(live);
-      }
-    };
+        if (text) optionsRef.current.onUtterance(text);
+      };
 
-    socket.onerror = () => {
-      if (stoppingRef.current) return;
-      optionsRef.current.onError?.(
-        'The transcription connection failed. Check your network and start the session again.',
-      );
-    };
+      socket.onopen = () => {
+        keepaliveRef.current = setInterval(() => {
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
+          }
+        }, KEEPALIVE_MS);
+      };
 
-    socket.onclose = (event) => {
-      if (stoppingRef.current) return;
-      if (event.code !== 1000 && event.code !== 1005) {
-        optionsRef.current.onError?.(
-          event.code === 1006
-            ? 'Deepgram closed the connection during setup, which usually means the token was rejected.'
-            : `Transcription stopped unexpectedly (code ${event.code}).`,
+      socket.onmessage = (event) => {
+        if (typeof event.data !== 'string') return;
+
+        let message: DeepgramTranscriptMessage;
+        try {
+          message = JSON.parse(event.data) as DeepgramTranscriptMessage;
+        } catch {
+          return;
+        }
+
+        if (message.type === 'UtteranceEnd') {
+          flushPending();
+          return;
+        }
+        if (message.type !== 'Results') return;
+
+        const transcript = message.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
+        if (!transcript) return;
+
+        if (!speakingRef.current) {
+          speakingRef.current = true;
+          optionsRef.current.onSpeechStart?.();
+        }
+
+        if (message.is_final) {
+          pendingRef.current = `${pendingRef.current} ${transcript}`.trim();
+          setInterim('');
+          if (message.speech_final) flushPending();
+        } else {
+          const live = `${pendingRef.current} ${transcript}`.trim();
+          setInterim(live);
+          optionsRef.current.onInterim?.(live);
+        }
+      };
+
+      /**
+       * Losing the socket used to be terminal.
+       *
+       * The dead socket stayed in socketRef, the keepalive kept ticking, and every
+       * chunk was dropped silently because readyState was not OPEN. The microphone
+       * stayed live and the interface still said "Listening, go ahead", so the
+       * trainee carried on talking to a session that could no longer hear them.
+       * start() could not recover it either, since it returns early while
+       * transportRef is set, and nothing sets phase back to idle to reach the lobby.
+       *
+       * Falling back in place is better than reconnecting: the microphone is already
+       * open and independent of the socket, and /api/stt transcribes with the same
+       * key, so voice input keeps working with a beat more latency and no partials.
+       */
+      const fallBackToBatch = (reason: string) => {
+        if (stoppingRef.current) return;
+        if (transportRef.current !== 'stream') return;
+
+        teardownSocket();
+        pendingRef.current = '';
+        speakingRef.current = false;
+        setInterim('');
+        resetBatchState();
+
+        transportRef.current = 'batch';
+        setTransport('batch');
+
+        optionsRef.current.onError?.(reason);
+      };
+
+      socket.onerror = () => {
+        fallBackToBatch(
+          'The live transcription connection dropped, so your speech is now being sent in short bursts instead. Carry on talking as normal.',
         );
-      }
-    };
-  }, []);
+      };
+
+      socket.onclose = (event) => {
+        if (stoppingRef.current) return;
+        // 1000 and 1005 are ordinary closes, which happen when we hang up.
+        if (event.code === 1000 || event.code === 1005) return;
+
+        fallBackToBatch(
+          event.code === 1006
+            ? 'Live transcription could not connect, most likely because the Deepgram key cannot mint browser tokens. Your speech is being sent in short bursts instead, which works just as well.'
+            : `Live transcription stopped (code ${event.code}), so your speech is now being sent in short bursts instead. Carry on talking as normal.`,
+        );
+      };
+    },
+    [resetBatchState, teardownSocket],
+  );
 
   const start = useCallback(async () => {
     if (transportRef.current) return;
@@ -401,12 +443,20 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       // Network failure reaching our own server. Batch will surface it properly.
     }
 
+    // The token fetch is an await, so the session may have ended meanwhile.
+    // Without this the continuation reopens the microphone and a billed socket
+    // after the trainee pressed End session, with no control left to close them.
+    if (stoppingRef.current) return;
+
     const chosen: SttTransport = credentials ? 'stream' : 'batch';
     transportRef.current = chosen;
     setTransport(chosen);
 
     const opened = await micRef.current.start();
-    if (!opened) {
+    if (!opened || stoppingRef.current) {
+      // Release the microphone this call opened. The earlier stop() ran before
+      // the stream existed, so nothing else will.
+      if (opened) micRef.current.stop();
       transportRef.current = null;
       setTransport(null);
       return;
@@ -429,6 +479,12 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       stoppingRef.current = true;
       sttAbortRef.current?.abort();
       teardownSocket();
+      // The socket alone is not enough. Leaving the microphone running kept the
+      // recording indicator lit after the page was left, and on the batch
+      // transport a stale transport plus a live worklet went on posting audio to
+      // /api/stt and driving whole turns for a session nobody was in.
+      micRef.current.stop();
+      transportRef.current = null;
     },
     [teardownSocket],
   );
