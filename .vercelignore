@@ -1,0 +1,7 @@
+# The source PowerPoint is reference material, not something the app serves.
+# Excluding it keeps roughly 5 MB out of every deployment.
+docs/
+
+# Local only.
+.scratch/
+.claude/

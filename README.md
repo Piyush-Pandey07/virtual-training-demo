@@ -64,10 +64,69 @@ Open http://localhost:3000.
 
 | Variable                     | Default              | Notes                                                                             |
 | ---------------------------- | -------------------- | --------------------------------------------------------------------------------- |
-| `GEMINI_MODEL`               | `gemini-2.5-flash`   | Flash keeps time to first word low, which matters more than depth here.           |
+| `GEMINI_MODEL`               | `gemini-2.5-flash`   | 3.7-flash was tried and reverted: it narrates in stubs for no latency gain.       |
 | `DEEPGRAM_STT_MODEL`         | `nova-3`             | Live transcription model.                                                          |
 | `DEEPGRAM_TTS_MODEL`         | `aura-2-thalia-en`   | Any Aura voice. See the [voice list](https://developers.deepgram.com/docs/tts-models). |
 | `DEEPGRAM_TOKEN_TTL_SECONDS` | `300`                | Lifetime of the browser token. Only needs to outlive the initial handshake.        |
+
+---
+
+## Deploying to Vercel
+
+Import the repository at [vercel.com/new](https://vercel.com/new). Next.js is detected
+automatically, so the build settings need no changes.
+
+Set two environment variables under **Settings → Environment Variables**, for Production, Preview and
+Development:
+
+| Variable | Value |
+| --- | --- |
+| `GEMINI_API_KEY` | Your Google AI Studio key |
+| `DEEPGRAM_API_KEY` | Your Deepgram key |
+
+Nothing else is required. Every other setting has a default in `src/lib/config.ts`, which is
+deliberate: one source of truth beats a dashboard that quietly disagrees with the code.
+
+Then deploy and open `/api/health`:
+
+```bash
+curl https://your-deployment.vercel.app/api/health
+```
+
+`{"ready": true, "missing": []}` means the variables landed. It also reports which models are live,
+which is how to confirm what is actually deployed. It returns no key material and makes no upstream
+calls, so it is safe to leave public. The session lobby calls it on load and blocks the start button
+with a plain explanation if something is missing, rather than letting a trainee grant microphone
+access and then hit an error.
+
+### What was configured for Vercel, and why
+
+**Function durations.** Vercel's default function timeout is 10 seconds. Narration takes 9 to 10
+seconds on the densest slides, so the default would truncate a turn mid-sentence, and a stream cannot
+outlive the function producing it. `/api/chat` is set to 60 seconds, which is the Hobby plan ceiling.
+The other routes are set lower, in each route file next to the code they govern.
+
+**Request body size.** A non-streaming Vercel function cannot accept a body over 4.5 MB. `/api/stt`
+posts raw audio, so its cap is 60 seconds of 16 kHz mono PCM, about 1.9 MB. The browser's own voice
+activity detector stops an utterance at 30 seconds, so that is already double what should ever arrive.
+
+**Deployment size.** `.vercelignore` keeps `docs/` out, which is about 5 MB of source PowerPoint that
+the app never serves.
+
+**Node version.** `engines` pins Node 20 or newer, which Next 16 requires.
+
+### Things worth knowing before the demo
+
+- **HTTPS is required** for microphone access, which Vercel provides. It will not work over plain
+  HTTP on a custom setup.
+- **Cold starts** add a second or two to the first turn after a period of inactivity. Loading the
+  session page early warms it, since the lobby's health check hits the same deployment.
+- **Region** is left at your team default. For an audience in India, `bom1` shortens the browser
+  round trip, though Gemini and Deepgram are reached from the function either way, so the gain is
+  partial. Worth measuring rather than assuming.
+- **Live transcription does not go through Vercel.** The browser opens its socket straight to
+  Deepgram, so that path is unaffected by function limits. See
+  [Speech to text transports](#speech-to-text-transports).
 
 ---
 

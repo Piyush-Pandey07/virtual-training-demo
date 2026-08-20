@@ -13,6 +13,8 @@ import type { DeepgramTokenResponse } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** A single upstream call that either works quickly or not at all. */
+export const maxDuration = 15;
 
 const GRANT_URL = 'https://api.deepgram.com/v1/auth/grant';
 

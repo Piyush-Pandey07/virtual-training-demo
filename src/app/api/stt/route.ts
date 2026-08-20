@@ -15,9 +15,18 @@ import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/confi
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** Transcribing one utterance. Seconds, not minutes. */
+export const maxDuration = 30;
 
-/** Two minutes of 16 kHz mono PCM. Far longer than any single spoken question. */
-const MAX_BYTES = CAPTURE_SAMPLE_RATE * 2 * 120;
+/**
+ * Sixty seconds of 16 kHz mono PCM, about 1.9 MB.
+ *
+ * Deliberately well inside Vercel's 4.5 MB request body limit, which a
+ * non-streaming function cannot exceed. The browser's own voice activity detector
+ * caps an utterance at 30 seconds, so this is double what should ever arrive and
+ * still leaves plenty of margin.
+ */
+const MAX_BYTES = CAPTURE_SAMPLE_RATE * 2 * 60;
 
 /** Below roughly 200 ms there is nothing worth sending. */
 const MIN_BYTES = CAPTURE_SAMPLE_RATE * 2 * 0.2;

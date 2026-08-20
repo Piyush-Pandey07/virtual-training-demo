@@ -24,11 +24,19 @@ function envIntOr(name: string, fallback: number): number {
 }
 
 /**
- * Model used for the trainer's turns. gemini-3.7-flash benchmarked both faster
- * and more concrete than 2.5-flash on this workload, which matters twice over
- * here because the reply is spoken and latency is audible.
+ * Model used for the trainer's turns.
+ *
+ * gemini-3.7-flash was tried and reverted. On a short question it looked better,
+ * faster and more concrete, which is what the original benchmark measured. On the
+ * real narration workload it collapses: 79 words against a 375 word budget on
+ * slide 2, and 77 against 313 on slide 4, where 2.5-flash gives 508 and 366. It
+ * appears to read the "choose rather than exhaust" instruction as licence to
+ * produce a stub. Latency was the same either way, so there was nothing to trade.
+ *
+ * Set GEMINI_MODEL to try another, and check narration length on slides 2, 4 and 5
+ * before keeping it. A short Q&A is not a representative test.
  */
-export const GEMINI_MODEL = () => envOr('GEMINI_MODEL', 'gemini-3.7-flash');
+export const GEMINI_MODEL = () => envOr('GEMINI_MODEL', 'gemini-2.5-flash');
 
 /**
  * Model used for answering questions, which is the hardest thing the trainer

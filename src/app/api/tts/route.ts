@@ -12,6 +12,8 @@ import { AUDIO_SAMPLE_RATE, DEEPGRAM_TTS_MODEL, requireEnv } from '@/lib/config'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** One sentence per call, so a second or two. Generous headroom for a cold start. */
+export const maxDuration = 30;
 
 /** Deepgram rejects very long single requests, and the client sentence-chunks anyway. */
 const MAX_CHARS = 1800;

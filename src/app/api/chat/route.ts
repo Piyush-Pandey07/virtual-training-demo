@@ -3,8 +3,8 @@
  *
  * Streams the trainer's next spoken turn as server sent events. Text arrives as
  * `text` deltas so the client can start speaking before generation finishes, and
- * a slide change arrives as a `nav` event when the model calls the navigation
- * tool.
+ * a slide change arrives as a `nav` event, decided here before generation rather
+ * than by the model. See src/lib/knowledge/index.ts for why.
  */
 
 import { GoogleGenAI, type Content } from '@google/genai';
@@ -19,6 +19,13 @@ import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } fr
 export const runtime = 'nodejs';
 /** Streaming only makes sense uncached. */
 export const dynamic = 'force-dynamic';
+/**
+ * Generation runs 3 to 8 seconds, and longer on the densest slides. Vercel's
+ * default function timeout is 10 seconds, which would truncate a narration
+ * mid-sentence, so this is raised to the Hobby plan ceiling. A stream cannot
+ * outlive the function that produces it.
+ */
+export const maxDuration = 60;
 
 const VALID_KINDS: TurnKind[] = ['narrate', 'answer', 'recap', 'quiz'];
 

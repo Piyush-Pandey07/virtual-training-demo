@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { SessionControls } from '@/components/SessionControls';
@@ -13,9 +13,33 @@ import { useTrainingSession } from '@/hooks/useTrainingSession';
 import { DECK_TITLE, ESTIMATED_MINUTES, getSlide, TOTAL_SLIDES } from '@/lib/deck';
 import { TRAINER_NAME } from '@/lib/trainer';
 
+interface HealthState {
+  ready: boolean;
+  missing: string[];
+}
+
 /** Pre-session screen. Collects an optional name and unlocks audio on the click. */
 function Lobby({ onStart, connecting }: { onStart: (name: string) => void; connecting: boolean }) {
   const [name, setName] = useState('');
+  const [health, setHealth] = useState<HealthState | null>(null);
+
+  // Checked before the trainee is asked for their microphone. On a fresh
+  // deployment with an environment variable missing, the alternative is granting
+  // microphone access and only then being told the session cannot start.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: HealthState | null) => {
+        if (!cancelled && body) setHealth(body);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const blocked = health !== null && !health.ready;
 
   return (
     <div className="mx-auto w-full max-w-lg px-5 py-16">
@@ -41,10 +65,24 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
         className="bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal mt-2 w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset"
       />
 
+      {blocked && (
+        <div
+          role="alert"
+          className="border-logo-red/40 bg-logo-red/10 mt-6 rounded-md border p-4 text-sm"
+        >
+          <p className="font-semibold">This deployment is not configured yet.</p>
+          <p className="text-muted mt-1">
+            Missing {health?.missing.join(' and ')}. Whoever deployed this needs to add{' '}
+            {health?.missing.length === 1 ? 'it' : 'them'} to the environment variables and
+            redeploy.
+          </p>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => onStart(name)}
-        disabled={connecting}
+        disabled={connecting || blocked}
         className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 w-full rounded-md px-6 py-3 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
       >
         {connecting ? 'Connecting' : 'Start the session'}
