@@ -25,10 +25,13 @@ import {
   type DeckSlide,
 } from './deck';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
+import { sanitiseForSpeech } from './speech';
 import { TRAINER_NAME } from './trainer';
 import type { AnswerStyle, HistoryTurn, LearnerProfile, TurnKind } from './types';
 
 export { TRAINER_NAME };
+// Re-exported so the route's existing import keeps working.
+export { sanitiseForSpeech };
 
 /** A compact outline of the whole deck, so the trainer always knows where it is. */
 function deckOutline(): string {
@@ -427,31 +430,4 @@ Close the session warmly. Recap what you covered, name the single habit you want
 Refer to something they actually asked about if there was one, because it shows you were listening and it is the easiest genuine compliment available to you.
 
 End on them rather than on the material. The honest and motivating note is that the controls in this deck work because of what individuals choose to do, so they are not a bystander to any of this. Leave them feeling that they are equipped and that asking was the right instinct. Do not ask another question.`;
-}
-
-/**
- * Strips anything that would sound wrong when spoken. The prompt asks the model
- * to avoid all of this, but a demo should not depend on that holding every time.
- */
-export function sanitiseForSpeech(text: string): string {
-  return (
-    text
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/[*_#`>|]/g, '')
-      .replace(/^\s*[-•–]\s+/gm, '')
-      .replace(/^\s*\d+[.)]\s+/gm, '')
-      // A dash with space around it is punctuation, whichever dash it is, and a
-      // comma is how it should be read aloud. An en dash with no space around it
-      // is a numeric range such as "30-45 days", so it has to survive: the brand
-      // guidelines permit it there and nowhere else.
-      .replace(/\s+[–—―−]+\s+/g, ', ')
-      // An em dash is never a range, so any that are left are punctuation too.
-      .replace(/[—―]/g, ', ')
-      .replace(/\r/g, '')
-      .replace(/[ \t]{2,}/g, ' ')
-      .replace(/ ,/g, ',')
-      .replace(/,{2,}/g, ',')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  );
 }

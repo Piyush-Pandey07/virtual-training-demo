@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { clampSlideId, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
 import { classifyUtterance } from '@/lib/intent';
+import { sanitiseForSpeech } from '@/lib/speech';
 import { detectAnswerStyle } from '@/lib/trainer-prompt';
 import type {
   ChatEvent,
@@ -302,7 +303,9 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
         // Recorded even if this turn has been superseded, because it was
         // generated and at least partly heard, and the model needs it as context.
-        const finalText = spoken.trim();
+        // Cleaned before it becomes history, so markdown the model slipped in does
+        // not come back to it as an example of how it writes.
+        const finalText = sanitiseForSpeech(spoken);
         if (finalText) {
           appendEntry(makeEntry('trainer', finalText, targetSlide));
         }
@@ -323,7 +326,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
         // An interrupted turn still said something, and the model needs it as
         // context: without this the trainee's next question is answered as though
         // the last half-minute of narration never happened.
-        const partial = spoken.trim();
+        const partial = sanitiseForSpeech(spoken);
         if ((caught as Error).name === 'AbortError' && partial) {
           appendEntry(makeEntry('trainer', partial, targetSlide));
         }

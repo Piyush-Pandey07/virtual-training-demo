@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
+import { sanitiseForSpeech } from '@/lib/speech';
 
 /** Below this, a fragment is too short to be worth its own request. */
 const MIN_CHUNK_CHARS = 60;
@@ -194,7 +195,16 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
   const enqueue = useCallback(
     (text: string) => {
-      const trimmed = text.trim();
+      /**
+       * The last gate before text becomes audio.
+       *
+       * Sanitising used to happen only on the server, into a `done` event the
+       * client never read, so every markdown asterisk and stray dash the model
+       * produced was spoken aloud. Doing it here catches both paths into the
+       * queue, and it happens after drain() has assembled a whole clause, so the
+       * line-anchored and space-sensitive rules see the context they need.
+       */
+      const trimmed = sanitiseForSpeech(text);
       if (!trimmed) return;
 
       const generation = generationRef.current;
