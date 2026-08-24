@@ -209,9 +209,20 @@ export async function POST(request: Request) {
 
       const config = {
         systemInstruction: buildSystemInstruction(deck, traineeName),
-        // Narration is fully briefed, so variation buys nothing and costs length
-        // discipline. Questions are open-ended and benefit from a warmer setting.
-        temperature: effectiveKind === 'narrate' ? 0.55 : 0.75,
+        /**
+         * Narration is fully briefed, so variation buys nothing and costs length
+         * discipline.
+         *
+         * Answers used to run at 0.75, on the reasoning that a question is open-ended
+         * and benefits from a warmer setting. What the warmth actually bought was
+         * variation in length: measured across a ten-question session, replies
+         * averaged 80 words against a 57 word budget and the same prompt gave means of
+         * 71 and 80 on consecutive runs. The variety that mattered, in how a turn hands
+         * back, is now asked for explicitly in the prompt instead, which is a better
+         * place for it: the prompt can say what good variety looks like and a
+         * temperature can only make everything less predictable at once.
+         */
+        temperature: effectiveKind === 'narrate' ? 0.55 : 0.6,
         maxOutputTokens: 2400,
         abortSignal: request.signal,
       };

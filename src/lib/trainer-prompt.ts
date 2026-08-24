@@ -24,6 +24,12 @@ import 'server-only';
 import { firstSlideId, lastSlideId, totalSlides } from './deck';
 import type { DeckMeta, DeckRecord, DeckSlide } from './deck-types';
 import { detectAnswerStyle } from './intent';
+import {
+  earlierSimilarQuestion,
+  lastTurnAskedSomething,
+  recentClosings,
+  turnsOnSlide,
+} from './trainee-read';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { sanitiseForSpeech } from './speech';
 import { TRAINER_NAME } from './trainer';
@@ -263,8 +269,18 @@ If a trainee goes anywhere near one of those, you can go as deep as they want.`;
 
 const styleDirection = (meta: DeckMeta): Record<AnswerStyle, string> => ({
   default: 'Answer at a normal level of detail. Lead with the direct answer.',
+  /**
+   * The shortest answer of the five, and it used to produce the longest.
+   *
+   * Two reasons, both in the wording. It ended by asking the trainer to "check
+   * gently whether that landed", which is the comprehension check the hand-back rule
+   * forbids, so the two instructions contradicted each other and the closing won. And
+   * it was the longest of the five directives while describing the shortest reply: a
+   * measured 97 words against a 50 word budget, nearly double, on the one turn where
+   * the trainee had just said they were lost.
+   */
   simpler:
-    'They are struggling, so put them at ease first, in one short clause and no more, without making a fuss of it. That this bit trips most people up, or that it was probably your explanation rather than their understanding, is usually both true and exactly what they need to hear. Then change register rather than repeating yourself more loudly. Drop every piece of jargon, use a concrete everyday comparison, and cut it to the single most important idea. Shorter than you would normally go. Then check gently whether that landed before adding anything.',
+    'They are lost, so change register rather than saying it again more slowly. One short clause to put them at ease, no fuss. Then no jargon at all, one everyday comparison, and the single most important idea. Nothing else. This is the shortest reply you give.',
   example: `They want it made concrete. Give one specific worked example from ${meta.exampleContext}, walked through properly, rather than several thin ones. Name the artefact, say what the person did, say what went wrong or right.`,
   standard:
     'They want precision. Give the clause or Annex A control reference, say what the control actually requires in its own terms, then translate it back into what it means in practice. Be exact, and if you are not certain of a number say so rather than guessing at one.',
@@ -283,13 +299,43 @@ const styleDirection = (meta: DeckMeta): Record<AnswerStyle, string> => ({
  * behaviour worth encouraging anyway. Only 'deeper' gets real room, because there
  * they have explicitly asked for it.
  */
-const ANSWER_WORD_BUDGET: Record<AnswerStyle, number> = {
-  default: 70,
-  simpler: 65,
-  example: 95,
-  standard: 95,
-  deeper: 170,
+export const ANSWER_WORD_BUDGET: Record<AnswerStyle, number> = {
+  default: 55,
+  simpler: 50,
+  example: 80,
+  standard: 75,
+  deeper: 140,
 };
+
+/**
+ * How far over the budget a reply may run.
+ *
+ * Was 1.3, which in practice meant the budget was the lower bound rather than the
+ * target: measured over nine questions, answers averaged 80 words against a 70
+ * word budget. A tighter ceiling and a lower target together, because moving
+ * either one alone just shifts where the overshoot lands.
+ */
+export const ANSWER_OVERRUN = 1.2;
+
+/**
+ * The budget, expressed as sentences.
+ *
+ * Sentences rather than words because models count sentences reliably and words
+ * badly: told "about 55 words", replies came back averaging 80.
+ *
+ * The wording around this matters more than the number, and not in the direction you
+ * would expect. Successive rounds of adding explanation to the length instruction
+ * made replies longer, not shorter: means of 71, then 80, then 87 words as the block
+ * grew from three lines to an essay complete with quoted measurements. A long
+ * passage about brevity models the opposite of what it asks for. So the rationale
+ * lives here, where it costs nothing, and the prompt itself says the short version
+ * once and shows an example.
+ *
+ * Roughly eighteen words to a spoken sentence.
+ */
+function sentenceBudget(style: AnswerStyle): number {
+  return Math.max(2, Math.round(ANSWER_WORD_BUDGET[style] / 18));
+}
 
 function historyBlock(history: HistoryTurn[]): string {
   if (history.length === 0) return 'This is the start of the session.';
@@ -370,6 +416,40 @@ export function buildTurnPrompt({
   const meta = deck.meta;
   const conversation = `CONVERSATION SO FAR\n${historyBlock(history)}`;
   const learnerRead = `WHERE THIS TRAINEE IS\n${learnerBlock(learner, coveredSlideIds)}`;
+
+  /**
+   * What the trainer has already said, and what the trainee is actually doing.
+   *
+   * All of it is derivable from the transcript above, and the model does not derive
+   * it. Seven of nine measured replies closed with the same comprehension check
+   * while the prompt was asking for variety, because nothing put the repetition in
+   * front of it.
+   */
+  const usedClosings = recentClosings(history);
+  const repeated = question ? earlierSimilarQuestion(history, question) : undefined;
+  const mayBeAnswering = lastTurnAskedSomething(history);
+  const stuckHere = turnsOnSlide(history, slide.id);
+
+  const selfAwareness = [
+    usedClosings.length > 0
+      ? `HOW YOU HAVE ALREADY CLOSED YOUR TURNS\n${usedClosings
+          .map((closing) => `  - "${closing}"`)
+          .join(
+            '\n',
+          )}\n\nDo not reuse any of those, and do not reuse their shape. Asking "does that make sense" in different words is the same closing.`
+      : '',
+    repeated
+      ? `THEY HAVE ASKED THIS BEFORE\nEarlier they asked: "${repeated}". You answered, and they are asking again, which means the answer did not land. Do not repeat it. Come at it from somewhere else: a different example, a more concrete case, or the thing you left out the first time. Say plainly that you will try it another way.`
+      : '',
+    mayBeAnswering
+      ? 'YOUR LAST TURN ENDED WITH A QUESTION\nSo what they have just said may be an attempt at it rather than a new question. If it is, respond to the attempt: say what was right before anything else, and never leave a wrong answer standing.'
+      : '',
+    stuckHere >= 4
+      ? `You have been on this slide for ${stuckHere} turns. If they are circling the same point, the explanation is not working: change the approach rather than adding to it.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const wholeDeck = kind === 'recap' || kind === 'quiz';
 
   const knowledge = renderKnowledge(
@@ -439,7 +519,7 @@ That budget is the whole point of the exercise: you have far more expertise avai
     const style = detectAnswerStyle(question ?? '');
     return `${conversation}
 
-${learnerRead}
+${learnerRead}${selfAwareness ? `\n\n${selfAwareness}` : ''}
 
 SLIDE NOW ON SCREEN
 ${slideBriefing(deck, slide)}
@@ -459,11 +539,30 @@ YOUR TASK
 Answer that, and answer it briefly. Lead with the direct answer in a sentence or two. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful.
 
 LENGTH
-About ${ANSWER_WORD_BUDGET[style]} words, and no more than ${Math.round(ANSWER_WORD_BUDGET[style] * 1.3)}. This is a spoken answer in a conversation, not a written explanation, so short and precise beats thorough.
+${sentenceBudget(style)} sentences. ${sentenceBudget(style) + 1} at the very most.
 
-Give them the answer and stop. Resist adding the second example, the related point, the caveat and the standard reference, however relevant each one is. You have a great deal of expertise available on this and almost none of it belongs in this reply.
+This is the size that means:
 
-If there is more worth saying, offer it in a short closing question instead of saying it. "There is a bit more to that one if it would help" hands them the choice, keeps the turn short, and gets them talking, which is worth more than anything you could have added.`;
+"Not on a personal device, no. The risk is not the laptop, it is that client data ends up somewhere the company cannot wipe if it goes missing. Use your issued machine, and if it cannot do something you need, the IT support desk usually can. There is a separate wrinkle with personal phones, if that is relevant."
+
+Quoted for its length, not its subject. If your draft is longer, delete a whole sentence rather than trimming every sentence.
+
+Asked for a list, name the items in one sentence and explain at most one of them. Four things named and one understood beats four half explained, and it leaves them somewhere to go.
+
+HOW TO HAND BACK
+End with one sentence that gives them somewhere to go.
+
+If the honest answer to it is yes or no, it is the wrong sentence. That rules out "does that make sense", "does that help", "does it help to think of it that way", "is that clearer", and every rewording. They invite the word yes, which ends the conversation.
+
+Do one of these, and not the one you used last time:
+
+Offer the specific thing you left out, named so the choice is real. "There is a version of this that catches people out with shared mailboxes, if that is useful."
+
+Or hand them a small variation to apply. "What would you do if it came from a colleague's address instead?"
+
+Or, when nothing is hanging, give them the floor. "That one is fairly self-contained, so where next?"
+
+It counts inside your sentence allowance, not on top of it.`;
   }
 
   if (kind === 'quiz') {

@@ -15,7 +15,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{ts,mjs,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{ts,mjs,json}\"",
     "golden": "tsx --conditions react-server scripts/golden-prompts.ts",
-    "prompt-size": "tsx --conditions react-server scripts/prompt-size.ts"
+    "prompt-size": "tsx --conditions react-server scripts/prompt-size.ts",
+    "answer-quality": "tsx --conditions react-server scripts/answer-quality.ts"
   },
   "dependencies": {
     "@deepgram/sdk": "^5.8.0",
