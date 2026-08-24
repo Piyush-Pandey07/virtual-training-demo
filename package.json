@@ -4,7 +4,9 @@
   "private": true,
   "description": "AI-led one-to-one live interactive training. Gemini for teaching and Q&A, Deepgram for speech to text and text to speech.",
   "scripts": {
+    "predev": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-pdf-worker.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -20,6 +22,7 @@
     "@google/genai": "^2.17.1",
     "@vercel/blob": "^2.8.0",
     "next": "^16.3.1",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1"

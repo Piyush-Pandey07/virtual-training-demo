@@ -20,3 +20,6 @@ CLAUDE.md
 
 # Local deck storage, used when no blob token is set.
 .data/
+
+# Copied from node_modules by scripts/copy-pdf-worker.mjs
+public/pdf/

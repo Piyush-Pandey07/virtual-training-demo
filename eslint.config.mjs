@@ -8,7 +8,17 @@ import typescript from 'eslint-config-next/typescript';
 const config = [
   ...coreWebVitals,
   ...typescript,
-  { ignores: ['.next/**', 'node_modules/**', 'public/worklets/**'] },
+  {
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'public/worklets/**',
+      // The pdf.js worker, copied out of node_modules by scripts/copy-pdf-worker.mjs.
+      // Linting a minified vendor bundle produces well over a thousand findings that
+      // nobody can act on.
+      'public/pdf/**',
+    ],
+  },
 ];
 
 export default config;

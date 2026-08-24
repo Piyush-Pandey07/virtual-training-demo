@@ -14,8 +14,9 @@
 import 'server-only';
 
 import type { DeckRecord } from '../deck-types';
+import { BlobAssetStore, FilesystemAssetStore, NoAssetStore, type AssetStore } from './assets';
 import type { DeckStore, DeckSummary, StoredDeck } from './store';
-import { BlobDeckStore, vercelBlobClient } from './store-blob';
+import { BlobDeckStore, vercelBinaryBlobClient, vercelBlobClient } from './store-blob';
 import { defaultFilesystemRoot, FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
 
@@ -23,6 +24,7 @@ import { SeededDeckStore } from './store-seeded';
 export const DEFAULT_DECK_ID = 'isms';
 
 let cached: DeckStore | null = null;
+let cachedAssets: AssetStore | null = null;
 
 /**
  * Picks a store once per process.
@@ -52,9 +54,35 @@ export function deckStore(): DeckStore {
   return cached;
 }
 
+/**
+ * Where a deck's slide renders live.
+ *
+ * Resolved by the same rule as the deck store, so the two cannot disagree about
+ * which deployment they are in. A deck in blob storage whose images sat on a
+ * filesystem that does not survive the request would be worse than either.
+ */
+export function assetStore(): AssetStore {
+  if (cachedAssets) return cachedAssets;
+
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    cachedAssets = new BlobAssetStore(vercelBinaryBlobClient(token));
+    return cachedAssets;
+  }
+
+  if (!process.env.VERCEL) {
+    cachedAssets = new FilesystemAssetStore(process.env.DECK_STORE_DIR ?? defaultFilesystemRoot());
+    return cachedAssets;
+  }
+
+  cachedAssets = new NoAssetStore();
+  return cachedAssets;
+}
+
 /** Only for tests, which need a fresh store per case. */
 export function resetDeckStore(store?: DeckStore): void {
   cached = store ?? null;
+  cachedAssets = null;
 }
 
 export async function loadDeck(id: string = DEFAULT_DECK_ID): Promise<DeckRecord | undefined> {

@@ -18,6 +18,7 @@
 import 'server-only';
 
 import type { DeckRecord } from '../deck-types';
+import type { BinaryBlobClient } from './assets';
 import { parseDeck, serialiseDeck } from './serialise';
 import { seedDecks } from './store-seeded';
 import {
@@ -261,6 +262,60 @@ export function vercelBlobClient(token: string): BlobClient {
       const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) return null;
       return response.text();
+    },
+  };
+}
+
+/**
+ * The binary half of the same client.
+ *
+ * Separate from the text one because slide renders are bytes with a real content
+ * type, and because nothing that handles decks should be able to write images by
+ * accident. `cacheControlMaxAge` is generous here: a page render never changes
+ * under a given key, unlike deck.json.
+ */
+export function vercelBinaryBlobClient(token: string): BinaryBlobClient {
+  return {
+    async put(pathname, bytes, contentType) {
+      const { put } = await import('@vercel/blob');
+      // The SDK takes a Buffer rather than a Uint8Array. Wrapping the same memory
+      // rather than copying it: a 60-page deck is 60 of these.
+      const result = await put(
+        pathname,
+        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        {
+          access: 'public',
+          token,
+          contentType,
+          addRandomSuffix: false,
+          allowOverwrite: true,
+          cacheControlMaxAge: 31_536_000,
+        },
+      );
+      return { url: result.url };
+    },
+
+    async list(prefix) {
+      const { list } = await import('@vercel/blob');
+      const entries: Array<{ pathname: string; url: string }> = [];
+      let cursor: string | undefined;
+      do {
+        const page = await list({ prefix, token, cursor, limit: 1000 });
+        entries.push(...page.blobs.map((blob) => ({ pathname: blob.pathname, url: blob.url })));
+        cursor = page.hasMore ? page.cursor : undefined;
+      } while (cursor);
+      return entries;
+    },
+
+    async remove(urls) {
+      const { del } = await import('@vercel/blob');
+      await del(urls, { token });
+    },
+
+    async readBytes(url) {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return new Uint8Array(await response.arrayBuffer());
     },
   };
 }

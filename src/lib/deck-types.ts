@@ -30,8 +30,18 @@ export interface DeckSlide {
   shortLabel: string;
   /** One-line description of the slide, for the session outline on the landing page. */
   summary: string;
-  /** Path to the exported slide image under /public, or a storage URL. */
+  /** Path to the exported slide image under /public, or an app asset route. */
   image: string;
+  /**
+   * Pixel size of the render, when it is known.
+   *
+   * Optional because the hand-authored deck predates it. It exists because the
+   * slide stage assumed 16:9, which is true of a PowerPoint export and false of
+   * the A4 PDFs people actually have: without this an uploaded A4 deck is either
+   * letterboxed or stretched.
+   */
+  width?: number;
+  height?: number;
   /** Text printed on the slide, in reading order. */
   bullets: string[];
   /** Presenter notes that are real teaching content. */
@@ -116,6 +126,9 @@ export interface ClientSlide {
   /** Shown in the session outline, which is public-facing copy. */
   summary: string;
   image: string;
+  /** So the stage can size itself to the real page rather than assuming 16:9. */
+  width?: number;
+  height?: number;
 }
 
 /** A deck as the browser sees it. */

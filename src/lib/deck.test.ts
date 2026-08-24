@@ -108,8 +108,6 @@ describe('the client projection', () => {
  * error arrives.
  */
 describe('the client bundle boundary', () => {
-  const SERVER_ONLY = ['@/lib/trainer-prompt', '@/lib/knowledge', '@/lib/decks/'];
-
   function sources(dir: string): string[] {
     return readdirSync(dir).flatMap((entry) => {
       const path = join(dir, entry);
@@ -118,14 +116,66 @@ describe('the client bundle boundary', () => {
     });
   }
 
+  const all = sources('src');
+
+  /**
+   * Modules that declare themselves server-only, read out of the source rather
+   * than listed here.
+   *
+   * This used to be a list of path prefixes, and it flagged
+   * src/lib/decks/asset-paths.ts, which exists so the upload page can build the URL
+   * it uploads to without touching storage. A prefix cannot tell a pure string
+   * helper apart from the module next to it that reads a filesystem. The marker can,
+   * and a list derived from the code cannot go stale as files move.
+   */
+  const serverOnly = new Set(
+    all
+      .filter((path) => /^\s*import\s+['"]server-only['"]/m.test(readFileSync(path, 'utf8')))
+      .map((path) => path.replace(/\\/g, '/')),
+  );
+
+  /** Turns an import specifier into the file it refers to, if it is one of ours. */
+  function resolve(fromFile: string, specifier: string): string | null {
+    const from = fromFile.replace(/\\/g, '/');
+
+    let base: string;
+    if (specifier.startsWith('@/')) {
+      base = `src/${specifier.slice(2)}`;
+    } else if (specifier.startsWith('.')) {
+      const dir = from.slice(0, from.lastIndexOf('/'));
+      const parts = `${dir}/${specifier}`.split('/');
+      const stack: string[] = [];
+      for (const part of parts) {
+        if (part === '.' || part === '') continue;
+        if (part === '..') stack.pop();
+        else stack.push(part);
+      }
+      base = stack.join('/');
+    } else {
+      // A package, not one of ours.
+      return null;
+    }
+
+    for (const candidate of [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
+      if (serverOnly.has(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  it('finds the server-only modules, so a broken check cannot pass silently', () => {
+    assert.ok(serverOnly.size >= 4, `only found ${serverOnly.size} server-only modules`);
+  });
+
   it('has no client component importing a server-only module', () => {
     const offenders: string[] = [];
 
-    for (const path of sources('src')) {
+    for (const path of all) {
       const text = readFileSync(path, 'utf8');
       if (!/^\s*['"]use client['"]/m.test(text)) continue;
-      for (const forbidden of SERVER_ONLY) {
-        if (text.includes(`from '${forbidden}`)) offenders.push(`${path} imports ${forbidden}`);
+
+      for (const match of text.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+        const hit = resolve(path, match[1]);
+        if (hit) offenders.push(`${path} imports ${hit}, which is server-only`);
       }
     }
 

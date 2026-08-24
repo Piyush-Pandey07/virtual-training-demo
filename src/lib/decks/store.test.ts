@@ -6,7 +6,7 @@ import { after, before, describe, it } from 'node:test';
 
 import type { DeckRecord } from '../deck-types';
 import { ISMS_DECK } from './isms';
-import { DECK_FORMAT_VERSION, parseDeck, serialiseDeck } from './serialise';
+import { checkReadyToPublish, DECK_FORMAT_VERSION, parseDeck, serialiseDeck } from './serialise';
 import { assertUsableDeckId, DeckInvalidError, DeckStoreError, type DeckStore } from './store';
 import { BlobDeckStore, type BlobClient, type BlobEntry } from './store-blob';
 import { FilesystemDeckStore } from './store-fs';
@@ -119,20 +119,13 @@ describe('validating a stored deck', () => {
     assert.ok(errors.some((e) => e.includes('no triggers')));
   });
 
-  it('rejects a teaching slide with no expertise behind it', () => {
-    // selectKnowledge would hand the trainer an empty knowledge block, which is the
-    // one outcome the whole design exists to prevent.
-    const errors = errorsFor((deck) => {
-      deck.topics = deck.topics.filter((topic) => !topic.slideIds.includes(2));
-    });
-    assert.ok(errors.some((e) => e.includes('slide 2 teaches but has no expertise')));
-  });
-
-  it('allows a title card to have no expertise', () => {
+  it('accepts a deck with no expertise at all, which is what an upload is', () => {
+    // Structural validity and readiness are different questions. A deck that has
+    // been rendered but not yet analysed is a perfectly good deck to have stored;
+    // it just is not ready to put in front of anyone. Refusing it here would leave
+    // nowhere to keep a deck between uploading and analysing it.
     const copy = JSON.parse(JSON.stringify(ISMS_DECK)) as DeckRecord;
-    copy.topics = copy.topics.filter((topic) => !topic.slideIds.includes(1));
-    copy.slides[0].teaches = false;
-    // Slide 1 is the only slide with a single topic, so removing it leaves the rest intact.
+    copy.topics = [];
     const parsed = parseDeck(JSON.stringify(copy));
     assert.ok(parsed.ok, parsed.ok ? '' : parsed.errors.join('; '));
   });
@@ -455,5 +448,53 @@ describe('the seeded store', () => {
     const first = await new SeededDeckStore().list();
     const second = await new SeededDeckStore().list();
     assert.equal(first[0].updatedAt, second[0].updatedAt);
+  });
+});
+
+/**
+ * Readiness is asked at publish, not at parse.
+ *
+ * These are the checks that decide whether a deck can be put in front of a trainee,
+ * as opposed to whether it is structurally a deck at all. An uploaded deck passes
+ * the second and fails the first until it has been analysed.
+ */
+describe('publish readiness', () => {
+  it('passes the hand-authored deck', () => {
+    assert.deepEqual(checkReadyToPublish(ISMS_DECK), []);
+  });
+
+  it('refuses a deck with no expertise, which could only be read aloud', () => {
+    const bare = { ...ISMS_DECK, topics: [] };
+    const problems = checkReadyToPublish(bare);
+    assert.ok(problems.some((p) => p.includes('no expertise behind it')));
+  });
+
+  it('names the specific slide that has nothing to teach from', () => {
+    const gap: DeckRecord = {
+      ...ISMS_DECK,
+      topics: ISMS_DECK.topics.filter((topic) => !topic.slideIds.includes(2)),
+    };
+    const problems = checkReadyToPublish(gap);
+    assert.ok(problems.some((p) => p.includes('slide 2 teaches but has no expertise')));
+  });
+
+  it('does not require expertise for a slide that teaches nothing', () => {
+    // Slide 1 is a title card, and its single topic is not needed to publish.
+    const gap: DeckRecord = {
+      ...ISMS_DECK,
+      topics: ISMS_DECK.topics.filter((topic) => !topic.slideIds.includes(1)),
+    };
+    assert.deepEqual(
+      checkReadyToPublish(gap).filter((p) => p.includes('slide 1')),
+      [],
+    );
+  });
+
+  it('refuses a deck where nothing teaches', () => {
+    const silent: DeckRecord = {
+      ...ISMS_DECK,
+      slides: ISMS_DECK.slides.map((slide) => ({ ...slide, teaches: false })),
+    };
+    assert.ok(checkReadyToPublish(silent).some((p) => p.includes('no slide in this deck teaches')));
   });
 });

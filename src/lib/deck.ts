@@ -78,6 +78,7 @@ export function toClientView(deck: DeckRecord): DeckClientView {
       shortLabel: slide.shortLabel,
       summary: slide.summary,
       image: slide.image,
+      ...(slide.width && slide.height ? { width: slide.width, height: slide.height } : {}),
     })),
     totalSlides: deck.slides.length,
     estimatedMinutes: estimatedMinutes(deck),

@@ -55,11 +55,18 @@ function slideBriefing(deck: DeckRecord, slide: DeckSlide): string {
   lines.push('', 'What you must get across on this slide:');
   lines.push(slide.narrationBrief);
 
-  lines.push('', 'Points to cover before moving on:');
-  lines.push(...slide.keyPoints.map((p) => `  - ${p}`));
+  // Both guarded. A deck that has been uploaded but not analysed has neither, and
+  // a heading with nothing under it reads to the model as a section that was meant
+  // to be filled in.
+  if (slide.keyPoints.length > 0) {
+    lines.push('', 'Points to cover before moving on:');
+    lines.push(...slide.keyPoints.map((p) => `  - ${p}`));
+  }
 
-  lines.push('', 'Ways you could invite a response:');
-  lines.push(...slide.discussionPrompts.map((p) => `  - ${p}`));
+  if (slide.discussionPrompts.length > 0) {
+    lines.push('', 'Ways you could invite a response:');
+    lines.push(...slide.discussionPrompts.map((p) => `  - ${p}`));
+  }
 
   // Length is set once, in the LENGTH block of the turn prompt. Repeating it here
   // in a different unit gave the model two conflicting targets.

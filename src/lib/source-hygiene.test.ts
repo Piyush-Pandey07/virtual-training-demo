@@ -22,9 +22,20 @@ const FORBIDDEN = new Map<number, string>([
   [0x0c, 'FORM FEED, likely a mangled \\f'],
 ]);
 
+/**
+ * Directories holding code this project did not write.
+ *
+ * `public/pdf` is the pdf.js worker, copied from node_modules by
+ * scripts/copy-pdf-worker.mjs. Minified vendor bundles contain control bytes quite
+ * legitimately, and this check is about catching escape sequences mangled on their
+ * way into files written here. Scanning a third-party bundle only produces a
+ * failure nobody can act on.
+ */
+const VENDORED = new Set(['node_modules', '.next', 'pdf']);
+
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === '.next') continue;
+    if (VENDORED.has(name)) continue;
     const path = join(dir, name);
     if (statSync(path).isDirectory()) sourceFiles(path, out);
     else if (/\.(ts|tsx|css|mjs|js)$/.test(name)) out.push(path);

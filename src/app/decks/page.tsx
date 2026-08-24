@@ -49,6 +49,15 @@ export default async function DeckLibraryPage() {
           {STORE_DESCRIPTION[store.kind]}
         </p>
 
+        {store.writable && (
+          <Link
+            href="/decks/new"
+            className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 inline-block rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
+          >
+            Upload a deck
+          </Link>
+        )}
+
         {decks.length === 0 ? (
           <p className="border-charcoal-line text-muted mt-10 rounded-xl border border-dashed p-8 text-center text-sm">
             There are no decks. The built-in deck may have been removed from storage.

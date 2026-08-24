@@ -125,6 +125,12 @@ function parseSlide(raw: unknown, index: number, e: Errors): DeckSlide {
     // An hour on one slide is not a deck, it is a mistake.
     targetSeconds: e.num(`${where}.targetSeconds`, raw.targetSeconds, { min: 1, max: 3600 }),
     teaches: e.bool(`${where}.teaches`, raw.teaches),
+    ...(raw.width !== undefined
+      ? { width: e.num(`${where}.width`, raw.width, { min: 1, max: 20000 }) }
+      : {}),
+    ...(raw.height !== undefined
+      ? { height: e.num(`${where}.height`, raw.height, { min: 1, max: 20000 }) }
+      : {}),
   };
 }
 
@@ -221,16 +227,43 @@ function checkCoherence(record: DeckRecord, e: Errors): void {
   }
 
   if (record.slides.length === 0) e.all.push('a deck with no slides cannot be presented');
+}
 
-  // A teaching slide with no expertise behind it produces a narration turn with an
-  // empty knowledge block, which is the one thing the whole design is against.
+/**
+ * Whether a deck is good enough to put in front of a trainee.
+ *
+ * Separate from parsing, because these two questions are genuinely different. A
+ * deck that has just been uploaded and not yet analysed is structurally perfect
+ * and has no expertise at all, and refusing to store it would mean there was
+ * nowhere to put a deck between uploading it and analysing it.
+ *
+ * So parsing asks "is this a deck", and this asks "is this ready". Publishing is
+ * gated on the second.
+ */
+export function checkReadyToPublish(record: DeckRecord): string[] {
+  const problems: string[] = [];
+
+  if (record.topics.length === 0) {
+    problems.push(
+      'this deck has no expertise behind it, so the trainer could only read the slides out',
+    );
+  }
+
+  // A teaching slide with no expertise produces a narration turn with an empty
+  // knowledge block, which is the one thing the whole design is against.
   for (const slide of record.slides) {
     if (!slide.teaches) continue;
     const hasTopic = record.topics.some((topic) => topic.slideIds.includes(slide.id));
     if (!hasTopic) {
-      e.all.push(`slide ${slide.id} teaches but has no expertise behind it`);
+      problems.push(`slide ${slide.id} teaches but has no expertise behind it`);
     }
   }
+
+  if (!record.slides.some((slide) => slide.teaches)) {
+    problems.push('no slide in this deck teaches anything');
+  }
+
+  return problems;
 }
 
 /** Serialises a deck for storage. Stable key order, so diffs are readable. */
