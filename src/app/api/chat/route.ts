@@ -213,17 +213,31 @@ export async function POST(request: Request) {
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.
          *
-         * Answers used to run at 0.75, on the reasoning that a question is open-ended
-         * and benefits from a warmer setting. What the warmth actually bought was
-         * variation in length: measured across a ten-question session, replies
-         * averaged 80 words against a 57 word budget and the same prompt gave means of
-         * 71 and 80 on consecutive runs. The variety that mattered, in how a turn hands
-         * back, is now asked for explicitly in the prompt instead, which is a better
-         * place for it: the prompt can say what good variety looks like and a
-         * temperature can only make everything less predictable at once.
+         * Answers are back at 0.75, where they started. They were moved to 0.6 on the
+         * theory that the warmth was costing length discipline, and a controlled test
+         * disproved it: one fixed prompt sampled eight times gave a mean of 81 words at
+         * 0.6 and 82 at 0.3, with standard deviations of 6 and 5. Halving the
+         * temperature moved the mean by one word. Length is decided by how many things
+         * the prompt asks for, not by how the next token is sampled, so the setting
+         * goes back to the value chosen for the reason that still holds: a question is
+         * open-ended and the reply should not sound rehearsed.
          */
-        temperature: effectiveKind === 'narrate' ? 0.55 : 0.6,
-        maxOutputTokens: 2400,
+        temperature: effectiveKind === 'narrate' ? 0.55 : 0.75,
+        /**
+         * A runaway guard, and nothing else.
+         *
+         * Sizing this to the word budget was tried and is a trap. At 900 tokens every
+         * one of ten measured replies was severed mid-sentence, and the harness scored
+         * that run as its best ever: mean 38 words, nothing over its ceiling. A token
+         * cap cannot make a model choose to be brief, only cut it off, and the trainee
+         * hears the trainer stop mid-word because the stream is spoken as it arrives.
+         *
+         * Raised from 2400 because this counts thinking tokens as well as spoken ones,
+         * and one reply in thirty was still being cut off at that figure. The largest
+         * legitimate reply is a five sentence answer at about 170 tokens, so this is
+         * headroom of more than twentyfold: it can only bite something already broken.
+         */
+        maxOutputTokens: 4000,
         abortSignal: request.signal,
       };
 

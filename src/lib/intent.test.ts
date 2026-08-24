@@ -178,3 +178,61 @@ describe('typographic apostrophes in navigation', () => {
     assert.equal(classifyUtterance("I'm not ready"), 'question');
   });
 });
+
+/**
+ * A question asking for a set of things.
+ *
+ * Its own register because the others could not hold one. "What are the four
+ * classification tiers" fell through to `default`, was told three sentences, and came
+ * back at 107 words. That was not indiscipline: naming two tiers of four would have
+ * been a wrong answer, and the deck is the authority a trainee acts on.
+ */
+describe('asking for a list', () => {
+  const lists = [
+    'what are the four classification tiers',
+    'what are the three reporting routes',
+    'which policies apply to me',
+    'what are the main threats',
+    'can you list them',
+    'could you name the tiers',
+    'run through the levels',
+    'walk me through the steps',
+    'please list the options',
+    'ok so list them',
+    'what are the 4 tiers',
+  ];
+
+  for (const utterance of lists) {
+    it(`reads "${utterance}" as a request for a set`, () => {
+      assert.equal(detectAnswerStyle(utterance), 'list');
+    });
+  }
+
+  /**
+   * The expensive failure. A false positive hands an ordinary question half again as
+   * many words as it needs, which is the thing the whole length exercise removed.
+   */
+  const notLists: Array<[string, string]> = [
+    ['can I use my own laptop for work', 'default'],
+    ['what if I lose it at a client site', 'default'],
+    ['who do I tell', 'default'],
+    ['is tailgating really a problem', 'default'],
+    ['what is an ISMS', 'default'],
+    ['where are the policies kept', 'default'],
+    // A list mentioned in passing is not a request for one. Both of these matched
+    // until the request verbs were anchored to the front of the utterance.
+    ['is the list of policies long', 'default'],
+    ['I saw a list of threats yesterday', 'default'],
+    ['do I need to name the file a certain way', 'default'],
+    // The registers that come first, and should keep winning.
+    ['sorry, what actually is an ISMS? I got lost', 'simpler'],
+    ['can you give me an example of that', 'example'],
+    ['which annex a control covers that', 'standard'],
+  ];
+
+  for (const [utterance, expected] of notLists) {
+    it(`reads "${utterance}" as ${expected}, not a list`, () => {
+      assert.equal(detectAnswerStyle(utterance), expected);
+    });
+  }
+});

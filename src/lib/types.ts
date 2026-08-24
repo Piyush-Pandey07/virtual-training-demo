@@ -15,7 +15,22 @@ export type TurnKind =
  * The shape of answer a question is asking for. Detected from the wording, so a
  * request to simplify and a request to go deeper get genuinely different replies.
  */
-export type AnswerStyle = 'default' | 'simpler' | 'example' | 'standard' | 'deeper';
+export type AnswerStyle =
+  | 'default'
+  | 'simpler'
+  | 'example'
+  | 'standard'
+  | 'deeper'
+  /**
+   * A question asking for an enumeration.
+   *
+   * Its own register because the others cannot hold one. "What are the four
+   * classification tiers" fell through to `default`, was told three sentences, and
+   * came back at 107 words. Naming four things and leaving three unexplained is a
+   * wrong answer rather than a long one, and the deck's own key points treat a tier
+   * without its handling rule as not worth saying.
+   */
+  | 'list';
 
 /**
  * A running read on the trainee, so the trainer adapts across the session rather

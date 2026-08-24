@@ -498,3 +498,54 @@ describe('publish readiness', () => {
     assert.ok(checkReadyToPublish(silent).some((p) => p.includes('no slide in this deck teaches')));
   });
 });
+
+/**
+ * A store emptied underneath a running process has to recover on its own.
+ *
+ * The seeded flag is a cache of "the marker was there", and treating it as proof that
+ * the decks still are cost three measurement runs in one afternoon: every request
+ * reported "No such deck" until the server was restarted, with nothing to say why.
+ * The same would happen to anyone who cleared blob storage on a live deployment.
+ *
+ * The distinction that has to survive: a deliberate delete leaves the marker in place
+ * and must stay deleted, while a wipe takes the marker too and should re-seed.
+ */
+describe('recovering from a store emptied underneath the process', () => {
+  it('re-seeds when everything including the marker has gone', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.list();
+    assert.ok(await store.get('isms'));
+
+    // A wipe, not a delete: the marker goes too.
+    client.objects.clear();
+
+    const recovered = await store.get('isms');
+    assert.ok(recovered, 'an emptied store did not heal itself');
+    assert.equal(recovered.record.meta.id, 'isms');
+  });
+
+  it('still leaves a deliberately deleted deck deleted', async () => {
+    // remove() leaves the marker, so this must not come back.
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.list();
+    await store.remove('isms');
+
+    assert.equal(await store.get('isms'), undefined);
+    assert.deepEqual(await store.list(), []);
+  });
+
+  it('does the same on the filesystem', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deck-wipe-'));
+    tempRoots.push(root);
+    const store = new FilesystemDeckStore(root);
+    await store.list();
+    assert.ok(await store.get('isms'));
+
+    await rm(root, { recursive: true, force: true });
+
+    const recovered = await store.get('isms');
+    assert.ok(recovered, 'an emptied filesystem store did not heal itself');
+  });
+});

@@ -217,6 +217,35 @@ export function detectAnswerStyle(question: string): AnswerStyle {
   ) {
     return 'example';
   }
+  /**
+   * Asked for an enumeration.
+   *
+   * Placed after `simpler` and `example`, and before `standard` and `deeper`,
+   * because the first match wins. Somebody who says "I am lost, can you list them"
+   * is lost first, and "give me an example of each" wants the example register.
+   *
+   * Deliberately narrower than the other branches. A false positive here hands an
+   * ordinary question half again as many words as it needs, which is the failure
+   * this whole exercise is trying to remove.
+   */
+  if (
+    // Interrogative: "what are the four tiers", "which policies apply to me".
+    /\b(?:what|which)\s+(?:are|is)?\s*(?:all\s+)?(?:the\s+)?(?:\w+\s+)?(?:tiers|levels|categories|types|kinds|routes|policies|options|steps|stages|classifications|principles|controls|ways|reasons|threats|risks)\b/.test(
+      q,
+    ) ||
+    // A request, which has to be what they are asking rather than a word in
+    // passing. Anchored near the front for that reason: "is the list of policies
+    // long" is a question about a list, not a request for one, and it was matching.
+    /^(?:(?:ok|okay|so|right|well|and|then|um|erm|yeah|yes|sorry|please|now)[\s,]+){0,2}(?:(?:can|could|would|will)\s+(?:you\s+)?)?(?:please\s+)?(?:list|name|run\s+through|go\s+through|walk\s+me\s+through|talk\s+me\s+through)\b/.test(
+      q,
+    ) ||
+    /\bwhat\s+(?:are|were)\s+(?:the\s+)?\w*\s*(?:\d+|three|four|five|six|seven)\b/.test(q) ||
+    /\b(?:\d+|three|four|five|six|seven)\s+\w*\s*(?:tiers|levels|categories|types|kinds|routes|policies|options|steps|stages|principles|controls)\b/.test(
+      q,
+    )
+  ) {
+    return 'list';
+  }
   if (
     /\b(clause|annex|control number|which control|standard say|iso say|27002|reference|precisely)\b/.test(
       q,

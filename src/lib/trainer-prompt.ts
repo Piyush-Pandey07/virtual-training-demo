@@ -285,7 +285,19 @@ const styleDirection = (meta: DeckMeta): Record<AnswerStyle, string> => ({
   standard:
     'They want precision. Give the clause or Annex A control reference, say what the control actually requires in its own terms, then translate it back into what it means in practice. Be exact, and if you are not certain of a number say so rather than guessing at one.',
   deeper:
-    'They want the mechanism, not the summary. Explain how it actually works or why it actually fails, including the part most awareness training leaves out. Assume they are technical and can take it. You have room for longer than a normal answer here.',
+    'They want the mechanism, not the summary. Explain how it actually works or why it actually fails, including the part most awareness training leaves out. Assume they are technical and can take it.',
+  /**
+   * The register that exists because a partial answer here is a wrong answer.
+   *
+   * Three places in this repository legislated for list answers and disagreed with
+   * each other: the answer path said name them in one sentence and explain one, the
+   * narration path said go properly into the two that matter, and the deck's own key
+   * points treat a tier without its handling rule as not worth saying. A question
+   * asking for four classification tiers fell through to the default register, was
+   * told three sentences, and came back at 107 words. It was not indiscipline; it was
+   * an impossible target, and naming two of four would have been worse.
+   */
+  list: 'They asked for a set of things, so give them all of it. Name every item, and give each one the single clause that makes it usable rather than a dictionary definition. Never explain one and skip the rest: a partial list reads as the whole answer and they will act on it. Then offer to go properly into whichever one they choose.',
 });
 
 /**
@@ -299,12 +311,60 @@ const styleDirection = (meta: DeckMeta): Record<AnswerStyle, string> => ({
  * behaviour worth encouraging anyway. Only 'deeper' gets real room, because there
  * they have explicitly asked for it.
  */
+/**
+ * The expected length of each register, in words.
+ *
+ * Calibrated from measurement rather than chosen. The model is instructed in
+ * sentences, and a spoken sentence in this trainer's voice measures at roughly
+ * twenty-five words: three sentences produced a mean of 79 words across three
+ * sessions, four produced 99. So these are the sentence counts below multiplied by
+ * twenty-five, which makes the ceiling something the system can actually meet
+ * instead of a number somebody picked.
+ *
+ * The original 55 was a guess, and everything measured against it was measured
+ * against the wrong thing. Nine rounds of rewording chased a gap that was mostly
+ * arithmetic.
+ */
 export const ANSWER_WORD_BUDGET: Record<AnswerStyle, number> = {
-  default: 55,
+  default: 75,
   simpler: 50,
-  example: 80,
-  standard: 75,
-  deeper: 140,
+  example: 100,
+  standard: 100,
+  deeper: 125,
+  list: 125,
+};
+
+/**
+ * Sentences allowed, per register. The fix that mattered.
+ *
+ * This used to be the word budget divided by eighteen, rendered to the model as
+ * "3 sentences. 4 at the very most" for a default answer. Each style directive asks
+ * for three or four distinct communicative moves, and the hand-back rule adds a
+ * fifth that counts inside the same allowance. At the twenty words a spoken move
+ * costs, that is eighty words across four or five sentences: the arithmetic never
+ * permitted what the directives demanded, and the model broke the only instruction
+ * it could not satisfy alongside the others.
+ *
+ * Two measurements settled that this was arithmetic rather than discipline. A fixed
+ * prompt sampled eight times gave a mean of 81 words at temperature 0.6 and 82 at
+ * 0.3, so the length is stable rather than noisy and temperature is not the lever.
+ * An ablation removing one block of the prompt at a time found nothing that
+ * shortens a reply when taken away: without the knowledge block +5 words, without
+ * the wider expertise +12, without the LENGTH block itself +19. There was no
+ * obligation to delete, which is what nine rounds of rewording had assumed.
+ *
+ * `deeper` is the one register that came down. Its directive asks for the mechanism
+ * rather than for more moves, and 140 words was licence nobody had asked for.
+ */
+const ANSWER_SENTENCE_BUDGET: Record<AnswerStyle, number> = {
+  default: 3,
+  // The one register that should be the shortest thing the trainer says. Somebody
+  // who has just said they are lost needs one idea, not four.
+  simpler: 2,
+  example: 4,
+  standard: 4,
+  deeper: 5,
+  list: 5,
 };
 
 /**
@@ -318,23 +378,18 @@ export const ANSWER_WORD_BUDGET: Record<AnswerStyle, number> = {
 export const ANSWER_OVERRUN = 1.2;
 
 /**
- * The budget, expressed as sentences.
+ * Sentences rather than words in the instruction the model receives, because models
+ * count sentences reliably and words badly.
  *
- * Sentences rather than words because models count sentences reliably and words
- * badly: told "about 55 words", replies came back averaging 80.
- *
- * The wording around this matters more than the number, and not in the direction you
- * would expect. Successive rounds of adding explanation to the length instruction
- * made replies longer, not shorter: means of 71, then 80, then 87 words as the block
- * grew from three lines to an essay complete with quoted measurements. A long
- * passage about brevity models the opposite of what it asks for. So the rationale
- * lives here, where it costs nothing, and the prompt itself says the short version
- * once and shows an example.
- *
- * Roughly eighteen words to a spoken sentence.
+ * The wording around this matters, and not in the direction you would expect.
+ * Successive rounds of adding explanation to the length instruction made replies
+ * longer: means of 71, then 80, then 87 words as the block grew from three lines to
+ * an essay complete with quoted measurements. A long passage about brevity models
+ * the opposite of what it asks for. The rationale lives in comments, where it costs
+ * nothing, and the prompt says the short version once and shows an example.
  */
 function sentenceBudget(style: AnswerStyle): number {
-  return Math.max(2, Math.round(ANSWER_WORD_BUDGET[style] / 18));
+  return ANSWER_SENTENCE_BUDGET[style];
 }
 
 function historyBlock(history: HistoryTurn[]): string {
@@ -539,15 +594,15 @@ YOUR TASK
 Answer that, and answer it briefly. Lead with the direct answer in a sentence or two. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful.
 
 LENGTH
-${sentenceBudget(style)} sentences. ${sentenceBudget(style) + 1} at the very most.
+${sentenceBudget(style)} sentences, one move each. ${sentenceBudget(style) + 1} at the very most.
 
-This is the size that means:
+A four-sentence answer looks like this. Scale it to your own allowance rather than copying its length:
 
 "Not on a personal device, no. The risk is not the laptop, it is that client data ends up somewhere the company cannot wipe if it goes missing. Use your issued machine, and if it cannot do something you need, the IT support desk usually can. There is a separate wrinkle with personal phones, if that is relevant."
 
-Quoted for its length, not its subject. If your draft is longer, delete a whole sentence rather than trimming every sentence.
+Quoted for its shape, not its subject. It answers, gives the one reason that matters, says what to do instead, and offers the next thing: one move per sentence, nothing compressed and nothing else squeezed in.
 
-Asked for a list, name the items in one sentence and explain at most one of them. Four things named and one understood beats four half explained, and it leaves them somewhere to go.
+Your allowance is how many moves you get, not how much you may fit into each. If your draft is longer, drop a whole move rather than shortening all of them.
 
 HOW TO HAND BACK
 End with one sentence that gives them somewhere to go.

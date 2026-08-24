@@ -144,12 +144,33 @@ export class BlobDeckStore implements DeckStore {
     return summaries.sort((a, b) => a.title.localeCompare(b.title));
   }
 
+  /**
+   * Re-checks the marker when a lookup came up empty.
+   *
+   * `seeded` is a cache of "the marker was there", not proof that the decks still
+   * are. If storage is emptied under a running process, the flag makes every later
+   * request report that the deck does not exist, with nothing to explain it, until
+   * someone restarts. Clearing the flag on a miss lets the next request re-seed.
+   *
+   * Only on the miss path, so the common case still costs nothing.
+   */
+  private async reseedIfEmptied(): Promise<void> {
+    this.seeded = false;
+    await this.ensureSeeded();
+  }
+
   async get(id: string): Promise<StoredDeck | undefined> {
     await this.ensureSeeded();
 
     const prefix = this.prefix(id);
-    const blobs = await this.client.list(`${prefix}/`);
-    const at = (name: string) => blobs.find((blob) => blob.pathname === `${prefix}/${name}`);
+    let blobs = await this.client.list(`${prefix}/`);
+    let at = (name: string) => blobs.find((blob) => blob.pathname === `${prefix}/${name}`);
+
+    if (!at('deck.json')) {
+      await this.reseedIfEmptied();
+      blobs = await this.client.list(`${prefix}/`);
+      at = (name: string) => blobs.find((blob) => blob.pathname === `${prefix}/${name}`);
+    }
 
     const deckBlob = at('deck.json');
     if (!deckBlob) return undefined;

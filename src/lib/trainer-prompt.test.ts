@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { getSlide, totalSlides } from './deck';
 import { ISMS_DECK } from './decks/isms';
 import { syntheticDeck } from './__fixtures__/synthetic-deck';
-import { buildSystemInstruction, buildTurnPrompt } from './trainer-prompt';
+import { ANSWER_WORD_BUDGET, buildSystemInstruction, buildTurnPrompt } from './trainer-prompt';
 import type { TurnKind } from './types';
 
 const deck = ISMS_DECK;
@@ -234,5 +234,79 @@ describe('an early recap does not pretend the deck finished', () => {
         `covered ${covered.join(',')}: the prompt forbids untaught material and then asks for it`,
       );
     }
+  });
+});
+
+/**
+ * The budgets are calibrated, not chosen.
+ *
+ * The original 55 words was a guess, and every measurement taken against it was
+ * measured against the wrong thing. The model is instructed in sentences, a spoken
+ * sentence in this voice measures at roughly twenty-five words, and the word figures
+ * follow from that so the ceiling is something the system can actually meet.
+ */
+describe('answer budgets', () => {
+  const styles = ['default', 'simpler', 'example', 'standard', 'deeper', 'list'] as const;
+
+  it('has a word budget and a sentence budget for every register', () => {
+    for (const style of styles) {
+      const budget = ANSWER_WORD_BUDGET[style];
+      assert.ok(budget > 0, `${style} has no word budget`);
+      const prompt = buildTurnPrompt({
+        deck,
+        kind: 'answer',
+        slide: getSlide(deck, 2)!,
+        history: [],
+        question: 'x',
+        coveredSlideIds: [1, 2],
+      });
+      assert.ok(/\d+ sentences/.test(prompt), 'the sentence budget is not in the prompt');
+    }
+  });
+
+  it('keeps the word budget consistent with the sentence count it renders', () => {
+    // Roughly twenty-five words to a spoken sentence, measured. A budget that does not
+    // follow from the sentence count is the bug this whole exercise was chasing: the
+    // model was told three sentences and judged against fifty-five words.
+    for (const style of styles) {
+      const prompt = buildTurnPrompt({
+        deck,
+        kind: 'answer',
+        slide: getSlide(deck, 2)!,
+        history: [],
+        question:
+          style === 'list'
+            ? 'what are the four classification tiers'
+            : style === 'simpler'
+              ? 'sorry I got lost'
+              : style === 'example'
+                ? 'can you give me an example'
+                : style === 'standard'
+                  ? 'which annex a control is that'
+                  : style === 'deeper'
+                    ? 'go deeper on that'
+                    : 'what about passwords',
+        coveredSlideIds: [1, 2],
+      });
+
+      const sentences = Number(prompt.match(/LENGTH\n(\d+) sentences/)?.[1]);
+      assert.ok(sentences >= 2, `${style} renders ${sentences} sentences`);
+      const implied = sentences * 25;
+      const budget = ANSWER_WORD_BUDGET[style];
+      assert.ok(
+        Math.abs(budget - implied) <= 25,
+        `${style}: budget ${budget} words against ${sentences} sentences, which is about ${implied}`,
+      );
+    }
+  });
+
+  it('gives the shortest allowance to a trainee who says they are lost', () => {
+    // Measured at 110 to 124 words when this register had four sentences, on the one
+    // turn where the trainee had just said they could not follow.
+    assert.ok(ANSWER_WORD_BUDGET.simpler < ANSWER_WORD_BUDGET.default);
+  });
+
+  it('gives a list enough room to name everything asked for', () => {
+    assert.ok(ANSWER_WORD_BUDGET.list > ANSWER_WORD_BUDGET.default);
   });
 });

@@ -115,11 +115,32 @@ export class FilesystemDeckStore implements DeckStore {
     return summaries.sort((a, b) => a.title.localeCompare(b.title));
   }
 
+  /**
+   * Re-checks the marker when a lookup came up empty.
+   *
+   * `seeded` is a cache of "the marker was there", not proof that the decks still
+   * are. If storage is emptied under a running process, the flag makes every later
+   * request report that the deck does not exist, with nothing to explain it, until
+   * someone restarts. Clearing the flag on a miss lets the next request re-seed.
+   *
+   * Only on the miss path, so the common case still costs nothing.
+   */
+  private async reseedIfEmptied(): Promise<void> {
+    this.seeded = false;
+    await this.ensureSeeded();
+  }
+
   async get(id: string): Promise<StoredDeck | undefined> {
     await this.ensureSeeded();
 
     const dir = this.deckDir(id);
-    const deckText = await readFile(join(dir, 'deck.json'), 'utf8').catch(() => null);
+    let deckText = await readFile(join(dir, 'deck.json'), 'utf8').catch(() => null);
+
+    if (deckText === null) {
+      await this.reseedIfEmptied();
+      deckText = await readFile(join(dir, 'deck.json'), 'utf8').catch(() => null);
+    }
+
     if (deckText === null) return undefined;
 
     const parsed = parseDeck(deckText);
