@@ -1,0 +1,99 @@
+/**
+ * Where decks live.
+ *
+ * One interface, three implementations, because this app has to run in three
+ * situations that genuinely differ: a deployment with blob storage configured, a
+ * developer's machine, and a deployment with nothing configured at all.
+ *
+ * That third one is not a hypothetical. The demo is deployed and working with two
+ * environment variables set, and a change that made it require a third would break
+ * it the moment it shipped. So no configuration means the built-in deck, read-only,
+ * which is exactly how the app behaved before storage existed.
+ *
+ * Deliberately not a database. The reason to want one was querying which decks have
+ * unresolved blocking flags before allowing a publish, and that query turns out not
+ * to exist: publish is always about one deck, so its flags can live in one object
+ * beside it. Blob storage also has to hold the slide images regardless, so this way
+ * there is one place decks live rather than two, and one environment variable
+ * instead of a database with migrations.
+ */
+
+import 'server-only';
+
+import type { DeckRecord } from '../deck-types';
+
+export type DeckStatus = 'draft' | 'published';
+
+/** Enough to list a deck without loading it. */
+export interface DeckSummary {
+  id: string;
+  title: string;
+  subtitle: string;
+  status: DeckStatus;
+  slideCount: number;
+  estimatedMinutes: number;
+  /** ISO 8601. */
+  createdAt: string;
+  updatedAt: string;
+  /** True for a deck that came from code and cannot be edited or deleted. */
+  readOnly: boolean;
+}
+
+export interface StoredDeck {
+  record: DeckRecord;
+  status: DeckStatus;
+  createdAt: string;
+  updatedAt: string;
+  readOnly: boolean;
+}
+
+export class DeckStoreError extends Error {}
+
+/** A deck that is present but unusable. Separated so the cause can be shown. */
+export class DeckInvalidError extends DeckStoreError {
+  constructor(
+    readonly deckId: string,
+    readonly errors: string[],
+  ) {
+    super(`Deck "${deckId}" is stored but not valid:\n  ${errors.join('\n  ')}`);
+  }
+}
+
+export interface DeckStore {
+  /** Human-readable, for diagnostics and the health endpoint. */
+  readonly kind: 'blob' | 'filesystem' | 'seeded';
+  /** False for the seeded store, which is compiled in. */
+  readonly writable: boolean;
+
+  list(): Promise<DeckSummary[]>;
+  /** Undefined when there is no such deck. Throws DeckInvalidError if it is corrupt. */
+  get(id: string): Promise<StoredDeck | undefined>;
+  save(record: DeckRecord, status: DeckStatus): Promise<DeckSummary>;
+  remove(id: string): Promise<void>;
+}
+
+/** Rejects an id that could escape its prefix or collide with a path separator. */
+export function assertUsableDeckId(id: string): void {
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) {
+    throw new DeckStoreError(
+      `"${id}" is not a usable deck id. Use lower-case letters, numbers and hyphens.`,
+    );
+  }
+}
+
+export function summarise(stored: StoredDeck): DeckSummary {
+  const { record } = stored;
+  return {
+    id: record.meta.id,
+    title: record.meta.title,
+    subtitle: record.meta.subtitle,
+    status: stored.status,
+    slideCount: record.slides.length,
+    estimatedMinutes: Math.round(
+      record.slides.reduce((total, slide) => total + slide.targetSeconds, 0) / 60,
+    ),
+    createdAt: stored.createdAt,
+    updatedAt: stored.updatedAt,
+    readOnly: stored.readOnly,
+  };
+}

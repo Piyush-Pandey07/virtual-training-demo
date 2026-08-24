@@ -20,6 +20,7 @@ import {
   GEMINI_ANSWER_MODEL,
   GEMINI_MODEL,
 } from '@/lib/config';
+import { deckStore, listDecks } from '@/lib/decks/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,27 @@ export interface HealthResponse {
     speechToText: string;
     textToSpeech: string;
   };
+  /**
+   * Which deck store is in use, and how many decks it holds.
+   *
+   * Worth reporting because the store is chosen from the environment and falls
+   * back silently. A deployment that intended blob storage and is quietly serving
+   * the built-in deck read-only looks identical from the outside otherwise, which
+   * is exactly the class of thing this endpoint exists to catch.
+   */
+  decks: {
+    store: 'blob' | 'filesystem' | 'seeded';
+    writable: boolean;
+    count: number;
+    /**
+     * Why the store could not be read, when it could not be.
+     *
+     * This used to be swallowed, and a store that was failing looked exactly like
+     * a store that was empty. Diagnosing a deployment is the entire purpose of
+     * this endpoint, so the reason is reported.
+     */
+    error?: string;
+  };
 }
 
 function isSet(name: string): boolean {
@@ -47,6 +69,15 @@ export async function GET() {
   const required = ['GEMINI_API_KEY', 'DEEPGRAM_API_KEY'];
   const missing = required.filter((name) => !isSet(name));
 
+  const store = deckStore();
+  // A storage failure must not take the readiness check down with it, since the
+  // whole point is to report what is wrong. It is reported, not swallowed.
+  let deckError: string | undefined;
+  const decks = await listDecks().catch((error: unknown) => {
+    deckError = error instanceof Error ? error.message : 'unknown storage failure';
+    return [];
+  });
+
   const body: HealthResponse = {
     ready: missing.length === 0,
     missing,
@@ -55,6 +86,12 @@ export async function GET() {
       answering: GEMINI_ANSWER_MODEL(),
       speechToText: DEEPGRAM_STT_MODEL(),
       textToSpeech: DEEPGRAM_TTS_MODEL(),
+    },
+    decks: {
+      store: store.kind,
+      writable: store.writable,
+      count: decks.length,
+      ...(deckError ? { error: deckError } : {}),
     },
   };
 

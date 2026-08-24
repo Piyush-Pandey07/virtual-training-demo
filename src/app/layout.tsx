@@ -2,10 +2,17 @@ import type { Metadata, Viewport } from 'next';
 
 import './globals.css';
 
+/**
+ * The fallback title, used where no particular deck is being shown.
+ *
+ * It named the ISMS deck until decks became something a trainer uploads, at which
+ * point a browser tab reading "ISMS Awareness Training" above a fire safety deck
+ * is simply wrong. The deck pages override this with the deck's own title.
+ */
 export const metadata: Metadata = {
-  title: 'Technavious | AI-Led ISMS Awareness Training',
+  title: 'Technavious | AI-Led Awareness Training',
   description:
-    'A one to one live training session where an AI trainer presents the ISO 27001 ISMS awareness deck and answers questions by voice.',
+    'A one to one live training session where an AI trainer presents a deck and answers questions by voice.',
 };
 
 export const viewport: Viewport = {

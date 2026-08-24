@@ -244,6 +244,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            // Named explicitly. The server loads a deck per request, and without
+            // this a session on an uploaded deck would be narrated from the
+            // default one: the right slides on screen, the wrong script.
+            deckId: deck.meta.id,
             kind,
             slideId: targetSlide,
             question: opts.question,

@@ -1,33 +1,59 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { estimatedMinutes } from '@/lib/deck';
+import type { DeckMeta } from '@/lib/deck-types';
 import { loadDeck } from '@/lib/decks/registry';
 import { TRAINER_NAME } from '@/lib/trainer';
 
-const CAPABILITIES = [
-  {
-    title: 'It teaches, it does not read aloud',
-    body: `${TRAINER_NAME} works from the slide content and the presenter notes, then explains each point with examples drawn from data centre consultancy work.`,
-  },
-  {
-    title: 'Interrupt whenever you like',
-    body: 'Start speaking and the trainer stops mid-sentence to listen, the way a person would. Ask again, ask for an example, or ask it to move on.',
-  },
-  {
-    title: 'Questions answered in context',
-    body: 'Answers come from this deck first. If a question needs something the deck does not carry, the trainer says so instead of inventing policy.',
-  },
-  {
-    title: 'It follows your pace',
-    body: 'Nothing advances until you are ready. Jump back to any slide, ask for a point again, or ask to be tested on what you have covered.',
-  },
-];
+// The deck is read from storage per request. Prerendering would bake in whichever
+// deck existed when the build ran.
+export const dynamic = 'force-dynamic';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const deck = await loadDeck();
+  if (!deck) return {};
+  return {
+    title: `${deck.meta.owner} | ${deck.meta.title}`,
+    description: `A one to one live training session where an AI trainer presents ${deck.meta.title} and answers questions by voice.`,
+  };
+}
+
+/**
+ * What the trainer does, said once for whichever deck is loaded.
+ *
+ * The first card used to name data centre consultancy, which is true of this deck's
+ * audience and meaningless for anyone else's, so it comes off the deck now.
+ */
+function capabilities(meta: DeckMeta) {
+  return [
+    {
+      title: 'It teaches, it does not read aloud',
+      body: `${TRAINER_NAME} works from the slide content and the presenter notes, then explains each point with examples drawn from ${meta.exampleContext}.`,
+    },
+    {
+      title: 'Interrupt whenever you like',
+      body: 'Start speaking and the trainer stops mid-sentence to listen, the way a person would. Ask again, ask for an example, or ask it to move on.',
+    },
+    {
+      title: 'Questions answered in context',
+      body: 'Answers come from this deck first. If a question needs something the deck does not carry, the trainer says so instead of inventing policy.',
+    },
+    {
+      title: 'It follows your pace',
+      body: 'Nothing advances until you are ready. Jump back to any slide, ask for a point again, or ask to be tested on what you have covered.',
+    },
+  ];
+}
 
 export default async function HomePage() {
   const deck = await loadDeck();
-  if (!deck) notFound();
+
+  // No default deck means either an empty library or one whose seed deck was
+  // deleted. The library page says so usefully; a 404 on the front door does not.
+  if (!deck) redirect('/decks');
 
   const { meta, slides } = deck;
 
@@ -63,8 +89,14 @@ export default async function HomePage() {
           </p>
         </div>
 
+        <p className="text-muted mt-6 text-sm">
+          <Link href="/decks" className="hover:text-teal underline transition-colors">
+            Browse the deck library
+          </Link>
+        </p>
+
         <section className="mt-14 grid gap-4 sm:grid-cols-2">
-          {CAPABILITIES.map((item) => (
+          {capabilities(meta).map((item) => (
             <article
               key={item.title}
               className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5"
@@ -97,8 +129,8 @@ export default async function HomePage() {
 
       <footer className="border-charcoal-line text-muted border-t px-5 py-6 text-sm sm:px-8">
         <p>
-          Technavious internal awareness training. Slide content is reproduced from the approved
-          ISMS deck.
+          {meta.owner} internal awareness training. Slide content is reproduced from the approved
+          deck.
         </p>
       </footer>
     </div>
