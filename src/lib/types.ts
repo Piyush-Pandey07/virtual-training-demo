@@ -59,6 +59,8 @@ export interface HistoryTurn {
 
 /** Request body for POST /api/chat. */
 export interface ChatRequest {
+  /** Which deck to run. Defaults to the only one there is. */
+  deckId?: string;
   kind: TurnKind;
   /** Slide currently on screen. */
   slideId: number;
@@ -80,8 +82,14 @@ export type ChatEvent =
   | { type: 'text'; delta: string }
   /** The trainer wants a different slide on screen. */
   | { type: 'nav'; slideId: number; reason: string }
-  /** The trainer has finished this turn. */
-  | { type: 'done'; text: string; suggestedFollowUps: string[] }
+  /**
+   * The trainer has finished this turn.
+   *
+   * This used to carry the slide's discussion prompts as `suggestedFollowUps`,
+   * which nothing read and which handed the trainee the openers the trainer was
+   * about to use on them.
+   */
+  | { type: 'done'; text: string }
   | { type: 'error'; message: string };
 
 /** Response body for POST /api/deepgram/token. */

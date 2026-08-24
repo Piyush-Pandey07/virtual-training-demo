@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-import { TOTAL_SLIDES } from '@/lib/deck';
+import { useDeck } from '@/lib/deck-context';
 import type { MicState, SessionPhase } from '@/lib/types';
 
 interface SessionControlsProps {
@@ -46,6 +46,7 @@ export function SessionControls({
   onEnd,
   onAskByText,
 }: SessionControlsProps) {
+  const deck = useDeck();
   const [draft, setDraft] = useState('');
   const ended = phase === 'ended';
 
@@ -88,7 +89,7 @@ export function SessionControls({
           Explain again
         </button>
         <button type="button" className={PRIMARY} onClick={onNext} disabled={locked}>
-          {slideId >= TOTAL_SLIDES ? 'Wrap up' : 'Next slide'}
+          {slideId >= deck.totalSlides ? 'Wrap up' : 'Next slide'}
         </button>
 
         {trainerSpeaking && (

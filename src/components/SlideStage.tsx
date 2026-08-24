@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 
-import { SLIDES, TOTAL_SLIDES, type DeckSlide } from '@/lib/deck';
+import { useDeck } from '@/lib/deck-context';
+import type { ClientSlide } from '@/lib/deck-types';
 
 /**
  * The slide currently on screen.
@@ -19,12 +20,14 @@ import { SLIDES, TOTAL_SLIDES, type DeckSlide } from '@/lib/deck';
  * about 600 kB and is needed within one session anyway, so holding all of it is
  * cheaper than the flicker.
  */
-export function SlideStage({ slide, dimmed }: { slide: DeckSlide; dimmed: boolean }) {
+export function SlideStage({ slide, dimmed }: { slide: ClientSlide; dimmed: boolean }) {
+  const deck = useDeck();
+
   return (
     <figure className="border-charcoal-line relative w-full overflow-hidden rounded-xl border bg-white shadow-lg shadow-black/30">
       {/* 16:9, matching the source deck. */}
       <div className="relative aspect-video w-full">
-        {SLIDES.map((candidate) => {
+        {deck.slides.map((candidate) => {
           const showing = candidate.id === slide.id;
           return (
             <Image
@@ -52,7 +55,7 @@ export function SlideStage({ slide, dimmed }: { slide: DeckSlide; dimmed: boolea
       <figcaption className="border-charcoal-line bg-charcoal-soft flex items-center justify-between gap-3 border-t px-4 py-2.5">
         <span className="text-mist truncate text-sm font-semibold">{slide.title}</span>
         <span className="text-muted shrink-0 text-xs tabular-nums">
-          Slide {slide.id} of {TOTAL_SLIDES}
+          Slide {slide.id} of {deck.totalSlides}
         </span>
       </figcaption>
     </figure>

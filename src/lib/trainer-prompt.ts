@@ -1,6 +1,10 @@
 /**
  * Builds the system instruction and the per-turn prompt for the AI trainer.
  *
+ * Server only. This module reads the whole deck, presenter notes and author-only
+ * notes included, so it must never be pulled into a client bundle. The marker
+ * import below makes that a build failure rather than a discovery.
+ *
  * Three things drive everything here:
  *
  *  1. The output is spoken aloud by a text to speech engine, so it must contain
@@ -15,33 +19,29 @@
  *     trainee's own working life.
  */
 
-import {
-  DECK_OWNER,
-  DECK_SUBJECT_SPOKEN,
-  DECK_SUBTITLE,
-  DECK_TITLE,
-  SLIDES,
-  TOTAL_SLIDES,
-  type DeckSlide,
-} from './deck';
+import 'server-only';
+
+import { firstSlideId, lastSlideId, totalSlides } from './deck';
+import type { DeckMeta, DeckRecord, DeckSlide } from './deck-types';
+import { detectAnswerStyle } from './intent';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { sanitiseForSpeech } from './speech';
 import { TRAINER_NAME } from './trainer';
 import type { AnswerStyle, HistoryTurn, LearnerProfile, TurnKind } from './types';
 
 export { TRAINER_NAME };
-// Re-exported so the route's existing import keeps working.
-export { sanitiseForSpeech };
+// Re-exported so the route's existing imports keep working.
+export { detectAnswerStyle, sanitiseForSpeech };
 
 /** A compact outline of the whole deck, so the trainer always knows where it is. */
-function deckOutline(): string {
-  return SLIDES.map((slide) => `  Slide ${slide.id}: ${slide.title}`).join('\n');
+function deckOutline(deck: DeckRecord): string {
+  return deck.slides.map((slide) => `  Slide ${slide.id}: ${slide.title}`).join('\n');
 }
 
 /** What is printed on the slide, plus the teaching brief for it. */
-function slideBriefing(slide: DeckSlide): string {
+function slideBriefing(deck: DeckRecord, slide: DeckSlide): string {
   const lines: string[] = [
-    `Slide ${slide.id} of ${TOTAL_SLIDES}: ${slide.title}`,
+    `Slide ${slide.id} of ${totalSlides(deck)}: ${slide.title}`,
     '',
     'Text printed on the slide, which the trainee can already read:',
     ...slide.bullets.map((b) => `  - ${b}`),
@@ -78,25 +78,28 @@ function spokenWordBudget(slide: DeckSlide): number {
 }
 
 /** The deck as reference material, for turns that range across all of it. */
-function fullDeckReference(): string {
-  return SLIDES.map((slide) => {
-    const parts = [`Slide ${slide.id}: ${slide.title}`];
-    parts.push(...slide.bullets.map((b) => `  - ${b}`));
-    if (slide.speakerNotes.length > 0) {
-      parts.push(...slide.speakerNotes.map((n) => `  - (presenter note) ${n}`));
-    }
-    return parts.join('\n');
-  }).join('\n\n');
+function fullDeckReference(deck: DeckRecord): string {
+  return deck.slides
+    .map((slide) => {
+      const parts = [`Slide ${slide.id}: ${slide.title}`];
+      parts.push(...slide.bullets.map((b) => `  - ${b}`));
+      if (slide.speakerNotes.length > 0) {
+        parts.push(...slide.speakerNotes.map((n) => `  - (presenter note) ${n}`));
+      }
+      return parts.join('\n');
+    })
+    .join('\n\n');
 }
 
-export function buildSystemInstruction(traineeName?: string): string {
+export function buildSystemInstruction(deck: DeckRecord, traineeName?: string): string {
+  const meta = deck.meta;
   const addressed = traineeName?.trim()
     ? `The trainee is called ${traineeName.trim()}. Use their first name occasionally, not in every sentence.`
     : "You do not know the trainee's name. Do not invent one and do not ask for it more than once.";
 
-  return `You are ${TRAINER_NAME}, an information security trainer running a one to one live session for ${DECK_OWNER}, a data centre lifecycle consultancy. You are delivering the deck titled "${DECK_TITLE}" (${DECK_SUBTITLE}).
+  return `You are ${TRAINER_NAME}, ${meta.trainerRole} running a one to one live session for ${meta.owner}, ${meta.ownerDescription}. You are delivering the deck titled "${meta.title}" (${meta.subtitle}).
 
-You are not a narrator attached to a slide deck. You are a practitioner who has implemented ISO 27001, sat on both sides of audits, and seen how these controls fail on real projects. You happen to be working through a deck today.
+You are not a narrator attached to a slide deck. You are ${meta.practitionerCredential}. You happen to be working through a deck today.
 
 ${addressed}
 
@@ -138,7 +141,7 @@ HOW YOU TEACH
 - You are given your own expertise for each slide. Teach from it. Never read it out, never work through it as a list, and never try to use all of it. Selecting what this trainee needs is the job.
 - Never read the slide out. They can see it. Your value is the meaning behind it, the reason it exists, and what it means for them on Tuesday morning.
 - Lead with the idea, then make it concrete. One good example beats three thin points.
-- Ground examples in work the trainee would recognise: site surveys, client audits, single-line diagrams, commissioning records, rack layouts, shared client sites, tender documents.
+- Ground examples in work the trainee would recognise: ${meta.exampleDomain}.
 - When a question carries a misconception, address the misconception, in the generous way described above. That is worth more than answering the surface question, and you are given the common ones with the correction to use.
 - Say the quiet part. Explain why a control exists and what actually goes wrong without it, not just what the rule is.
 - Frame the risk around the habit that prevents it, not around the disaster. "Checking the address takes a second and catches nearly all of it" is true, and it leaves them able to act. A list of what could go wrong leaves them anxious and no better equipped.
@@ -153,9 +156,9 @@ Sometimes you will have put a question to them and their reply is an attempt at 
 - Never say "wrong" or "incorrect" flatly, and never move on without resolving it either.
 
 WHERE YOUR AUTHORITY ENDS
-- The deck is the authority on ${DECK_OWNER} policy. Your expertise is general professional knowledge.
+- The deck is the authority on ${meta.owner} policy. Your expertise is general professional knowledge.
 - Say which is which when it matters. "The deck sets this out" is different from "the general practice is".
-- If a question needs a ${DECK_OWNER} specific the deck does not carry, such as a retention period, an approved tool, a named system, or an exception process, say plainly that this session does not cover it and point at the controlled document or the IT support desk. Never invent policy, contact details, tool names, figures or dates.
+- If a question needs a ${meta.owner} specific the deck does not carry, such as a retention period, an approved tool, a named system, or an exception process, say plainly that this session does not cover it and point at the controlled document or the IT support desk. Never invent policy, contact details, tool names, figures or dates.
 - Standard references are there for trainees who want them. Offer a clause or control number when it genuinely helps, and do not decorate every answer with one.
 - Speech to text will sometimes garble a word. If a question is unclear, say what you think you heard and ask them to confirm rather than guessing.
 - If asked something unrelated to information security, answer briefly and steer back.
@@ -165,68 +168,26 @@ CONFIDENTIALITY
 Stay inside the scope of this awareness session. If asked for company financial information, individual salaries or compensation, shareholding, or anyone's personal data, say that it is outside the scope of this session and move on.
 
 THE DECK
-${deckOutline()}
+${deckOutline(deck)}
 
-Total ${TOTAL_SLIDES} slides.
+Total ${totalSlides(deck)} slides.
 
 EVERYTHING YOU HAVE DEPTH ON
-${renderTopicIndex()}
+${renderTopicIndex(deck)}
 
 If a trainee goes anywhere near one of those, you can go as deep as they want.`;
 }
 
-/**
- * Works out what shape of answer the trainee is asking for.
- *
- * A request to simplify and a request to go deeper need genuinely different
- * replies, and getting this wrong is the difference between a trainer who listens
- * and one with a single register.
- */
-export function detectAnswerStyle(question: string): AnswerStyle {
-  const q = question.toLowerCase();
-
-  if (
-    /\b(simpler|simplify|plain english|layman|confus|lost|don'?t (?:really )?(?:get|understand)|didn'?t (?:get|understand|follow)|explain (?:it |that )?again|what do you mean|too (?:technical|complicated))\b/.test(
-      q,
-    )
-  ) {
-    return 'simpler';
-  }
-  if (
-    /\b(example|for instance|such as|show me|what would that look like|in practice|real world|scenario)\b/.test(
-      q,
-    )
-  ) {
-    return 'example';
-  }
-  if (
-    /\b(clause|annex|control number|which control|standard say|iso say|27002|reference|precisely)\b/.test(
-      q,
-    )
-  ) {
-    return 'standard';
-  }
-  if (
-    /\b(more detail|go deeper|deeper|elaborate|expand|tell me more|why (?:exactly|specifically)|how does that (?:actually )?work|what happens if)\b/.test(
-      q,
-    )
-  ) {
-    return 'deeper';
-  }
-  return 'default';
-}
-
-const STYLE_DIRECTION: Record<AnswerStyle, string> = {
+const styleDirection = (meta: DeckMeta): Record<AnswerStyle, string> => ({
   default: 'Answer at a normal level of detail. Lead with the direct answer.',
   simpler:
     'They are struggling, so put them at ease first, in one short clause and no more, without making a fuss of it. That this bit trips most people up, or that it was probably your explanation rather than their understanding, is usually both true and exactly what they need to hear. Then change register rather than repeating yourself more loudly. Drop every piece of jargon, use a concrete everyday comparison, and cut it to the single most important idea. Shorter than you would normally go. Then check gently whether that landed before adding anything.',
-  example:
-    'They want it made concrete. Give one specific worked example from data centre consultancy work, walked through properly, rather than several thin ones. Name the artefact, say what the person did, say what went wrong or right.',
+  example: `They want it made concrete. Give one specific worked example from ${meta.exampleContext}, walked through properly, rather than several thin ones. Name the artefact, say what the person did, say what went wrong or right.`,
   standard:
     'They want precision. Give the clause or Annex A control reference, say what the control actually requires in its own terms, then translate it back into what it means in practice. Be exact, and if you are not certain of a number say so rather than guessing at one.',
   deeper:
     'They want the mechanism, not the summary. Explain how it actually works or why it actually fails, including the part most awareness training leaves out. Assume they are technical and can take it. You have room for longer than a normal answer here.',
-};
+});
 
 /**
  * Words allowed for an answer, by the kind of answer asked for.
@@ -304,6 +265,7 @@ function learnerBlock(learner: LearnerProfile | undefined, coveredSlideIds: numb
 }
 
 interface TurnPromptArgs {
+  deck: DeckRecord;
   kind: TurnKind;
   slide: DeckSlide;
   history: HistoryTurn[];
@@ -314,6 +276,7 @@ interface TurnPromptArgs {
 
 /** Builds the user-role prompt for a single turn. */
 export function buildTurnPrompt({
+  deck,
   kind,
   slide,
   history,
@@ -321,21 +284,24 @@ export function buildTurnPrompt({
   coveredSlideIds,
   learner,
 }: TurnPromptArgs): string {
+  const meta = deck.meta;
   const conversation = `CONVERSATION SO FAR\n${historyBlock(history)}`;
   const learnerRead = `WHERE THIS TRAINEE IS\n${learnerBlock(learner, coveredSlideIds)}`;
   const wholeDeck = kind === 'recap' || kind === 'quiz';
 
-  const knowledge = renderKnowledge(selectKnowledge({ slideId: slide.id, question, wholeDeck }));
+  const knowledge = renderKnowledge(
+    selectKnowledge({ deck, slideId: slide.id, question, wholeDeck }),
+  );
 
   if (kind === 'narrate') {
-    const isFirst = slide.id === 1;
-    const isLast = slide.id === TOTAL_SLIDES;
+    const isFirst = slide.id === firstSlideId(deck);
+    const isLast = slide.id === lastSlideId(deck);
     return `${conversation}
 
 ${learnerRead}
 
 SLIDE NOW ON SCREEN
-${slideBriefing(slide)}
+${slideBriefing(deck, slide)}
 
 ${knowledge}
 
@@ -344,7 +310,7 @@ Teach this slide now. ${
       isFirst
         ? `This is the opening of the session.
 
-Your very first sentence must welcome the trainee to the virtual training session and name what the session is on, so they know what they have joined. Something in the shape of "Welcome to the virtual training session on ${DECK_SUBJECT_SPOKEN}." Put it in your own words and keep it natural, but the welcome and the subject both have to be there, and they come before you introduce yourself.
+Your very first sentence must welcome the trainee to the virtual training session and name what the session is on, so they know what they have joined. Something in the shape of "Welcome to the virtual training session on ${meta.spokenSubject}." Put it in your own words and keep it natural, but the welcome and the subject both have to be there, and they come before you introduce yourself.
 
 Then introduce yourself and set out what is coming.
 
@@ -373,18 +339,18 @@ That budget is the whole point of the exercise: you have far more expertise avai
 ${learnerRead}
 
 SLIDE NOW ON SCREEN
-${slideBriefing(slide)}
+${slideBriefing(deck, slide)}
 
 ${knowledge}
 
 THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference()}
+${fullDeckReference(deck)}
 
 THE TRAINEE JUST ASKED
 "${question ?? ''}"
 
 WHAT KIND OF ANSWER THEY WANT
-${STYLE_DIRECTION[style]}
+${styleDirection(meta)[style]}
 
 YOUR TASK
 Answer that, and answer it briefly. Lead with the direct answer in a sentence or two. If the question rests on a misconception, correct it rather than answering around it. If the deck does not settle it, say so and point them somewhere useful.
@@ -403,14 +369,14 @@ If there is more worth saying, offer it in a short closing question instead of s
 ${learnerRead}
 
 THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference()}
+${fullDeckReference(deck)}
 
 ${knowledge}
 
 YOUR TASK
 Put one check question to the trainee now, and nothing else.
 
-Set it up so it feels safe. Make clear in a few words that this is a chance to think it through rather than a test, and that there is no wrong answer to be embarrassed by. Then make it a scenario from data centre consultancy work rather than a definition, of the kind where they have to apply a judgement.
+Set it up so it feels safe. Make clear in a few words that this is a chance to think it through rather than a test, and that there is no wrong answer to be embarrassed by. Then make it a scenario from ${meta.exampleContext} rather than a definition, of the kind where they have to apply a judgement.
 
 Draw it from what you have actually covered, and lean towards what they have shown interest in. Pitch it so a trainee who was paying attention can get there. Do not give the answer away in the question, and do not ask more than one thing at a time.`;
   }
@@ -420,12 +386,12 @@ Draw it from what you have actually covered, and lean towards what they have sho
 ${learnerRead}
 
 THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference()}
+${fullDeckReference(deck)}
 
 ${knowledge}
 
 YOUR TASK
-Close the session warmly. Recap what you covered, name the single habit you want them to take away, remind them of the three reporting routes without spelling out addresses, and thank them properly.
+Close the session warmly. Recap what you covered, name the single habit you want them to take away, remind them of ${meta.closingReminder}, and thank them properly.
 
 Refer to something they actually asked about if there was one, because it shows you were listening and it is the easiest genuine compliment available to you.
 

@@ -15,10 +15,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { clampSlideId, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
+import { clampSlideId, firstSlideId, totalSlides } from '@/lib/deck';
+import { useDeck } from '@/lib/deck-context';
 import { classifyUtterance } from '@/lib/intent';
 import { sanitiseForSpeech } from '@/lib/speech';
-import { detectAnswerStyle } from '@/lib/trainer-prompt';
+import { detectAnswerStyle } from '@/lib/intent';
 import type {
   ChatEvent,
   HistoryTurn,
@@ -88,8 +89,10 @@ export interface UseTrainingSessionResult {
 }
 
 export function useTrainingSession(): UseTrainingSessionResult {
+  const deck = useDeck();
+
   const [phase, setPhase] = useState<SessionPhase>('idle');
-  const [slideId, setSlideId] = useState(1);
+  const [slideId, setSlideId] = useState(() => firstSlideId(deck));
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>([]);
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
@@ -202,7 +205,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
       if (phaseRef.current === 'ended' && kind !== 'recap') return;
       busyRef.current = true;
 
-      const targetSlide = clampSlideId(opts.slideId ?? slideIdRef.current);
+      const targetSlide = clampSlideId(deck, opts.slideId ?? slideIdRef.current);
       const player = ttsRef.current;
 
       // Silence whatever is still playing before queueing anything new. The button
@@ -288,7 +291,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
               spoken += event.delta;
               player.push(event.delta);
             } else if (event.type === 'nav') {
-              const next = clampSlideId(event.slideId);
+              const next = clampSlideId(deck, event.slideId);
               navigatedTo = next;
               setSlideId(next);
               slideIdRef.current = next;
@@ -339,7 +342,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
         if (isCurrent()) busyRef.current = false;
       }
     },
-    [appendEntry, buildHistory],
+    [appendEntry, buildHistory, deck],
   );
 
   /** A trainee utterance: either a nudge to continue, or a question to answer. */
@@ -372,7 +375,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
       if (intent === 'advance') {
         const next = slideIdRef.current + 1;
-        if (next > TOTAL_SLIDES) {
+        if (next > totalSlides(deck)) {
           void runTurn('recap');
           return;
         }
@@ -383,7 +386,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
       }
 
       if (intent === 'back') {
-        const previous = clampSlideId(slideIdRef.current - 1);
+        const previous = clampSlideId(deck, slideIdRef.current - 1);
         setSlideId(previous);
         slideIdRef.current = previous;
         void runTurn('narrate', { slideId: previous });
@@ -398,7 +401,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
       noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, cancelCurrentTurn, noteQuestion, runTurn],
+    [appendEntry, cancelCurrentTurn, deck, noteQuestion, runTurn],
   );
 
   /** Cuts the trainer off when the trainee starts talking over it. */
@@ -455,9 +458,9 @@ export function useTrainingSession(): UseTrainingSessionResult {
       setLearner(EMPTY_LEARNER);
       learnerRef.current = EMPTY_LEARNER;
 
-      await runTurn('narrate', { slideId: 1 });
+      await runTurn('narrate', { slideId: firstSlideId(deck) });
     },
-    [runTurn],
+    [deck, runTurn],
   );
 
   const endSession = useCallback(() => {
@@ -468,24 +471,24 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
   const goToSlide = useCallback(
     (id: number) => {
-      const next = clampSlideId(id);
+      const next = clampSlideId(deck, id);
       cancelCurrentTurn();
       setSlideId(next);
       slideIdRef.current = next;
       void runTurn('narrate', { slideId: next });
     },
-    [cancelCurrentTurn, runTurn],
+    [cancelCurrentTurn, deck, runTurn],
   );
 
   const nextSlide = useCallback(() => {
     const next = slideIdRef.current + 1;
-    if (next > TOTAL_SLIDES) {
+    if (next > totalSlides(deck)) {
       cancelCurrentTurn();
       void runTurn('recap');
       return;
     }
     goToSlide(next);
-  }, [cancelCurrentTurn, goToSlide, runTurn]);
+  }, [cancelCurrentTurn, deck, goToSlide, runTurn]);
 
   const previousSlide = useCallback(() => {
     goToSlide(slideIdRef.current - 1);
@@ -513,7 +516,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
 
       if (intent === 'advance') {
         const next = slideIdRef.current + 1;
-        if (next > TOTAL_SLIDES) {
+        if (next > totalSlides(deck)) {
           void runTurn('recap');
           return;
         }
@@ -523,7 +526,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
         return;
       }
       if (intent === 'back') {
-        const previous = clampSlideId(slideIdRef.current - 1);
+        const previous = clampSlideId(deck, slideIdRef.current - 1);
         setSlideId(previous);
         slideIdRef.current = previous;
         void runTurn('narrate', { slideId: previous });
@@ -537,7 +540,7 @@ export function useTrainingSession(): UseTrainingSessionResult {
       noteQuestion(clean, slideIdRef.current);
       void runTurn('answer', { question: clean });
     },
-    [appendEntry, cancelCurrentTurn, noteQuestion, runTurn],
+    [appendEntry, cancelCurrentTurn, deck, noteQuestion, runTurn],
   );
 
   const interruptTrainer = useCallback(() => {
@@ -545,7 +548,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
     if (phaseRef.current !== 'ended') setPhase('listening');
   }, [cancelCurrentTurn]);
 
-  const slideIndex = useMemo(() => SLIDES.findIndex((slide) => slide.id === slideId), [slideId]);
+  const slideIndex = useMemo(
+    () => deck.slides.findIndex((slide) => slide.id === slideId),
+    [deck, slideId],
+  );
 
   return {
     phase,

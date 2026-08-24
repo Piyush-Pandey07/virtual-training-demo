@@ -6,7 +6,7 @@
  * anyone who wants it and the failure that auditors actually find.
  */
 
-import type { KnowledgeTopic } from './types';
+import type { KnowledgeTopic } from '../../../knowledge/types';
 
 export const POLICIES: KnowledgeTopic[] = [
   {

@@ -6,7 +6,7 @@
  * the deck and its presenter notes. Everything else here is practice.
  */
 
-import type { KnowledgeTopic } from './types';
+import type { KnowledgeTopic } from '../../../knowledge/types';
 
 export const CLASSIFICATION: KnowledgeTopic[] = [
   {

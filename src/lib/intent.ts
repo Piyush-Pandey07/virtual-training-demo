@@ -8,7 +8,15 @@
  *
  * Shared between the client, which routes the turn, and the server, which decides
  * whether a slide change should be followed by teaching or by an answer.
+ *
+ * Answer style lives here too. It is the same job on the same input, reading an
+ * utterance to decide what the trainee wants, and it has to be callable from the
+ * browser. It used to sit in trainer-prompt.ts, which meant the session hook
+ * imported the whole prompt builder, and behind it the entire knowledge base, into
+ * the client bundle to call one regex.
  */
+
+import type { AnswerStyle } from './types';
 
 /** What the trainee wants to happen next. */
 export type Utterance =
@@ -154,4 +162,45 @@ export function isNavigationOnly(raw: string | undefined): boolean {
   if (!raw?.trim()) return true;
   const kind = classifyUtterance(raw);
   return kind === 'advance' || kind === 'back';
+}
+
+/**
+ * Works out what shape of answer the trainee is asking for.
+ *
+ * A request to simplify and a request to go deeper need genuinely different
+ * replies, and getting this wrong is the difference between a trainer who listens
+ * and one with a single register.
+ */
+export function detectAnswerStyle(question: string): AnswerStyle {
+  const q = question.toLowerCase();
+
+  if (
+    /\b(simpler|simplify|plain english|layman|confus|lost|don'?t (?:really )?(?:get|understand)|didn'?t (?:get|understand|follow)|explain (?:it |that )?again|what do you mean|too (?:technical|complicated))\b/.test(
+      q,
+    )
+  ) {
+    return 'simpler';
+  }
+  if (
+    /\b(example|for instance|such as|show me|what would that look like|in practice|real world|scenario)\b/.test(
+      q,
+    )
+  ) {
+    return 'example';
+  }
+  if (
+    /\b(clause|annex|control number|which control|standard say|iso say|27002|reference|precisely)\b/.test(
+      q,
+    )
+  ) {
+    return 'standard';
+  }
+  if (
+    /\b(more detail|go deeper|deeper|elaborate|expand|tell me more|why (?:exactly|specifically)|how does that (?:actually )?work|what happens if)\b/.test(
+      q,
+    )
+  ) {
+    return 'deeper';
+  }
+  return 'default';
 }

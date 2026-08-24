@@ -6,7 +6,7 @@
  * what the process is for.
  */
 
-import type { KnowledgeTopic } from './types';
+import type { KnowledgeTopic } from '../../../knowledge/types';
 
 export const INCIDENTS: KnowledgeTopic[] = [
   {

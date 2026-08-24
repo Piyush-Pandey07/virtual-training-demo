@@ -1,6 +1,6 @@
 'use client';
 
-import { SLIDES } from '@/lib/deck';
+import { useDeck } from '@/lib/deck-context';
 
 interface SlideRailProps {
   currentId: number;
@@ -14,9 +14,11 @@ interface SlideRailProps {
  * trainee can see how much is left and revisit anything already taught.
  */
 export function SlideRail({ currentId, coveredIds, onSelect, disabled }: SlideRailProps) {
+  const deck = useDeck();
+
   return (
     <nav aria-label="Slides" className="flex flex-wrap gap-1.5">
-      {SLIDES.map((slide) => {
+      {deck.slides.map((slide) => {
         const isCurrent = slide.id === currentId;
         const isCovered = coveredIds.includes(slide.id);
 

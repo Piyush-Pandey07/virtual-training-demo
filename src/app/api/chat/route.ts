@@ -10,7 +10,9 @@
 import { GoogleGenAI, type Content } from '@google/genai';
 
 import { GEMINI_ANSWER_MODEL, GEMINI_MODEL, requireEnv } from '@/lib/config';
-import { clampSlideId, getSlide, TOTAL_SLIDES, type DeckSlide } from '@/lib/deck';
+import { clampSlideId, getSlide, totalSlides } from '@/lib/deck';
+import type { DeckRecord, DeckSlide } from '@/lib/deck-types';
+import { loadDeck } from '@/lib/decks/registry';
 import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
 import { bestSlideForQuestion } from '@/lib/knowledge';
 import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
@@ -36,7 +38,7 @@ function badRequest(message: string) {
   return Response.json({ error: message }, { status: 400 });
 }
 
-function parseHistory(raw: unknown): HistoryTurn[] {
+function parseHistory(deck: DeckRecord, raw: unknown): HistoryTurn[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
@@ -50,22 +52,22 @@ function parseHistory(raw: unknown): HistoryTurn[] {
     .map((turn) => ({
       speaker: turn.speaker,
       text: turn.text.slice(0, 4000),
-      slideId: clampSlideId(Number(turn.slideId)),
+      slideId: clampSlideId(deck, Number(turn.slideId)),
     }))
     .slice(-MAX_HISTORY_TURNS);
 }
 
 /** The learner profile comes from the browser, so it is bounded before use. */
-function parseLearner(raw: unknown): LearnerProfile | undefined {
+function parseLearner(deck: DeckRecord, raw: unknown): LearnerProfile | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const value = raw as Partial<LearnerProfile>;
   const asked = Number(value.questionsAsked);
   return {
     questionsAsked: Number.isFinite(asked) ? Math.min(Math.max(Math.round(asked), 0), 999) : 0,
     curiousAbout: Array.isArray(value.curiousAbout)
-      ? [...new Set(value.curiousAbout.map((id) => clampSlideId(Number(id))))]
+      ? [...new Set(value.curiousAbout.map((id) => clampSlideId(deck, Number(id))))]
           .sort((a, b) => a - b)
-          .slice(0, TOTAL_SLIDES)
+          .slice(0, totalSlides(deck))
       : [],
     prefersSimpler: Boolean(value.prefersSimpler),
     prefersDepth: Boolean(value.prefersDepth),
@@ -81,10 +83,13 @@ export async function POST(request: Request) {
     return badRequest('Request body must be JSON.');
   }
 
+  const deck = await loadDeck(body.deckId);
+  if (!deck) return badRequest('No such deck.');
+
   const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';
-  const slideId = clampSlideId(Number(body.slideId));
-  const slide = getSlide(slideId);
-  if (!slide) return badRequest(`slideId must be between 1 and ${TOTAL_SLIDES}.`);
+  const slideId = clampSlideId(deck, Number(body.slideId));
+  const slide = getSlide(deck, slideId);
+  if (!slide) return badRequest(`slideId must be between 1 and ${totalSlides(deck)}.`);
 
   const question = typeof body.question === 'string' ? body.question.trim().slice(0, 2000) : '';
   if (kind === 'answer' && !question) {
@@ -95,7 +100,9 @@ export async function POST(request: Request) {
     typeof body.traineeName === 'string' ? body.traineeName.trim().slice(0, 80) : undefined;
 
   const coveredSlideIds = Array.isArray(body.coveredSlideIds)
-    ? [...new Set(body.coveredSlideIds.map((id) => clampSlideId(Number(id))))].sort((a, b) => a - b)
+    ? [...new Set(body.coveredSlideIds.map((id) => clampSlideId(deck, Number(id))))].sort(
+        (a, b) => a - b,
+      )
     : [];
 
   let apiKey: string;
@@ -124,13 +131,13 @@ export async function POST(request: Request) {
     const goingBack = classifyUtterance(question) === 'back';
     const target = slideId + (goingBack ? -1 : 1);
 
-    if (target > TOTAL_SLIDES) {
+    if (target > totalSlides(deck)) {
       // They asked to move on from the last slide, so close the session.
       effectiveKind = 'recap';
     } else {
-      const clamped = clampSlideId(target);
+      const clamped = clampSlideId(deck, target);
       effectiveKind = 'narrate';
-      effectiveSlide = getSlide(clamped) ?? slide;
+      effectiveSlide = getSlide(deck, clamped) ?? slide;
       coercedNav = clamped === slideId ? null : clamped;
     }
   } else if (kind === 'answer' && question) {
@@ -141,9 +148,9 @@ export async function POST(request: Request) {
     // with a second pass sometimes produced an acknowledgement instead of an
     // answer. Deciding it from the knowledge base is deterministic, testable, and
     // keeps the reply streaming from the first token.
-    const match = bestSlideForQuestion(question, slideId);
+    const match = bestSlideForQuestion(deck, question, slideId);
     if (match) {
-      const matched = getSlide(match.slideId);
+      const matched = getSlide(deck, match.slideId);
       if (matched) {
         effectiveSlide = matched;
         coercedNav = match.slideId;
@@ -151,8 +158,8 @@ export async function POST(request: Request) {
     }
   }
 
-  const history = parseHistory(body.history);
-  const learner = parseLearner(body.learner);
+  const history = parseHistory(deck, body.history);
+  const learner = parseLearner(deck, body.learner);
 
   /** Builds a single-message conversation for one turn against one slide. */
   const turnFor = (turnKind: TurnKind, turnSlide: DeckSlide): Content[] => [
@@ -161,6 +168,7 @@ export async function POST(request: Request) {
       parts: [
         {
           text: buildTurnPrompt({
+            deck,
             kind: turnKind,
             slide: turnSlide,
             history,
@@ -200,7 +208,7 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(traineeName),
+        systemInstruction: buildSystemInstruction(deck, traineeName),
         // Narration is fully briefed, so variation buys nothing and costs length
         // discipline. Questions are open-ended and benefit from a warmer setting.
         temperature: effectiveKind === 'narrate' ? 0.55 : 0.75,
@@ -231,11 +239,7 @@ export async function POST(request: Request) {
               'The model returned no speech for this turn. This is usually a transient upstream issue, so try again.',
           });
         } else {
-          send({
-            type: 'done',
-            text: finalText,
-            suggestedFollowUps: effectiveSlide.discussionPrompts,
-          });
+          send({ type: 'done', text: finalText });
         }
       } catch (error) {
         // An aborted request is the client hanging up, not a failure worth reporting.

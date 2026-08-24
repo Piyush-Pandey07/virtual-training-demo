@@ -1,6 +1,6 @@
 /** What an ISMS is, what ISO 27001 requires, and how certification actually works. */
 
-import type { KnowledgeTopic } from './types';
+import type { KnowledgeTopic } from '../../../knowledge/types';
 
 export const FOUNDATIONS: KnowledgeTopic[] = [
   {

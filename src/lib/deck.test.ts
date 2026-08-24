@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+
+import { clampSlideId, firstSlideId, lastSlideId, toClientView, totalSlides } from './deck';
+import { ISMS_DECK } from './decks/isms';
+
+const deck = ISMS_DECK;
+
+describe('deck helpers read the deck rather than assuming it', () => {
+  it('reports the slide count from the deck', () => {
+    assert.equal(totalSlides(deck), deck.slides.length);
+  });
+
+  it("clamps into the deck's own range", () => {
+    assert.equal(clampSlideId(deck, -5), 1);
+    assert.equal(clampSlideId(deck, 0), 1);
+    assert.equal(clampSlideId(deck, 99), totalSlides(deck));
+    assert.equal(clampSlideId(deck, Number.NaN), 1);
+    assert.equal(clampSlideId(deck, 2.6), 3);
+  });
+
+  it('clamps to a deck that does not start at 1', () => {
+    // Generated decks have no guarantee of 1-based contiguous ids, and the old
+    // implementation hardcoded a lower bound of 1.
+    const offset = { ...deck, slides: deck.slides.map((s) => ({ ...s, id: s.id + 100 })) };
+    assert.equal(clampSlideId(offset, 0), 101);
+    assert.equal(clampSlideId(offset, 999), 100 + totalSlides(deck));
+    assert.equal(firstSlideId(offset), 101);
+    assert.equal(lastSlideId(offset), 100 + totalSlides(deck));
+  });
+
+  it('survives an empty deck without throwing', () => {
+    const empty = { ...deck, slides: [] };
+    assert.equal(totalSlides(empty), 0);
+    assert.equal(clampSlideId(empty, 3), 1);
+  });
+});
+
+/**
+ * The client projection is a confidentiality boundary, not a payload optimisation.
+ *
+ * Two slides of this deck carry an author note about promoting a third-party
+ * platform. It was kept out of the model's context by hand, which was the stated
+ * design goal, but the components imported the deck module wholesale so the whole
+ * thing shipped in the client bundle and was readable in devtools. These tests are
+ * about the browser, not the model.
+ */
+describe('the client projection', () => {
+  const view = toClientView(deck);
+  const serialised = JSON.stringify(view);
+
+  it('carries exactly the presentational fields, and no others', () => {
+    const allowed = ['id', 'title', 'shortLabel', 'summary', 'image'];
+    for (const slide of view.slides) {
+      assert.deepEqual(
+        Object.keys(slide).sort(),
+        [...allowed].sort(),
+        'a field was added to the projection; confirm it is safe for a trainee to read',
+      );
+    }
+  });
+
+  it('contains no author-only note', () => {
+    const notes = deck.slides.flatMap((slide) => slide.internalNotes);
+    assert.ok(notes.length > 0, 'this fixture no longer exercises the rule');
+    for (const note of notes) {
+      assert.ok(!serialised.includes(note), `an internal note reached the client view: ${note}`);
+    }
+    // The canonical case, asserted literally so a refactor cannot lose it.
+    assert.ok(!serialised.includes('OutThink'));
+  });
+
+  it('contains no presenter note, brief, key point or discussion prompt', () => {
+    const trainerOnly = deck.slides.flatMap((slide) => [
+      ...slide.speakerNotes,
+      ...slide.keyPoints,
+      ...slide.discussionPrompts,
+      slide.narrationBrief,
+    ]);
+    for (const text of trainerOnly) {
+      assert.ok(!serialised.includes(text), `trainer material reached the client view: ${text}`);
+    }
+  });
+
+  it('is dramatically smaller than the deck it came from', () => {
+    // Not a micro-optimisation: at 60 slides the full deck is a few hundred kB of
+    // prose in the bundle, all of it useless to the browser.
+    assert.ok(serialised.length * 4 < JSON.stringify(deck).length);
+  });
+
+  it('still carries everything the interface actually draws', () => {
+    assert.equal(view.slides.length, deck.slides.length);
+    assert.equal(view.totalSlides, deck.slides.length);
+    assert.ok(view.estimatedMinutes > 0);
+    for (const slide of view.slides) {
+      assert.ok(slide.title && slide.shortLabel && slide.image && slide.summary);
+    }
+  });
+});
+
+/**
+ * The projection only helps if nothing on the client reaches around it.
+ *
+ * A `server-only` import makes this a build failure too, but this test names the
+ * offending file and runs in a second, which is what someone wants when the build
+ * error arrives.
+ */
+describe('the client bundle boundary', () => {
+  const SERVER_ONLY = ['@/lib/trainer-prompt', '@/lib/knowledge', '@/lib/decks/'];
+
+  function sources(dir: string): string[] {
+    return readdirSync(dir).flatMap((entry) => {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) return sources(path);
+      return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [path] : [];
+    });
+  }
+
+  it('has no client component importing a server-only module', () => {
+    const offenders: string[] = [];
+
+    for (const path of sources('src')) {
+      const text = readFileSync(path, 'utf8');
+      if (!/^\s*['"]use client['"]/m.test(text)) continue;
+      for (const forbidden of SERVER_ONLY) {
+        if (text.includes(`from '${forbidden}`)) offenders.push(`${path} imports ${forbidden}`);
+      }
+    }
+
+    assert.deepEqual(offenders, [], offenders.join('; '));
+  });
+
+  it('keeps the session hook off the prompt builder', () => {
+    // It imported detectAnswerStyle from trainer-prompt.ts, which pulled the whole
+    // prompt module, and behind it the entire knowledge base, into the browser to
+    // run one regex.
+    const hook = readFileSync('src/hooks/useTrainingSession.ts', 'utf8');
+    assert.ok(!hook.includes('trainer-prompt'));
+    assert.match(hook, /detectAnswerStyle \} from '@\/lib\/intent'/);
+  });
+});

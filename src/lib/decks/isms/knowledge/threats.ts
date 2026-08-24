@@ -7,7 +7,7 @@
  * the examples are deliberately sector-specific.
  */
 
-import type { KnowledgeTopic } from './types';
+import type { KnowledgeTopic } from '../../../knowledge/types';
 
 export const THREATS: KnowledgeTopic[] = [
   {

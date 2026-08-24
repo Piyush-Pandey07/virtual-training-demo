@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { DECK_SUBTITLE, DECK_TITLE, ESTIMATED_MINUTES, SLIDES, TOTAL_SLIDES } from '@/lib/deck';
+import { estimatedMinutes } from '@/lib/deck';
+import { loadDeck } from '@/lib/decks/registry';
 import { TRAINER_NAME } from '@/lib/trainer';
 
 const CAPABILITIES = [
@@ -23,7 +25,12 @@ const CAPABILITIES = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const deck = await loadDeck();
+  if (!deck) notFound();
+
+  const { meta, slides } = deck;
+
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader />
@@ -33,15 +40,15 @@ export default function HomePage() {
           AI-led awareness training
         </p>
 
-        <h1 className="mt-3 text-4xl leading-tight font-bold sm:text-5xl">{DECK_TITLE}</h1>
+        <h1 className="mt-3 text-4xl leading-tight font-bold sm:text-5xl">{meta.title}</h1>
 
-        <p className="text-muted mt-3 max-w-2xl text-lg">{DECK_SUBTITLE}</p>
+        <p className="text-muted mt-3 max-w-2xl text-lg">{meta.subtitle}</p>
 
         <p className="mt-6 max-w-2xl text-base leading-relaxed sm:text-lg">
           A one to one session with {TRAINER_NAME}, an AI trainer who presents the deck, answers
           your questions out loud, and waits for you rather than running to a script. Roughly{' '}
-          {ESTIMATED_MINUTES} minutes of narration across {TOTAL_SLIDES} slides, plus however long
-          your questions take.
+          {estimatedMinutes(deck)} minutes of narration across {slides.length} slides, plus however
+          long your questions take.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -73,7 +80,7 @@ export default function HomePage() {
         <section className="mt-14">
           <h2 className="text-xl font-semibold">What the session covers</h2>
           <ol className="divide-charcoal-line border-charcoal-line mt-4 divide-y overflow-hidden rounded-xl border">
-            {SLIDES.map((slide) => (
+            {slides.map((slide) => (
               <li key={slide.id} className="bg-charcoal-soft flex items-baseline gap-4 px-5 py-3.5">
                 <span className="text-azure-bright w-6 shrink-0 text-sm font-bold tabular-nums">
                   {slide.id}
