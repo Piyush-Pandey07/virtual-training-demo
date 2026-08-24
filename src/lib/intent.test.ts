@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { classifyUtterance, isNavigationOnly, type Utterance } from './intent';
+import { classifyUtterance, detectAnswerStyle, isNavigationOnly, type Utterance } from './intent';
 
 /**
  * These cases are the specification, not a sample.
@@ -111,5 +111,70 @@ describe('isNavigationOnly', () => {
   it('is true for nothing at all, so a blank utterance cannot become a question', () => {
     assert.equal(isNavigationOnly(undefined), true);
     assert.equal(isNavigationOnly(''), true);
+  });
+});
+
+/**
+ * Register detection on what people actually say out loud.
+ *
+ * Found by running a real session end to end and reading what the classifier made
+ * of the transcripts. Getting this wrong is not cosmetic: the default register
+ * answers at normal depth and repeats the very thing the trainee has just said they
+ * could not follow.
+ */
+describe('asking for something to be made simpler', () => {
+  const simpler = [
+    // "more simply" is among the most natural phrasings and matched nothing: the
+    // pattern had simpler and simplify, but not simply.
+    'can you explain that more simply',
+    'put that in simple terms',
+    'in simpler terms please',
+    'can you simplify that',
+    'break it down for me',
+    'dumb it down a bit',
+    // Speech to text returns either form of the contraction depending on delivery,
+    // and only the contracted one was matched.
+    "I don't understand",
+    'I do not understand',
+    'I do not follow',
+    'I did not get that',
+    'sorry I am not following',
+    'sorry I got lost',
+    'that is too technical',
+    'what do you mean',
+    // A typographic apostrophe is what a phone and a Mac produce, and it is
+    // indistinguishable on screen from the ASCII one the patterns are written with.
+    'I don’t understand',
+    'I didn’t follow that',
+  ];
+
+  for (const utterance of simpler) {
+    it(`reads "${utterance}" as a request to simplify`, () => {
+      assert.equal(detectAnswerStyle(utterance), 'simpler');
+    });
+  }
+
+  it('still tells the other registers apart', () => {
+    assert.equal(detectAnswerStyle('give me an example'), 'example');
+    assert.equal(detectAnswerStyle('which annex a control is that'), 'standard');
+    assert.equal(detectAnswerStyle('go deeper on that'), 'deeper');
+    assert.equal(detectAnswerStyle('what about passwords'), 'default');
+    assert.equal(detectAnswerStyle('who do I report an incident to'), 'default');
+  });
+});
+
+describe('typographic apostrophes in navigation', () => {
+  it('reads a contraction with a curly apostrophe the same as a straight one', () => {
+    assert.equal(classifyUtterance('what’s a phishing email'), 'question');
+    assert.equal(classifyUtterance("what's a phishing email"), 'question');
+  });
+
+  it('still hears a rhetorical request to move on as one', () => {
+    assert.equal(classifyUtterance('can’t we just move on'), 'advance');
+  });
+
+  it('still refuses to advance on negated readiness', () => {
+    assert.equal(classifyUtterance('I’m not ready'), 'question');
+    assert.equal(classifyUtterance("I'm not ready"), 'question');
   });
 });

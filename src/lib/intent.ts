@@ -118,13 +118,24 @@ function matchesAny(candidates: string[], patterns: RegExp[]): boolean {
 }
 
 /**
+ * Folds the apostrophes a keyboard produces into the one the patterns match.
+ *
+ * A phone and a Mac both give U+2019 for an apostrophe, and it is
+ * indistinguishable on screen from the ASCII one every contraction below is
+ * written with. "I don’t understand" was scoring as an ordinary question.
+ */
+function foldApostrophes(text: string): string {
+  return text.replace(/[\u2018\u2019\u02bc]/g, "'");
+}
+
+/**
  * Classifies one utterance.
  *
  * Anything questioning wins over anything navigational, because mistaking a
  * question for a nudge silently drops what the trainee wanted to know.
  */
 export function classifyUtterance(raw: string): Utterance {
-  const text = raw.trim();
+  const text = foldApostrophes(raw.trim());
   if (!text) return 'question';
 
   // A question mark settles it, whatever else is in there.
@@ -172,10 +183,28 @@ export function isNavigationOnly(raw: string | undefined): boolean {
  * and one with a single register.
  */
 export function detectAnswerStyle(question: string): AnswerStyle {
-  const q = question.toLowerCase();
+  const q = foldApostrophes(question.toLowerCase());
 
   if (
-    /\b(simpler|simplify|plain english|layman|confus|lost|don'?t (?:really )?(?:get|understand)|didn'?t (?:get|understand|follow)|explain (?:it |that )?again|what do you mean|too (?:technical|complicated))\b/.test(
+    /**
+     * Two widenings, both from listening to what people actually say.
+     *
+     * `simpl\w*` rather than the two spellings this started with. "Explain that more
+     * simply" is among the most natural ways to ask, and it was falling through to
+     * the default register, which answers at normal depth and repeats the very thing
+     * the trainee said they could not follow. The stem covers simpler, simplify,
+     * simply and simple terms together.
+     *
+     * `do(?:n't| not)` rather than the contraction alone. This arrives from speech to
+     * text, and Deepgram transcribes the same sentence as "don't understand" or "do
+     * not understand" depending on how it was said. Matching only the contraction
+     * meant half of the clearest possible signal was missed.
+     *
+     * Biased towards firing. A false positive answers more plainly than strictly
+     * needed; a false negative keeps talking over someone who has just said they are
+     * lost, which is the one thing this is here to prevent.
+     */
+    /\b(simpl\w*|plain english|layman|confus|lost|do(?:n'?t| not) (?:really )?(?:get|understand|follow)|did(?:n'?t| not) (?:get|understand|follow)|not following|explain (?:it |that )?again|what do you mean|too (?:technical|complicated)|(?:break|dumb) (?:it|that|this) down)\b/.test(
       q,
     )
   ) {
