@@ -9,6 +9,15 @@
  * Removes one section at a time and measures. Whatever drops the length most is the
  * thing to change; anything whose removal changes nothing is not the cause, however
  * plausible it reads.
+ *
+ * What it found, and the reason it is committed rather than thrown away: nothing in
+ * the answer prompt shortens a reply when taken away. Without the knowledge block the
+ * reply grew by 5 words, without the wider expertise by 12, without the LENGTH block
+ * by 19. There was no obligation to delete, which is what nine rounds of rewording
+ * had assumed, and the real fault was arithmetic in the sentence budget. Run this
+ * before rewriting a prompt on a hunch about what it is asking for.
+ *
+ * `npm run ablate`. Costs one model call per block per sample, so it is not free.
  */
 
 import { readFileSync } from 'node:fs';
