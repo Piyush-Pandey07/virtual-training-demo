@@ -20,6 +20,22 @@
 
 import type { KnowledgeTopic } from './knowledge/types';
 
+/**
+ * What a page is doing in the deck.
+ *
+ * Lives here rather than with the analysis code because a slide carries it and
+ * the review screen shows it, and both of those reach the browser.
+ */
+export type SlideRole =
+  /** An opening cover page. Teaches nothing on its own. */
+  | 'title'
+  /** Ordinary teaching material. */
+  | 'content'
+  /** A section marker. Worth a sentence, not a lesson. */
+  | 'divider'
+  /** A final recap or thank-you page. */
+  | 'closing';
+
 /** One slide, in full. Server-side only: several fields must not reach a browser. */
 export interface DeckSlide {
   /** 1-based slide number, matching the source deck. */
@@ -59,11 +75,28 @@ export interface DeckSlide {
   /**
    * Whether this slide teaches anything.
    *
-   * A title card or a section divider does not, and a question should never move
-   * the deck onto one. This replaces a hardcoded `new Set([1])` in the navigation
-   * code, which was true of this deck and of no other.
+   * A title card does not, and a question should never move the deck onto one. This
+   * replaces a hardcoded `new Set([1])` in the navigation code, which was true of
+   * this deck and of no other. Derived from `role` once a deck has been analysed.
    */
   teaches: boolean;
+  /**
+   * What this page is doing in the deck.
+   *
+   * Optional because the hand-authored deck predates it and because a freshly
+   * uploaded deck has not been analysed yet.
+   */
+  role?: SlideRole;
+  /**
+   * The line the page set in the largest type, as measured when it was rendered.
+   *
+   * Written once, at upload, and never changed. It is the only evidence of what a
+   * page looked like: everything downstream sees extracted text, where a heading
+   * and a code snippet are indistinguishable. Keeping it separate from `title`
+   * also means re-analysing a deck reads the original page rather than the
+   * previous answer fed back in.
+   */
+  printedTitle?: string;
 }
 
 /**
@@ -75,9 +108,27 @@ export interface DeckSlide {
  * and absurd for a deck about fire safety, so they have to travel with the deck
  * rather than with the engine.
  */
+/**
+ * Where a deck's content came from.
+ *
+ * `authored` means a person wrote it and its claims have been checked. `uploaded`
+ * means it was read out of a file and most of it is generated. The difference
+ * decides whether the analysis passes are allowed to rewrite it: on an uploaded
+ * deck that is the whole point, and on an authored one it is a downgrade.
+ */
+export type DeckOrigin = 'authored' | 'uploaded';
+
 export interface DeckMeta {
   /** Stable identifier, used as the storage prefix. */
   id: string;
+  /**
+   * Where this deck's content came from.
+   *
+   * Optional for decks stored before it existed. Treated as `uploaded` when absent,
+   * which is the permissive reading: a deck nobody marked as authored is one
+   * analysis may improve.
+   */
+  origin?: DeckOrigin;
   /** Deck title, as shown and as spoken. */
   title: string;
   /** Formal subtitle, for the page. */
@@ -103,6 +154,15 @@ export interface DeckMeta {
   exampleContext: string;
   /** The one thing the closing turn must remind them of. */
   closingReminder: string;
+  /**
+   * When the outline pass last ran, and against which prompt.
+   *
+   * Absent on a deck that has only been rendered. The version is recorded so a
+   * later change to the prompts can offer a re-analysis where it would actually
+   * change the answer, rather than re-reading every deck on every deploy.
+   */
+  outlineAnalysedAt?: string;
+  outlinePromptVersion?: number;
 }
 
 /** A whole deck. Never send one of these to a browser. */

@@ -107,12 +107,22 @@ export default async function DeckLibraryPage() {
                   )}
                 </dl>
 
-                <Link
-                  href={`/session?deck=${encodeURIComponent(deck.id)}`}
-                  className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-5 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
-                >
-                  Run this session
-                </Link>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Link
+                    href={`/session?deck=${encodeURIComponent(deck.id)}`}
+                    className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                  >
+                    Run this session
+                  </Link>
+                  {!deck.readOnly && (
+                    <Link
+                      href={`/decks/${encodeURIComponent(deck.id)}`}
+                      className="border-charcoal-line text-muted hover:text-mist rounded-md border px-4 py-2 text-sm font-semibold transition-colors"
+                    >
+                      Review and analyse
+                    </Link>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

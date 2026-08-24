@@ -158,6 +158,8 @@ function shortLabelFor(title: string, pageNumber: number): string {
 function draftMeta(id: string, title: string, subtitle: string): DeckMeta {
   return {
     id,
+    // Read out of a file, so the analysis passes are free to improve all of it.
+    origin: 'uploaded',
     title,
     subtitle,
     spokenSubject: title.toLowerCase(),
@@ -208,6 +210,9 @@ export function draftDeckFrom(input: DraftInput, deckId: string): DeckRecord {
     return {
       id: page.pageNumber,
       title: slideTitle,
+      // Kept as the record of what the page actually looked like. The analysis pass
+      // reads this rather than `title`, which it also overwrites.
+      ...(page.titleHint ? { printedTitle: page.titleHint } : {}),
       shortLabel: shortLabelFor(slideTitle, page.pageNumber),
       summary:
         bullets.slice(1, 3).join('. ').slice(0, 160) || `Page ${page.pageNumber} of the deck`,

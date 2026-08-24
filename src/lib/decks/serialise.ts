@@ -15,7 +15,7 @@
 
 import 'server-only';
 
-import type { DeckMeta, DeckRecord, DeckSlide } from '../deck-types';
+import type { DeckMeta, DeckRecord, DeckSlide, SlideRole } from '../deck-types';
 import type { KnowledgeTopic } from '../knowledge/types';
 
 /**
@@ -96,11 +96,41 @@ function parseMeta(raw: unknown, e: Errors): DeckMeta {
     e.all.push('meta must be an object');
     return {} as DeckMeta;
   }
-  const meta = {} as Record<string, string>;
+
+  const meta: Record<string, unknown> = {};
   for (const field of META_FIELDS) {
     meta[field] = e.str(`meta.${field}`, raw[field]);
   }
+
+  if (raw.origin !== undefined) {
+    if (raw.origin === 'authored' || raw.origin === 'uploaded') {
+      meta.origin = raw.origin;
+    } else {
+      e.all.push("meta.origin must be 'authored' or 'uploaded'");
+    }
+  }
+
+  // Present only once the outline pass has run.
+  if (raw.outlineAnalysedAt !== undefined) {
+    meta.outlineAnalysedAt = e.str('meta.outlineAnalysedAt', raw.outlineAnalysedAt);
+  }
+  if (raw.outlinePromptVersion !== undefined) {
+    meta.outlinePromptVersion = e.num('meta.outlinePromptVersion', raw.outlinePromptVersion, {
+      min: 1,
+    });
+  }
+
   return meta as unknown as DeckMeta;
+}
+
+const SLIDE_ROLES: SlideRole[] = ['title', 'content', 'divider', 'closing'];
+
+function parseRole(where: string, value: unknown, e: Errors): SlideRole {
+  if (typeof value === 'string' && (SLIDE_ROLES as string[]).includes(value)) {
+    return value as SlideRole;
+  }
+  e.all.push(`${where} must be one of ${SLIDE_ROLES.join(', ')}`);
+  return 'content';
 }
 
 function parseSlide(raw: unknown, index: number, e: Errors): DeckSlide {
@@ -125,6 +155,10 @@ function parseSlide(raw: unknown, index: number, e: Errors): DeckSlide {
     // An hour on one slide is not a deck, it is a mistake.
     targetSeconds: e.num(`${where}.targetSeconds`, raw.targetSeconds, { min: 1, max: 3600 }),
     teaches: e.bool(`${where}.teaches`, raw.teaches),
+    ...(raw.role !== undefined ? { role: parseRole(`${where}.role`, raw.role, e) } : {}),
+    ...(raw.printedTitle !== undefined
+      ? { printedTitle: e.str(`${where}.printedTitle`, raw.printedTitle) }
+      : {}),
     ...(raw.width !== undefined
       ? { width: e.num(`${where}.width`, raw.width, { min: 1, max: 20000 }) }
       : {}),

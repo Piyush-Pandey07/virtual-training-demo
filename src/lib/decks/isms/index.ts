@@ -22,6 +22,10 @@ import { ISMS_SLIDES } from './slides';
 
 export const ISMS_META: DeckMeta = {
   id: 'isms',
+  // Transcribed by hand from the source PowerPoint, with every ISO 27001 control
+  // reference checked. The analysis passes refuse to touch it: generated text
+  // would be a downgrade, and it has already replaced this title once.
+  origin: 'authored',
   title: 'ISMS Awareness Session',
   subtitle: 'ISO/IEC 27001 Information Security Management System',
   spokenSubject: 'ISO 27001 information security management system awareness',
