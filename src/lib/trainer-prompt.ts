@@ -77,18 +77,94 @@ function spokenWordBudget(slide: DeckSlide): number {
   return Math.round((slide.targetSeconds / 60) * 150);
 }
 
-/** The deck as reference material, for turns that range across all of it. */
-function fullDeckReference(deck: DeckRecord): string {
-  return deck.slides
-    .map((slide) => {
-      const parts = [`Slide ${slide.id}: ${slide.title}`];
-      parts.push(...slide.bullets.map((b) => `  - ${b}`));
-      if (slide.speakerNotes.length > 0) {
-        parts.push(...slide.speakerNotes.map((n) => `  - (presenter note) ${n}`));
-      }
-      return parts.join('\n');
-    })
-    .join('\n\n');
+/** Slides either side of the current one that stay at full detail. */
+const REFERENCE_NEIGHBOURHOOD = 1;
+
+/**
+ * On a closing turn, how many of the most recently taught slides stay at full
+ * detail. The rest are named. A recap wants breadth, with the last stretch fresh.
+ */
+const REFERENCE_RECENT_COVERED = 3;
+
+/** One slide in full: what is printed on it, plus the presenter's own notes. */
+function slideInFull(slide: DeckSlide): string {
+  const parts = [`Slide ${slide.id}: ${slide.title}`];
+  parts.push(...slide.bullets.map((b) => `  - ${b}`));
+  if (slide.speakerNotes.length > 0) {
+    parts.push(...slide.speakerNotes.map((n) => `  - (presenter note) ${n}`));
+  }
+  return parts.join('\n');
+}
+
+/** One slide in one line. Enough to know it exists and what it is about. */
+function slideHeadline(slide: DeckSlide): string {
+  return `Slide ${slide.id}: ${slide.title}. ${slide.summary}`;
+}
+
+interface DeckReferenceArgs {
+  deck: DeckRecord;
+  slideId: number;
+  coveredSlideIds: number[];
+  /**
+   * Restrict to slides actually taught. True for a quiz or a recap, where drawing
+   * on a slide the trainee never saw is a straightforward error.
+   */
+  coveredOnly: boolean;
+}
+
+/**
+ * The deck as reference material, bounded.
+ *
+ * This replaced a function that serialised every slide's bullets and presenter
+ * notes on the answer, quiz and recap paths with no input bound at all. On seven
+ * slides that is invisible. Measured on a sixty slide deck it was around a hundred
+ * thousand tokens on a single closing turn, which is both the dominant cost of the
+ * feature and actively harmful: the material that would answer the trainee is
+ * buried in fifty-nine slides of material that would not.
+ *
+ * Full detail goes where the conversation actually is. Everything else is named,
+ * which is all the trainer needs in order to say "we come to that on the
+ * classification slide" or to offer to go back to something.
+ */
+function deckReferenceFor({
+  deck,
+  slideId,
+  coveredSlideIds,
+  coveredOnly,
+}: DeckReferenceArgs): string {
+  const covered = [...new Set(coveredSlideIds)].sort((a, b) => a - b);
+
+  // A quiz can be asked before anything is taught, in which case the slide on
+  // screen is the only honest thing to draw on.
+  const inScope = coveredOnly
+    ? deck.slides.filter((slide) =>
+        covered.length > 0 ? covered.includes(slide.id) : slide.id === slideId,
+      )
+    : deck.slides;
+
+  const detailed = new Set<number>(
+    coveredOnly
+      ? inScope.slice(-REFERENCE_RECENT_COVERED).map((slide) => slide.id)
+      : deck.slides
+          .filter((slide) => Math.abs(slide.id - slideId) <= REFERENCE_NEIGHBOURHOOD)
+          .map((slide) => slide.id),
+  );
+
+  const lines = inScope.map((slide) =>
+    detailed.has(slide.id) ? slideInFull(slide) : slideHeadline(slide),
+  );
+
+  if (coveredOnly) {
+    const untaught = deck.slides.length - inScope.length;
+    if (untaught > 0) {
+      lines.push(
+        '',
+        `The session did not reach the remaining ${untaught} slide${untaught === 1 ? '' : 's'}. Do not recap, quiz or refer to anything on them, because the trainee has not seen them.`,
+      );
+    }
+  }
+
+  return lines.join('\n\n');
 }
 
 export function buildSystemInstruction(deck: DeckRecord, traineeName?: string): string {
@@ -290,8 +366,28 @@ export function buildTurnPrompt({
   const wholeDeck = kind === 'recap' || kind === 'quiz';
 
   const knowledge = renderKnowledge(
-    selectKnowledge({ deck, slideId: slide.id, question, wholeDeck }),
+    selectKnowledge({ deck, slideId: slide.id, question, wholeDeck, coveredSlideIds }),
+    wholeDeck ? 'session' : 'slide',
   );
+
+  /** The deck around this turn, at the detail this turn can use. */
+  const deckReference = deckReferenceFor({
+    deck,
+    slideId: slide.id,
+    coveredSlideIds,
+    coveredOnly: wholeDeck,
+  });
+
+  /**
+   * Whether the session actually got to the end.
+   *
+   * A trainee can end a session at any point, and the closing turn has to be
+   * honest about that. Restricting the recap to what was taught, without this,
+   * produced a prompt that contradicted itself: it told the trainer not to refer
+   * to slides it never reached and then asked it to deliver a closing reminder
+   * that lives on one of them.
+   */
+  const reachedTheEnd = deck.slides.every((entry) => coveredSlideIds.includes(entry.id));
 
   if (kind === 'narrate') {
     const isFirst = slide.id === firstSlideId(deck);
@@ -343,8 +439,8 @@ ${slideBriefing(deck, slide)}
 
 ${knowledge}
 
-THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference(deck)}
+WHERE THIS SITS IN THE DECK
+${deckReference}
 
 THE TRAINEE JUST ASKED
 "${question ?? ''}"
@@ -368,8 +464,8 @@ If there is more worth saying, offer it in a short closing question instead of s
 
 ${learnerRead}
 
-THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference(deck)}
+WHAT YOU HAVE COVERED WITH THEM
+${deckReference}
 
 ${knowledge}
 
@@ -385,13 +481,17 @@ Draw it from what you have actually covered, and lean towards what they have sho
 
 ${learnerRead}
 
-THE WHOLE DECK, FOR REFERENCE
-${fullDeckReference(deck)}
+WHAT YOU HAVE COVERED WITH THEM
+${deckReference}
 
 ${knowledge}
 
 YOUR TASK
-Close the session warmly. Recap what you covered, name the single habit you want them to take away, remind them of ${meta.closingReminder}, and thank them properly.
+${
+  reachedTheEnd
+    ? `Close the session warmly. Recap what you covered, name the single habit you want them to take away, remind them of ${meta.closingReminder}, and thank them properly.`
+    : `The session is ending before the end of the deck, so close warmly but do not close as though it was finished. Recap what you actually did cover, name the single habit worth taking from that much, and say plainly and without making a thing of it that there is more whenever they want to pick it up. Do not summarise, allude to, or reassure them about anything you did not teach, and do not imply they have completed the session.`
+}
 
 Refer to something they actually asked about if there was one, because it shows you were listening and it is the easiest genuine compliment available to you.
 

@@ -97,19 +97,54 @@ const MAX_CORE_ON_QUESTION = 3;
 /**
  * How many of a slide's topics are taught at full depth when narrating it.
  *
- * Four is what fits. Slide 2 has seven topics and slide 4 has eight, and a slide
- * budgeted at two and a half minutes cannot do justice to that many, so the rest
- * ride along compactly for the trainee who asks.
+ * Derived from the time the slide has, not a constant. A topic taught properly,
+ * with the one example that makes it land, costs roughly thirty-five seconds, so
+ * a slide budgeted at two and a half minutes can carry four and a forty second
+ * title card cannot carry four whatever the deck says. The old constant was 4 for
+ * every slide and was documented as being sized for one particular slide of one
+ * particular deck.
+ *
+ * Floored at 2 so a short slide still gets a second idea, capped at 5 because
+ * beyond that the model stops choosing and starts listing.
  */
-const MAX_CORE_ON_NARRATION = 4;
+function maxCoreOnNarration(targetSeconds: number): number {
+  const affordable = Math.round(targetSeconds / 35);
+  return Math.min(Math.max(affordable, 2), 5);
+}
+
+/**
+ * How many topics a recap or quiz gets at full depth.
+ *
+ * A closing turn is one turn. It needs a handful of things to say properly, not
+ * the whole base, and the trainer already has a one-line index of everything it
+ * knows in its system instruction.
+ */
+const MAX_CORE_ON_WHOLE_DECK = 5;
+
+/**
+ * How many topics a whole-deck turn names in one line before it stops listing.
+ *
+ * The remainder is reported as a count rather than silently dropped, so the
+ * trainer knows there is more it could offer.
+ */
+const MAX_HEADLINE_ON_WHOLE_DECK = 20;
 
 export interface SelectKnowledgeArgs {
   deck: DeckRecord;
   slideId: number;
   /** Present for question-answering turns. */
   question?: string;
-  /** True for a recap or quiz, where the whole deck is in play. */
+  /**
+   * True for a recap or quiz, where the turn ranges over the session rather than
+   * over the slide on screen.
+   */
   wholeDeck?: boolean;
+  /**
+   * Slides actually taught. On a whole-deck turn this bounds what the trainer may
+   * draw on, because a recap of material the trainee never saw is worse than a
+   * short recap.
+   */
+  coveredSlideIds?: number[];
 }
 
 /**
@@ -128,6 +163,7 @@ export function selectKnowledge({
   slideId,
   question,
   wholeDeck,
+  coveredSlideIds,
 }: SelectKnowledgeArgs): SelectedTopic[] {
   const selected: SelectedTopic[] = [];
   const taken = new Set<string>();
@@ -148,8 +184,10 @@ export function selectKnowledge({
       (a, b) => (a.narrationPriority ?? 50) - (b.narrationPriority ?? 50),
     );
 
+    const cap = maxCoreOnNarration(getSlide(deck, slideId)?.targetSeconds ?? 120);
+
     ranked.forEach((topic, index) => {
-      const core = index < MAX_CORE_ON_NARRATION;
+      const core = index < cap;
       selected.push({
         topic,
         weight: core ? 'core' : 'supporting',
@@ -203,14 +241,42 @@ export function selectKnowledge({
     }
   }
 
-  // A recap or quiz ranges over everything, so the trainer needs at least the
-  // headline of each topic rather than only the final slide's.
+  /**
+   * A recap or quiz ranges over the session, which is not the same as the deck.
+   *
+   * This used to add every topic in the base at the compact weight. Two things
+   * were wrong with that. It let the trainer recap or examine material the trainee
+   * never saw, which reads as a session that was not paying attention. And on a
+   * sixty slide deck it was around a hundred thousand tokens of expertise per
+   * turn, nearly all of it unused, pushing what the trainer actually needed
+   * further from its attention.
+   *
+   * So it is bounded twice: to what was taught, and then to what one closing turn
+   * can honestly use.
+   */
   if (wholeDeck) {
-    for (const topic of deck.topics) {
-      if (taken.has(topic.id)) continue;
-      selected.push({ topic, weight: 'supporting', reason: 'whole-deck turn' });
+    const covered = new Set(
+      coveredSlideIds && coveredSlideIds.length > 0 ? coveredSlideIds : [slideId],
+    );
+
+    const fromCovered = deck.topics
+      .filter((topic) => !taken.has(topic.id))
+      .filter((topic) => topic.slideIds.some((id) => covered.has(id)))
+      .sort((a, b) => (a.narrationPriority ?? 50) - (b.narrationPriority ?? 50));
+
+    const alreadyCore = selected.filter((entry) => entry.weight === 'core').length;
+    const coreRoom = Math.max(0, MAX_CORE_ON_WHOLE_DECK - alreadyCore);
+
+    fromCovered.forEach((topic, index) => {
+      if (index < coreRoom) {
+        selected.push({ topic, weight: 'core', reason: 'covered in this session' });
+      } else if (index < coreRoom + MAX_HEADLINE_ON_WHOLE_DECK) {
+        selected.push({ topic, weight: 'headline', reason: 'covered in this session' });
+      } else {
+        return;
+      }
       taken.add(topic.id);
-    }
+    });
   }
 
   return selected;
@@ -343,18 +409,48 @@ function renderSupporting(topic: KnowledgeTopic): string {
   return lines.join('\n');
 }
 
+/**
+ * Names a topic and nothing more.
+ *
+ * Enough for the trainer to know it covered this and to offer to go back to it.
+ * The compact form is roughly fifteen times longer and, on a whole-deck turn,
+ * almost never used.
+ */
+function renderHeadline(topic: KnowledgeTopic): string {
+  return `- ${topic.title} (slide ${topic.slideIds.join(', ')})`;
+}
+
+/**
+ * What the core block is describing.
+ *
+ * A narration or answer turn is about the slide in front of the trainee. A recap
+ * or quiz is about the session, and on those turns the core topics are drawn from
+ * everything taught, so telling the model they are what is on screen is simply
+ * false and invites it to talk about slide seven as though it covered slide two.
+ */
+export type KnowledgeScope = 'slide' | 'session';
+
+const CORE_HEADING: Record<KnowledgeScope, string> = {
+  slide: 'YOUR EXPERTISE ON WHAT IS CURRENTLY ON SCREEN',
+  session: 'YOUR EXPERTISE ON WHAT YOU COVERED WITH THEM',
+};
+
 /** Turns the selection into the block that goes into the prompt. */
-export function renderKnowledge(selected: SelectedTopic[]): string {
+export function renderKnowledge(
+  selected: SelectedTopic[],
+  scope: KnowledgeScope = 'slide',
+): string {
   if (selected.length === 0) return '';
 
   const core = selected.filter((entry) => entry.weight === 'core');
   const supporting = selected.filter((entry) => entry.weight === 'supporting');
+  const headline = selected.filter((entry) => entry.weight === 'headline');
 
   const sections: string[] = [];
 
   if (core.length > 0) {
     sections.push(
-      'YOUR EXPERTISE ON WHAT IS CURRENTLY ON SCREEN',
+      CORE_HEADING[scope],
       'This is your own knowledge as a practitioner, not text from the slide. Teach from it. Do not read it out, do not work through it as a list, and do not try to use all of it. Choose what this trainee needs.',
       '',
       core.map((entry) => renderCore(entry.topic)).join('\n\n'),
@@ -368,6 +464,16 @@ export function renderKnowledge(selected: SelectedTopic[]): string {
       'Relevant to the question or to the wider deck. Use it only where it helps.',
       '',
       supporting.map((entry) => renderSupporting(entry.topic)).join('\n\n'),
+    );
+  }
+
+  if (headline.length > 0) {
+    sections.push(
+      '',
+      'ALSO COVERED IN THIS SESSION',
+      'You taught these and can offer to go back to any of them. You have the detail if they ask.',
+      '',
+      headline.map((entry) => renderHeadline(entry.topic)).join('\n'),
     );
   }
 

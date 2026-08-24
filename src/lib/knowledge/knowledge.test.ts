@@ -118,9 +118,96 @@ describe('selectKnowledge', () => {
     assert.ok(core.length > 0);
   });
 
-  it('covers the whole base on a recap or quiz', () => {
-    const selected = selectKnowledge({ deck, slideId: 7, wholeDeck: true });
-    assert.equal(selected.length, deck.topics.length);
+  /**
+   * This replaces a test that asserted the opposite.
+   *
+   * A whole-deck turn used to pull in every topic in the base, which the old test
+   * pinned as correct. It was not: it let a recap draw on slides the trainee never
+   * saw, and on a sixty slide deck it was around a hundred thousand tokens of
+   * expertise per closing turn.
+   */
+  it('draws only on what was taught, on a recap or quiz', () => {
+    const covered = [1, 2, 3];
+    const selected = selectKnowledge({
+      deck,
+      slideId: 3,
+      wholeDeck: true,
+      coveredSlideIds: covered,
+    });
+
+    for (const entry of selected) {
+      assert.ok(
+        entry.topic.slideIds.some((id) => covered.includes(id)),
+        `${entry.topic.id} belongs to slides ${entry.topic.slideIds.join(',')}, none of them taught`,
+      );
+    }
+  });
+
+  it('reaches wider than the slide on screen on a recap', () => {
+    const onSlideThree = selectKnowledge({ deck, slideId: 3 }).length;
+    const acrossSession = selectKnowledge({
+      deck,
+      slideId: 3,
+      wholeDeck: true,
+      coveredSlideIds: [1, 2, 3],
+    }).length;
+    assert.ok(acrossSession > onSlideThree, 'a recap should span more than the current slide');
+  });
+
+  it('bounds a recap so a large deck cannot flood the turn', () => {
+    const selected = selectKnowledge({
+      deck,
+      slideId: 7,
+      wholeDeck: true,
+      coveredSlideIds: [1, 2, 3, 4, 5, 6, 7],
+    });
+    const core = selected.filter((s) => s.weight === 'core');
+    assert.ok(core.length <= 5, `${core.length} topics at full depth in one closing turn`);
+    // Everything beyond the core is named rather than reproduced.
+    assert.ok(selected.some((s) => s.weight === 'headline'));
+  });
+
+  it('falls back to the slide on screen when a quiz comes before any teaching', () => {
+    const selected = selectKnowledge({ deck, slideId: 2, wholeDeck: true, coveredSlideIds: [] });
+    for (const entry of selected) {
+      assert.ok(entry.topic.slideIds.includes(2), `${entry.topic.id} is not on slide 2`);
+    }
+  });
+});
+
+/**
+ * How many topics a slide teaches at depth is a function of the time it has.
+ *
+ * It used to be the constant 4 for every slide, documented as being sized for
+ * "slide 2 has seven topics", which is a fact about one deck.
+ */
+describe('the narration depth cap follows the slide budget', () => {
+  it('gives a long slide more topics at depth than a short one', () => {
+    const short = deck.slides.reduce((a, b) => (a.targetSeconds < b.targetSeconds ? a : b));
+    const long = deck.slides.reduce((a, b) => (a.targetSeconds > b.targetSeconds ? a : b));
+
+    const coreCount = (slideId: number) =>
+      selectKnowledge({ deck, slideId }).filter((s) => s.weight === 'core').length;
+
+    // Only meaningful where both slides have more topics than the cap allows.
+    assert.ok(short.targetSeconds < long.targetSeconds);
+    assert.ok(coreCount(long.id) >= coreCount(short.id));
+  });
+
+  it('never leaves a slide with nothing at depth', () => {
+    for (const slide of deck.slides) {
+      const core = selectKnowledge({ deck, slideId: slide.id }).filter((s) => s.weight === 'core');
+      assert.ok(core.length > 0, `slide ${slide.id} has no topic at depth`);
+    }
+  });
+
+  it('caps a 115 second slide below a 150 second one', () => {
+    // Slide 6 has five topics in 115 seconds, slide 2 has seven in 150. Under the
+    // old constant both got four, which was too many for slide 6.
+    const core = (id: number) =>
+      selectKnowledge({ deck, slideId: id }).filter((s) => s.weight === 'core').length;
+    assert.equal(core(2), 4);
+    assert.equal(core(6), 3);
   });
 });
 

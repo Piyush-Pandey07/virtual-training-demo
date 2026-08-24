@@ -12,8 +12,17 @@
  * the trainer stays honest about the boundary.
  */
 
-/** How much a topic should be leaned on for a given turn. */
-export type TopicWeight = 'core' | 'supporting';
+/**
+ * How much a topic should be leaned on for a given turn.
+ *
+ * `core` is rendered at full depth and is what the turn is built on.
+ * `supporting` is a compact form, there in case the trainee reaches for it.
+ * `headline` is one line, which is all a recap needs in order to know a topic
+ * exists and offer it. The third tier is what makes a whole-deck turn on a large
+ * deck affordable: rendering two hundred topics compactly is a hundred thousand
+ * tokens, and almost none of it gets used.
+ */
+export type TopicWeight = 'core' | 'supporting' | 'headline';
 
 export interface Misconception {
   /** What trainees often believe. */
