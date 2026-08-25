@@ -31,6 +31,13 @@ export default async function NewDeckPage() {
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-5 py-12 sm:px-8">
+        <Link
+          href="/"
+          className="text-muted hover:text-teal mb-6 inline-flex items-center gap-1.5 text-sm transition-colors"
+        >
+          <span aria-hidden="true">&larr;</span> Back
+        </Link>
+
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">New deck</p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Upload a PDF</h1>
         <p className="text-muted mt-3 text-base leading-relaxed">

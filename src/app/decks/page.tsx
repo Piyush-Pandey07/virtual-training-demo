@@ -36,7 +36,7 @@ export default async function DeckLibraryPage() {
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
         <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
-          Back to the session
+          Home
         </Link>
       </BrandHeader>
 
