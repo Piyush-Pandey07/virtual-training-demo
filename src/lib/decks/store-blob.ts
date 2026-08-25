@@ -75,6 +75,20 @@ const ROOT = 'decks';
  */
 const SEED_MARKER = `${ROOT}/.seeded`;
 
+/**
+ * Which decks exist, as an object rather than a question asked of the API.
+ *
+ * Listing a prefix is a control-plane call, and unlike reading an object it does not
+ * run in the store's region: from Mumbai it cost about 750ms flat, which was the
+ * whole remaining cost of the front page once the reads were fixed. A session, which
+ * reads one deck by id and never lists, was already at 100ms.
+ *
+ * Treated as a cache and never as the authority. Anything that cannot be read, or
+ * does not parse, falls back to a real listing and writes the result back, so the
+ * worst a damaged index can do is cost one slow request.
+ */
+const INDEX = `${ROOT}/index.json`;
+
 export class BlobDeckStore implements DeckStore {
   readonly kind = 'blob' as const;
   readonly writable = true;
@@ -123,8 +137,8 @@ export class BlobDeckStore implements DeckStore {
     this.seeded = true;
   }
 
-  /** Deck ids present under the root, derived from the object keys. */
-  private async ids(): Promise<string[]> {
+  /** Deck ids present under the root, by asking the API. The slow, authoritative way. */
+  private async listedIds(): Promise<string[]> {
     const blobs = await this.client.list(`${ROOT}/`);
     const found = new Set<string>();
     for (const blob of blobs) {
@@ -136,6 +150,33 @@ export class BlobDeckStore implements DeckStore {
       }
     }
     return [...found];
+  }
+
+  /** The index, or null when it is absent or unreadable. */
+  private async indexedIds(): Promise<string[] | null> {
+    const text = await this.client.read(INDEX);
+    if (text === null) return null;
+    try {
+      const parsed = JSON.parse(text) as { ids?: unknown };
+      if (!Array.isArray(parsed.ids)) return null;
+      return parsed.ids.filter((id): id is string => typeof id === 'string');
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeIndex(ids: string[]): Promise<void> {
+    await this.client.put(INDEX, JSON.stringify({ ids: [...new Set(ids)].sort() }, null, 2));
+  }
+
+  /** Deck ids, from the index when it is usable and from the API when it is not. */
+  private async ids(): Promise<string[]> {
+    const indexed = await this.indexedIds();
+    if (indexed !== null) return indexed;
+
+    const listed = await this.listedIds();
+    await this.writeIndex(listed);
+    return listed;
   }
 
   async list(): Promise<DeckSummary[]> {
@@ -235,6 +276,15 @@ export class BlobDeckStore implements DeckStore {
     await this.client.put(`${prefix}/deck.json`, serialiseDeck(record));
     await this.client.put(`${prefix}/meta.json`, JSON.stringify(meta, null, 2));
 
+    // Only when this deck is not already known. Analysis saves the same deck once per
+    // step, and re-listing on every one of those would put the slow call back into the
+    // path it was taken out of. Rebuilt from a real listing rather than by appending,
+    // so two uploads landing together converge instead of losing one of each other.
+    const indexed = await this.indexedIds();
+    if (indexed === null || !indexed.includes(record.meta.id)) {
+      await this.writeIndex([...(await this.listedIds()), record.meta.id]);
+    }
+
     return summarise({ record, ...meta, readOnly: false });
   }
 
@@ -242,6 +292,9 @@ export class BlobDeckStore implements DeckStore {
     await this.ensureSeeded();
     const blobs = await this.client.list(`${this.prefix(id)}/`);
     if (blobs.length > 0) await this.client.remove(blobs.map((blob) => blob.url));
+
+    const indexed = await this.indexedIds();
+    if (indexed !== null) await this.writeIndex(indexed.filter((entry) => entry !== id));
   }
 }
 

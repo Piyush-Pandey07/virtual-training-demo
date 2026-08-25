@@ -336,9 +336,9 @@ describe('the blob store lays keys out as a prefix per deck', () => {
 
     assert.deepEqual(
       [...client.objects.keys()].sort(),
-      // The marker sits beside the decks rather than inside one, so it survives a
-      // deck being deleted, which is the whole point of it.
-      ['decks/.seeded', 'decks/isms/deck.json', 'decks/isms/meta.json'],
+      // The marker and the index both sit beside the decks rather than inside one,
+      // so they survive a deck being deleted, which is the whole point of the marker.
+      ['decks/.seeded', 'decks/index.json', 'decks/isms/deck.json', 'decks/isms/meta.json'],
     );
   });
 
@@ -580,7 +580,7 @@ describe('what a blob read costs in round trips', () => {
     assert.equal(client.lists, 0);
   });
 
-  it('lists the library once, however many decks are in it', async () => {
+  it('does not ask the API for the library at all once the index exists', async () => {
     const client = fakeBlobClient();
     const store = new BlobDeckStore(client);
     for (const id of ['alpha', 'beta', 'gamma', 'delta']) {
@@ -590,7 +590,11 @@ describe('what a blob read costs in round trips', () => {
     client.lists = 0;
     const listed = await store.list();
     assert.ok(listed.length >= 4);
-    assert.equal(client.lists, 1);
+
+    // Zero, not one per deck and not one overall. Listing a prefix is a control-plane
+    // call that does not run in the store's region, and it was the entire remaining
+    // cost of the front page.
+    assert.equal(client.lists, 0);
   });
 
   it('does not re-read the seed marker on every call', async () => {
@@ -604,8 +608,42 @@ describe('what a blob read costs in round trips', () => {
     await store.list();
     await store.list();
 
-    // Two listings of a one-deck library: deck.json and meta.json each time, and no
-    // marker read. Four. The marker would make it six.
-    assert.equal(client.reads - before, 4);
+    // Two listings of a one-deck library: the index, then deck.json and meta.json,
+    // each time. Six. Re-reading the seed marker would make it eight.
+    assert.equal(client.reads - before, 6);
+  });
+
+  it('falls back to the API when the index is missing, and writes it back', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.save(ISMS_DECK, 'published');
+    client.objects.delete('decks/index.json');
+
+    client.lists = 0;
+    const listed = await store.list();
+
+    assert.equal(listed.length, 1);
+    assert.equal(client.lists, 1, 'should have asked the API once');
+    assert.ok(client.objects.has('decks/index.json'), 'should have rebuilt the index');
+  });
+
+  it('falls back to the API when the index is not readable as JSON', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.save(ISMS_DECK, 'published');
+    client.objects.set('decks/index.json', 'not json at all');
+
+    const listed = await store.list();
+    assert.equal(listed.length, 1);
+  });
+
+  it('drops a deleted deck from the index', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.save({ ...ISMS_DECK, meta: { ...ISMS_DECK.meta, id: 'temp' } }, 'published');
+    await store.remove('temp');
+
+    const index = JSON.parse(client.objects.get('decks/index.json') ?? '{}') as { ids: string[] };
+    assert.ok(!index.ids.includes('temp'));
   });
 });
