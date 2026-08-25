@@ -170,13 +170,22 @@ describe('deck ids', () => {
  * without a storage token, which is the difference between shipping this stage
  * verified and shipping it hoped-for.
  */
-function fakeBlobClient(): BlobClient & { objects: Map<string, string>; puts: number } {
+function fakeBlobClient(): BlobClient & {
+  objects: Map<string, string>;
+  puts: number;
+  lists: number;
+  reads: number;
+} {
   const objects = new Map<string, string>();
   const urlFor = (pathname: string) => `https://blob.test/${pathname}`;
 
   const client = {
     objects,
     puts: 0,
+    // Counted because the cost of this store is round trips, not CPU, and the
+    // difference between one call and one per deck is invisible in every other test.
+    lists: 0,
+    reads: 0,
 
     async put(pathname: string, body: string): Promise<BlobEntry> {
       client.puts += 1;
@@ -185,6 +194,7 @@ function fakeBlobClient(): BlobClient & { objects: Map<string, string>; puts: nu
     },
 
     async list(prefix: string): Promise<BlobEntry[]> {
+      client.lists += 1;
       return [...objects.keys()]
         .filter((key) => key.startsWith(prefix))
         .map((key) => ({ pathname: key, url: urlFor(key) }));
@@ -197,8 +207,9 @@ function fakeBlobClient(): BlobClient & { objects: Map<string, string>; puts: nu
       }
     },
 
-    async read(url: string): Promise<string | null> {
-      return objects.get(url.replace('https://blob.test/', '')) ?? null;
+    async read(pathname: string): Promise<string | null> {
+      client.reads += 1;
+      return objects.get(pathname) ?? null;
     },
   };
 
@@ -547,5 +558,54 @@ describe('recovering from a store emptied underneath the process', () => {
 
     const recovered = await store.get('isms');
     assert.ok(recovered, 'an emptied filesystem store did not heal itself');
+  });
+});
+
+/**
+ * What actually made the deployed app feel slow.
+ *
+ * Every read used to be addressed by URL, and the only way to learn a URL was to
+ * list the prefix first, so a single deck cost a listing plus two reads and the
+ * library did that once per deck, sequentially. Nothing was wrong with the results,
+ * which is why every other test passed while the front page took three seconds.
+ */
+describe('what a blob read costs in round trips', () => {
+  it('reads a deck without listing anything', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.save(ISMS_DECK, 'published');
+
+    client.lists = 0;
+    await store.get(ISMS_DECK.meta.id);
+    assert.equal(client.lists, 0);
+  });
+
+  it('lists the library once, however many decks are in it', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    for (const id of ['alpha', 'beta', 'gamma', 'delta']) {
+      await store.save({ ...ISMS_DECK, meta: { ...ISMS_DECK.meta, id } }, 'published');
+    }
+
+    client.lists = 0;
+    const listed = await store.list();
+    assert.ok(listed.length >= 4);
+    assert.equal(client.lists, 1);
+  });
+
+  it('does not re-read the seed marker on every call', async () => {
+    // The marker check is cached per process. Without that, each request paid for it
+    // again before doing any of its own work.
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.list();
+
+    const before = client.reads;
+    await store.list();
+    await store.list();
+
+    // Two listings of a one-deck library: deck.json and meta.json each time, and no
+    // marker read. Four. The marker would make it six.
+    assert.equal(client.reads - before, 4);
   });
 });

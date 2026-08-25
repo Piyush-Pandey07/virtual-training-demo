@@ -46,8 +46,16 @@ export interface BlobClient {
   put(pathname: string, body: string): Promise<BlobEntry>;
   list(prefix: string): Promise<BlobEntry[]>;
   remove(urls: string[]): Promise<void>;
-  /** Null when the object is absent. */
-  read(url: string): Promise<string | null>;
+  /**
+   * Reads by pathname. Null when the object is absent.
+   *
+   * By pathname rather than by URL on purpose. A URL has to be discovered, and the
+   * only way to discover one is to list the prefix first, which made every read two
+   * sequential network calls instead of one. Pathnames are deterministic here
+   * because nothing is written with a random suffix, and the SDK resolves the store
+   * host from the token.
+   */
+  read(pathname: string): Promise<string | null>;
 }
 
 interface StoredMeta {
@@ -94,8 +102,8 @@ export class BlobDeckStore implements DeckStore {
   private async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
 
-    const existing = await this.client.list(SEED_MARKER);
-    if (existing.some((blob) => blob.pathname === SEED_MARKER)) {
+    const existing = await this.client.read(SEED_MARKER);
+    if (existing !== null) {
       this.seeded = true;
       return;
     }
@@ -133,15 +141,17 @@ export class BlobDeckStore implements DeckStore {
   async list(): Promise<DeckSummary[]> {
     await this.ensureSeeded();
 
-    const summaries: DeckSummary[] = [];
-    for (const id of await this.ids()) {
-      // One unparseable deck must not take the library down with it. `get` reports
-      // the reason properly when that deck is actually opened.
-      const stored = await this.get(id).catch(() => undefined);
-      if (stored) summaries.push(summarise(stored));
-    }
+    // Concurrently. Sequentially, a library of five decks was five round trips deep
+    // before the page could render, and the front page reads the library on every
+    // request. One unparseable deck must not take the library down with it either;
+    // `get` reports the reason properly when that deck is actually opened.
+    const ids = await this.ids();
+    const stored = await Promise.all(ids.map((id) => this.get(id).catch(() => undefined)));
 
-    return summaries.sort((a, b) => a.title.localeCompare(b.title));
+    return stored
+      .filter((deck): deck is StoredDeck => deck !== undefined)
+      .map(summarise)
+      .sort((a, b) => a.title.localeCompare(b.title));
   }
 
   /**
@@ -163,26 +173,27 @@ export class BlobDeckStore implements DeckStore {
     await this.ensureSeeded();
 
     const prefix = this.prefix(id);
-    let blobs = await this.client.list(`${prefix}/`);
-    let at = (name: string) => blobs.find((blob) => blob.pathname === `${prefix}/${name}`);
 
-    if (!at('deck.json')) {
+    // Both at once. They are independent objects and the deck is unreadable without
+    // the first, so waiting for it before asking for the second only adds latency.
+    let [deckText, metaText] = await Promise.all([
+      this.client.read(`${prefix}/deck.json`),
+      this.client.read(`${prefix}/meta.json`),
+    ]);
+
+    if (deckText === null) {
       await this.reseedIfEmptied();
-      blobs = await this.client.list(`${prefix}/`);
-      at = (name: string) => blobs.find((blob) => blob.pathname === `${prefix}/${name}`);
+      [deckText, metaText] = await Promise.all([
+        this.client.read(`${prefix}/deck.json`),
+        this.client.read(`${prefix}/meta.json`),
+      ]);
     }
 
-    const deckBlob = at('deck.json');
-    if (!deckBlob) return undefined;
-
-    const deckText = await this.client.read(deckBlob.url);
     if (deckText === null) return undefined;
 
     const parsed = parseDeck(deckText);
     if (!parsed.ok) throw new DeckInvalidError(id, parsed.errors);
 
-    const metaBlob = at('meta.json');
-    const metaText = metaBlob ? await this.client.read(metaBlob.url) : null;
     let meta: StoredMeta | null = null;
     try {
       meta = metaText ? (JSON.parse(metaText) as StoredMeta) : null;
@@ -207,9 +218,7 @@ export class BlobDeckStore implements DeckStore {
 
     const prefix = this.prefix(record.meta.id);
 
-    const existing = await this.client.list(`${prefix}/`);
-    const metaBlob = existing.find((blob) => blob.pathname === `${prefix}/meta.json`);
-    const previousText = metaBlob ? await this.client.read(metaBlob.url) : null;
+    const previousText = await this.client.read(`${prefix}/meta.json`);
     let previous: StoredMeta | null = null;
     try {
       previous = previousText ? (JSON.parse(previousText) as StoredMeta) : null;

@@ -125,12 +125,9 @@ export class BlobAssetStore implements AssetStore {
   }
 
   async get(deckId: string, name: string): Promise<DeckAsset | undefined> {
-    const key = this.key(deckId, name);
-    const found = await this.client.list(key);
-    const entry = found.find((blob) => blob.pathname === key);
-    if (!entry) return undefined;
-
-    const bytes = await this.client.readBytes(entry.url);
+    // Straight to the object. Listing first to discover its URL doubled the calls
+    // behind every slide image, and a session asks for one of these per page.
+    const bytes = await this.client.readBytes(this.key(deckId, name));
     if (!bytes) return undefined;
     return { bytes, contentType: contentTypeFor(name) };
   }
