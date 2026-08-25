@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { estimatedMinutes } from '@/lib/deck';
 import type { DeckMeta } from '@/lib/deck-types';
-import { loadDeck } from '@/lib/decks/registry';
+import { deckStore, loadDeck } from '@/lib/decks/registry';
 import { TRAINER_NAME } from '@/lib/trainer';
 
 // The deck is read from storage per request. Prerendering would bake in whichever
@@ -51,6 +51,11 @@ function capabilities(meta: DeckMeta) {
 export default async function HomePage() {
   const deck = await loadDeck();
 
+  // Whether this deployment can take an upload at all. A seeded, read-only
+  // deployment presents the demo and nothing else, and offering an upload there
+  // sends the visitor to a page that can only tell them no.
+  const writable = deckStore().writable;
+
   // No default deck means either an empty library or one whose seed deck was
   // deleted. The library page says so usefully; a 404 on the front door does not.
   if (!deck) redirect('/decks');
@@ -84,12 +89,25 @@ export default async function HomePage() {
           >
             Start the session
           </Link>
+          {writable && (
+            <Link
+              href="/decks/new"
+              className="border-charcoal-line text-mist hover:border-teal hover:text-teal rounded-md border px-6 py-3 text-base font-semibold transition-colors"
+            >
+              Upload your own deck
+            </Link>
+          )}
           <p className="text-muted text-sm">
             You will be asked for microphone access. Headphones are recommended.
           </p>
         </div>
 
-        <p className="text-muted mt-6 text-sm">
+        <p className="text-muted mt-6 max-w-2xl text-sm leading-relaxed">
+          This session is the worked example, and it stays here so anyone can see how the trainer
+          behaves before trusting it with a deck of their own.{' '}
+          {writable
+            ? 'Upload a PDF and it is read, analysed and taught the same way.'
+            : 'Uploading is not configured on this deployment.'}{' '}
           <Link href="/decks" className="hover:text-teal underline transition-colors">
             Browse the deck library
           </Link>

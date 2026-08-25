@@ -24,7 +24,9 @@ import {
   outlineBatches,
 } from '@/lib/analysis/outline';
 import { analyseSlideDetail, detailBatches, mergeSlideDetail } from '@/lib/analysis/slide-detail';
+import { analyseTopics, backfillSlideIds, mergeTopics, topicBatches } from '@/lib/analysis/topics';
 import { deckStore } from '@/lib/decks/registry';
+import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
 export const runtime = 'nodejs';
@@ -117,10 +119,19 @@ export async function POST(request: Request, { params }: RouteContext) {
    * teaching pass needs each page's targetSeconds to know how much it can ask for,
    * and the outline is what sets it.
    */
-  const plan: Array<{ kind: 'meta' } | { kind: 'outline' | 'detail'; pages: number[] }> = [
+  type Step =
+    | { kind: 'meta' }
+    | { kind: 'outline' | 'detail' | 'topics'; pages: number[] }
+    | { kind: 'backfill' };
+
+  const plan: Step[] = [
     { kind: 'meta' },
     ...outlineBatches(deck).map((pages) => ({ kind: 'outline' as const, pages })),
     ...detailBatches(deck).map((pages) => ({ kind: 'detail' as const, pages })),
+    ...topicBatches(deck).map((pages) => ({ kind: 'topics' as const, pages })),
+    // Last, and once. It needs every topic in place before it can tell which slides
+    // still have nothing to be taught from, and it makes no model call.
+    { kind: 'backfill' },
   ];
 
   const step = Number(body.step);
@@ -152,6 +163,22 @@ export async function POST(request: Request, { params }: RouteContext) {
       });
     }
 
+    if (current.kind === 'backfill') {
+      const filled = backfillSlideIds(deck);
+      await store.save(filled, stored.status);
+
+      // What a trainer most wants at the end of a run: whether the deck can be
+      // published now, and if not, what is still missing.
+      return Response.json({
+        step,
+        totalSteps,
+        done,
+        label: 'Matched the expertise to the slides it can teach',
+        topics: filled.topics.length,
+        blocking: checkReadyToPublish(filled),
+      });
+    }
+
     const { pages } = current;
     const span =
       pages.length === 1 ? `page ${pages[0]}` : `pages ${pages[0]} to ${pages[pages.length - 1]}`;
@@ -170,15 +197,29 @@ export async function POST(request: Request, { params }: RouteContext) {
       });
     }
 
-    const details = await analyseSlideDetail(deck, deck.meta, pages);
-    await store.save(mergeSlideDetail(deck, details), stored.status);
+    if (current.kind === 'detail') {
+      const details = await analyseSlideDetail(deck, deck.meta, pages);
+      await store.save(mergeSlideDetail(deck, details), stored.status);
+
+      return Response.json({
+        step,
+        totalSteps,
+        done,
+        label: `Worked out how to teach ${span}`,
+        described: details.length,
+        expected: pages.length,
+      });
+    }
+
+    const generated = await analyseTopics(deck, deck.meta, pages);
+    await store.save(mergeTopics(deck, pages, generated), stored.status);
 
     return Response.json({
       step,
       totalSteps,
       done,
-      label: `Worked out how to teach ${span}`,
-      described: details.length,
+      label: `Wrote the expertise behind ${span}`,
+      described: generated.length,
       expected: pages.length,
     });
   } catch (error) {

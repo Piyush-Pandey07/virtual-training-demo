@@ -32,7 +32,7 @@ export function topicsForSlide(deck: DeckRecord, slideId: number): KnowledgeTopi
  * Normalises text for trigger matching. Punctuation becomes whitespace so that
  * "wi-fi?" and "wi fi" both match a "wi-fi" trigger.
  */
-function normalise(text: string): string {
+export function normalise(text: string): string {
   return ` ${text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
