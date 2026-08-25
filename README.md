@@ -106,9 +106,10 @@ are proxied through `/api/decks/{id}/assets/{name}`. Public access would buy not
 read. A store whose access mode disagrees with the code fails every write, and `/api/health` reports
 it under `decks.error`.
 
-Region: match the store to **Settings → Functions → Function Region**, because the analysis pass
-writes the deck once per step and the session reads it on every page load. A mismatch puts an ocean
-in the middle of each of those. Slide renders are CDN-cached either way.
+Region: the store must be in the same region as the functions, which `vercel.json` pins to `bom1`.
+The analysis pass writes the deck once per step and the session reads it on every page load, so a
+mismatch puts an ocean in the middle of each of those, and it is worth several seconds per page
+rather than several milliseconds. Slide renders are CDN-cached either way.
 
 Then deploy and open `/api/health`:
 
@@ -144,9 +145,11 @@ the app never serves.
   HTTP on a custom setup.
 - **Cold starts** add a second or two to the first turn after a period of inactivity. Loading the
   session page early warms it, since the lobby's health check hits the same deployment.
-- **Region** is left at your team default. For an audience in India, `bom1` shortens the browser
-  round trip, though Gemini and Deepgram are reached from the function either way, so the gain is
-  partial. Worth measuring rather than assuming.
+- **Region is pinned to `bom1`** (Mumbai) in `vercel.json`, and the blob store is in the same
+  region. This is not a preference. Left at the `iad1` default, functions ran in Washington while
+  storage sat in Mumbai, so every deck read crossed twelve thousand kilometres and back: time to
+  first byte was two and a half to four seconds on every page, including a health check returning
+  209 bytes. If you move the blob store, move this with it.
 - **Live transcription does not go through Vercel.** The browser opens its socket straight to
   Deepgram, so that path is unaffected by function limits. See
   [Speech to text transports](#speech-to-text-transports).
