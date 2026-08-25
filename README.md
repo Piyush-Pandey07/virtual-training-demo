@@ -11,20 +11,20 @@ speech.
 
 ## What it actually does
 
-| Behaviour                     | How it works                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Teaches rather than reads out  | A 22-topic knowledge base of ISO 27001 expertise sits behind the deck: attack mechanics, worked sector examples, misconceptions, and clause references.  |
-| Interrupt any time            | Speech detected while the trainer is talking stops playback within a chunk, aborts the generation in flight, and hands the floor over.       |
-| Answers stay grounded         | The deck is the authority on Technavious policy, the knowledge base is general expertise, and the trainer says which is which. Each topic records what it must not guess at. |
-| Corrects the misconception    | Topics carry the wrong beliefs trainees arrive with. "I would spot a phishing email" gets the belief addressed, not just the question. |
-| Adapts to the person          | Asking to simplify, to go deeper, for an example, or for the clause each produce a genuinely different reply, and the preference persists across the session. |
-| Warm without going soft       | Encouraging and patient in manner, and unmoved on the facts. A wrong belief still gets corrected, just with the reasoning behind it acknowledged first. |
-| Follows the trainee's pace    | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                    |
-| Moves the deck when it should | Asking about classification while on slide 2 brings slide 5 up before the answer. The target is worked out from the knowledge base, not asked of the model. |
-| Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question. |
-| Opens by naming the session   | The first sentence welcomes the trainee to the virtual training session and names its subject, before the trainer introduces itself. |
-| Works without a microphone    | If mic access is blocked, the session still runs and questions can be typed.                                                                 |
-| Answers stay short            | Follow-ups are budgeted by register, from 65 words for "simpler" up to 170 for "go deeper", so a question gets an answer rather than a lecture. |
+| Behaviour                         | How it works                                                                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Teaches rather than reads out     | A 22-topic knowledge base of ISO 27001 expertise sits behind the deck: attack mechanics, worked sector examples, misconceptions, and clause references.                      |
+| Interrupt any time                | Speech detected while the trainer is talking stops playback within a chunk, aborts the generation in flight, and hands the floor over.                                       |
+| Answers stay grounded             | The deck is the authority on Technavious policy, the knowledge base is general expertise, and the trainer says which is which. Each topic records what it must not guess at. |
+| Corrects the misconception        | Topics carry the wrong beliefs trainees arrive with. "I would spot a phishing email" gets the belief addressed, not just the question.                                       |
+| Adapts to the person              | Asking to simplify, to go deeper, for an example, or for the clause each produce a genuinely different reply, and the preference persists across the session.                |
+| Warm without going soft           | Encouraging and patient in manner, and unmoved on the facts. A wrong belief still gets corrected, just with the reasoning behind it acknowledged first.                      |
+| Follows the trainee's pace        | Nothing advances on a timer. A question is answered and the floor returns to the trainee.                                                                                    |
+| Moves the deck when it should     | Asking about classification while on slide 2 brings slide 5 up before the answer. The target is worked out from the knowledge base, not asked of the model.                  |
+| Understands being told to move on | "Please move to the next topic" advances and teaches. It is not answered as though it were a question.                                                                       |
+| Opens by naming the session       | The first sentence welcomes the trainee to the virtual training session and names its subject, before the trainer introduces itself.                                         |
+| Works without a microphone        | If mic access is blocked, the session still runs and questions can be typed.                                                                                                 |
+| Answers stay short                | Follow-ups are budgeted by register, from 65 words for "simpler" up to 170 for "go deeper", so a question gets an answer rather than a lecture.                              |
 
 ---
 
@@ -63,12 +63,12 @@ Open http://localhost:3000.
 
 ### Optional settings
 
-| Variable                     | Default              | Notes                                                                             |
-| ---------------------------- | -------------------- | --------------------------------------------------------------------------------- |
-| `GEMINI_MODEL`               | `gemini-2.5-flash`   | 3.7-flash was tried and reverted: it narrates in stubs for no latency gain.       |
-| `DEEPGRAM_STT_MODEL`         | `nova-3`             | Live transcription model.                                                          |
-| `DEEPGRAM_TTS_MODEL`         | `aura-2-thalia-en`   | Any Aura voice. See the [voice list](https://developers.deepgram.com/docs/tts-models). |
-| `DEEPGRAM_TOKEN_TTL_SECONDS` | `300`                | Lifetime of the browser token. Only needs to outlive the initial handshake.        |
+| Variable                     | Default            | Notes                                                                                  |
+| ---------------------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `GEMINI_MODEL`               | `gemini-2.5-flash` | 3.7-flash was tried and reverted: it narrates in stubs for no latency gain.            |
+| `DEEPGRAM_STT_MODEL`         | `nova-3`           | Live transcription model.                                                              |
+| `DEEPGRAM_TTS_MODEL`         | `aura-2-thalia-en` | Any Aura voice. See the [voice list](https://developers.deepgram.com/docs/tts-models). |
+| `DEEPGRAM_TOKEN_TTL_SECONDS` | `300`              | Lifetime of the browser token. Only needs to outlive the initial handshake.            |
 
 ---
 
@@ -80,13 +80,35 @@ automatically, so the build settings need no changes.
 Set two environment variables under **Settings → Environment Variables**, for Production, Preview and
 Development:
 
-| Variable | Value |
-| --- | --- |
-| `GEMINI_API_KEY` | Your Google AI Studio key |
-| `DEEPGRAM_API_KEY` | Your Deepgram key |
+| Variable           | Value                     |
+| ------------------ | ------------------------- |
+| `GEMINI_API_KEY`   | Your Google AI Studio key |
+| `DEEPGRAM_API_KEY` | Your Deepgram key         |
 
-Nothing else is required. Every other setting has a default in `src/lib/config.ts`, which is
-deliberate: one source of truth beats a dashboard that quietly disagrees with the code.
+Every other setting has a default in `src/lib/config.ts`, which is deliberate: one source of truth
+beats a dashboard that quietly disagrees with the code.
+
+### Storage, if you want trainers to upload decks
+
+Without this the deployment still runs, presenting the built-in deck only, and says so on the upload
+page rather than offering a button that cannot work. Vercel's filesystem is read-only apart from a
+temporary directory that does not outlive a request, so there is no third option in production.
+
+Under **Storage**, create a **Blob** store and connect it to the project. That injects
+`BLOB_READ_WRITE_TOKEN`, which is the only variable the app reads; `BLOB_STORE_ID` and
+`BLOB_WEBHOOK_PUBLIC_KEY` come with the connection and go unused. Environment variables bind when a
+deployment is built, so **redeploy afterwards** or nothing changes.
+
+**Leave the store private**, which is Vercel's default. Everything is written with `access:
+'private'` and read back with the token, because no blob URL ever reaches a browser: slide renders
+are proxied through `/api/decks/{id}/assets/{name}`. Public access would buy nothing and would put
+`deck.json`, which carries the author-only `internalNotes`, at a URL anyone who learned it could
+read. A store whose access mode disagrees with the code fails every write, and `/api/health` reports
+it under `decks.error`.
+
+Region: match the store to **Settings → Functions → Function Region**, because the analysis pass
+writes the deck once per step and the session reads it on every page load. A mismatch puts an ocean
+in the middle of each of those. Slide renders are CDN-cached either way.
 
 Then deploy and open `/api/health`:
 
@@ -204,16 +226,16 @@ CIA triad), `threats` (the six on slide 2, in mechanism-level detail), `classifi
 
 Every topic has the same shape:
 
-| Field | What it carries |
-| --- | --- |
-| `explanation` | The substance, one idea per entry, written to be spoken. |
-| `examples` | Worked illustrations from data centre consultancy: single-line diagrams, TVRA reports, commissioning records, client sites. |
-| `misconceptions` | The wrong belief, and the correction. The trainer addresses the belief rather than answering around it. |
-| `standardRefs` | ISO/IEC 27001:2022 clause and Annex A control references, for trainees who want the clause. |
-| `analogy` | One comparison that makes an abstract control land. |
-| `faqs` | Questions trainees genuinely ask, with the expert answer. |
-| `outOfScope` | What this deck does not settle. The trainer names the gap and points at the controlled document instead of guessing. |
-| `triggers` | Phrases that pull the topic in when a question reaches for it. |
+| Field            | What it carries                                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `explanation`    | The substance, one idea per entry, written to be spoken.                                                                    |
+| `examples`       | Worked illustrations from data centre consultancy: single-line diagrams, TVRA reports, commissioning records, client sites. |
+| `misconceptions` | The wrong belief, and the correction. The trainer addresses the belief rather than answering around it.                     |
+| `standardRefs`   | ISO/IEC 27001:2022 clause and Annex A control references, for trainees who want the clause.                                 |
+| `analogy`        | One comparison that makes an abstract control land.                                                                         |
+| `faqs`           | Questions trainees genuinely ask, with the expert answer.                                                                   |
+| `outOfScope`     | What this deck does not settle. The trainer names the gap and points at the controlled document instead of guessing.        |
+| `triggers`       | Phrases that pull the topic in when a question reaches for it.                                                              |
 
 ### Selection
 
@@ -432,7 +454,7 @@ function call: it returns the call and stops. The obvious repair is to hand back
 and continue, but the original "answer the question" framing stays in context and the model treats the
 tool call as having dealt with the request, replying with an acknowledgement and no teaching. Roughly
 one turn in four. Rebuilding the turn from scratch against the new slide got that to one in five,
-because the model sometimes emits a short deferral *alongside* the call, which meant the rebuild never
+because the model sometimes emits a short deferral _alongside_ the call, which meant the rebuild never
 triggered. Strengthening the prompt made it worse: listing forbidden phrases primed the model to use
 them, and 4 of 4 runs deferred.
 

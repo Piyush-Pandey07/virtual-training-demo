@@ -239,16 +239,24 @@ export class BlobDeckStore implements DeckStore {
 /**
  * The real client, over the Vercel SDK.
  *
- * `cacheControlMaxAge: 0` and a no-store read are both required. Blob URLs are
+ * `cacheControlMaxAge: 0` and an uncached read are both required. Blob URLs are
  * served through a CDN, and a deck read back through a cache after being saved is
  * how an edit appears to have done nothing.
+ *
+ * Everything is written private. Nothing in this app ever hands a blob URL to a
+ * browser, because assets are proxied through `/api/decks/{id}/assets/{name}`, so
+ * public access buys nothing and costs something real: deck.json carries
+ * `internalNotes`, the author-only notes that must never reach a trainee, and a
+ * public store would put them at a URL anyone who learned it could read. Vercel
+ * also creates stores private by default now, and a private store rejects a public
+ * write outright rather than quietly downgrading it.
  */
 export function vercelBlobClient(token: string): BlobClient {
   return {
     async put(pathname, body) {
       const { put } = await import('@vercel/blob');
       const result = await put(pathname, body, {
-        access: 'public',
+        access: 'private',
         token,
         contentType: 'application/json',
         addRandomSuffix: false,
@@ -280,9 +288,13 @@ export function vercelBlobClient(token: string): BlobClient {
     },
 
     async read(url) {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) return null;
-      return response.text();
+      const { get } = await import('@vercel/blob');
+      // useCache: false for the same reason the write sets cacheControlMaxAge to 0.
+      // A private blob cannot be read with a bare fetch: the request has to carry
+      // the token, which is what get does.
+      const result = await get(url, { access: 'private', token, useCache: false });
+      if (!result || result.statusCode !== 200) return null;
+      return new Response(result.stream).text();
     },
   };
 }
@@ -305,7 +317,7 @@ export function vercelBinaryBlobClient(token: string): BinaryBlobClient {
         pathname,
         Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
         {
-          access: 'public',
+          access: 'private',
           token,
           contentType,
           addRandomSuffix: false,
@@ -334,9 +346,11 @@ export function vercelBinaryBlobClient(token: string): BinaryBlobClient {
     },
 
     async readBytes(url) {
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      return new Uint8Array(await response.arrayBuffer());
+      const { get } = await import('@vercel/blob');
+      // Cached, unlike the deck read: a page render never changes under a given key.
+      const result = await get(url, { access: 'private', token });
+      if (!result || result.statusCode !== 200) return null;
+      return new Uint8Array(await new Response(result.stream).arrayBuffer());
     },
   };
 }
