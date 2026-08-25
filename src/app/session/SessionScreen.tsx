@@ -44,6 +44,13 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
 
   return (
     <div className="mx-auto w-full max-w-lg px-5 py-16">
+      <Link
+        href="/"
+        className="text-muted hover:text-teal mb-6 inline-flex items-center gap-1.5 text-sm transition-colors"
+      >
+        <span aria-hidden="true">&larr;</span> Back
+      </Link>
+
       <h1 className="text-3xl font-bold">{deck.meta.title}</h1>
       <p className="text-muted mt-3 leading-relaxed">
         {TRAINER_NAME} will present {deck.totalSlides} slides and answer anything you ask along the
@@ -128,9 +135,11 @@ export function SessionScreen({ reviewed }: { reviewed: boolean }) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
-          Leave session
-        </Link>
+        {!showLobby && (
+          <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
+            Leave session
+          </Link>
+        )}
       </BrandHeader>
 
       {!reviewed && (
