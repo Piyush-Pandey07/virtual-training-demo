@@ -20,7 +20,7 @@
 
 import 'server-only';
 
-import type { DeckRecord } from '../deck-types';
+import type { DeckOrigin, DeckRecord } from '../deck-types';
 
 export type DeckStatus = 'draft' | 'published';
 
@@ -37,6 +37,15 @@ export interface DeckSummary {
   updatedAt: string;
   /** True for a deck that came from code and cannot be edited or deleted. */
   readOnly: boolean;
+  /**
+   * Where the deck's content came from.
+   *
+   * Distinct from `readOnly`, which is a property of the store rather than of the
+   * deck: seeding the built-in deck into a writable store makes it editable while
+   * leaving it authored. Absent on decks stored before the field existed, read as
+   * uploaded, which is the same permissive reading DeckMeta documents.
+   */
+  origin: DeckOrigin;
 }
 
 export interface StoredDeck {
@@ -95,5 +104,6 @@ export function summarise(stored: StoredDeck): DeckSummary {
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
     readOnly: stored.readOnly,
+    origin: record.meta.origin ?? 'uploaded',
   };
 }
