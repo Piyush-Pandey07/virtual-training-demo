@@ -31,6 +31,11 @@ export interface ReviewSlide {
   targetSeconds: number;
   printedTitle?: string;
   bulletCount: number;
+  narrationBrief: string;
+  keyPoints: string[];
+  discussionPrompts: string[];
+  /** The brief opens as a description of the page rather than as instructions. */
+  briefLooksLikeSummary: boolean;
   width?: number;
   height?: number;
 }
@@ -146,6 +151,9 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
               summary: slide.summary,
               role: slide.role,
               targetSeconds: slide.targetSeconds,
+              narrationBrief: slide.narrationBrief,
+              keyPoints: slide.keyPoints,
+              discussionPrompts: slide.discussionPrompts,
             })),
             ...(nextStatus ? { status: nextStatus } : {}),
           }),
@@ -494,6 +502,77 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
                     onChange={(event) => editSlide(slide.id, { summary: event.target.value })}
                     className="bg-charcoal text-mist ring-charcoal-line focus:ring-teal mt-1 w-full resize-y rounded-md px-3 py-2 text-sm ring-1 ring-inset"
                   />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor={`brief-${slide.id}`}
+                    className="text-muted block text-xs font-semibold"
+                  >
+                    How to teach it
+                    <span className="ml-2 font-normal">
+                      not spoken; the trainer works from this
+                    </span>
+                  </label>
+                  <textarea
+                    id={`brief-${slide.id}`}
+                    value={slide.narrationBrief}
+                    rows={3}
+                    onChange={(event) =>
+                      editSlide(slide.id, { narrationBrief: event.target.value })
+                    }
+                    className="bg-charcoal text-mist ring-charcoal-line focus:ring-teal mt-1 w-full resize-y rounded-md px-3 py-2 text-sm ring-1 ring-inset"
+                  />
+                  {slide.briefLooksLikeSummary && (
+                    <p className="text-muted mt-1 text-xs">
+                      This reads as a description of the page rather than instructions for teaching
+                      it. The trainer already has the summary above.
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor={`points-${slide.id}`}
+                      className="text-muted block text-xs font-semibold"
+                    >
+                      Must cover
+                      <span className="ml-2 font-normal">one per line</span>
+                    </label>
+                    <textarea
+                      id={`points-${slide.id}`}
+                      value={slide.keyPoints.join('\n')}
+                      rows={4}
+                      onChange={(event) =>
+                        editSlide(slide.id, {
+                          keyPoints: event.target.value.split('\n'),
+                        })
+                      }
+                      className="bg-charcoal text-mist ring-charcoal-line focus:ring-teal mt-1 w-full resize-y rounded-md px-3 py-2 text-xs ring-1 ring-inset"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor={`prompts-${slide.id}`}
+                      className="text-muted block text-xs font-semibold"
+                    >
+                      Ways to open a conversation
+                      <span className="ml-2 font-normal">one per line</span>
+                    </label>
+                    <textarea
+                      id={`prompts-${slide.id}`}
+                      value={slide.discussionPrompts.join('\n')}
+                      rows={4}
+                      onChange={(event) =>
+                        editSlide(slide.id, {
+                          discussionPrompts: event.target.value.split('\n'),
+                        })
+                      }
+                      className="bg-charcoal text-mist ring-charcoal-line focus:ring-teal mt-1 w-full resize-y rounded-md px-3 py-2 text-xs ring-1 ring-inset"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-4">

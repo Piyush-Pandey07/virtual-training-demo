@@ -105,7 +105,7 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
  * deck, narrows it to what the browser may see, and hands that down. This half
  * never sees a presenter note.
  */
-export function SessionScreen() {
+export function SessionScreen({ reviewed }: { reviewed: boolean }) {
   const deck = useDeck();
   const session = useTrainingSession();
   const slide = getClientSlide(deck, session.slideId);
@@ -132,6 +132,16 @@ export function SessionScreen() {
           Leave session
         </Link>
       </BrandHeader>
+
+      {!reviewed && (
+        <div className="border-charcoal-line bg-charcoal-soft border-b px-5 py-2.5 sm:px-8">
+          <p className="text-muted text-sm">
+            <span className="text-mist font-semibold">This deck is a draft.</span> Nobody has
+            checked what the trainer says about it yet, so treat anything it tells you as
+            unverified.
+          </p>
+        </div>
+      )}
 
       {session.error && (
         <div

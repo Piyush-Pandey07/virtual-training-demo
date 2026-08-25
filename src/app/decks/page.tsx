@@ -110,9 +110,13 @@ export default async function DeckLibraryPage() {
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Link
                     href={`/session?deck=${encodeURIComponent(deck.id)}`}
-                    className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                    className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+                      deck.status === 'published'
+                        ? 'bg-azure text-mist hover:bg-teal hover:text-charcoal'
+                        : 'border-charcoal-line text-muted hover:text-mist border'
+                    }`}
                   >
-                    Run this session
+                    {deck.status === 'published' ? 'Run this session' : 'Preview the draft'}
                   </Link>
                   {!deck.readOnly && (
                     <Link

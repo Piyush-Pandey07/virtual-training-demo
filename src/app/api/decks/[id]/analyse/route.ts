@@ -23,6 +23,7 @@ import {
   mergeSlideOutlines,
   outlineBatches,
 } from '@/lib/analysis/outline';
+import { analyseSlideDetail, detailBatches, mergeSlideDetail } from '@/lib/analysis/slide-detail';
 import { deckStore } from '@/lib/decks/registry';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
@@ -102,20 +103,40 @@ export async function POST(request: Request, { params }: RouteContext) {
   }
 
   const deck = stored.record;
-  const batches = outlineBatches(deck);
-  // Step 0 is the whole-deck pass; the rest are page batches.
-  const totalSteps = 1 + batches.length;
+
+  /**
+   * The whole run, as a list of steps the browser walks.
+   *
+   * Built here rather than tracked in storage so a run is resumable and
+   * interruptible for free: every step reads the deck as it currently stands, does
+   * one thing, and saves. A run that dies on step four keeps the three that worked,
+   * and starting again repeats only what is cheap.
+   *
+   * Order matters. The whole-deck pass first, because both later passes are given
+   * its answer as context. The outline before the teaching pass, because the
+   * teaching pass needs each page's targetSeconds to know how much it can ask for,
+   * and the outline is what sets it.
+   */
+  const plan: Array<{ kind: 'meta' } | { kind: 'outline' | 'detail'; pages: number[] }> = [
+    { kind: 'meta' },
+    ...outlineBatches(deck).map((pages) => ({ kind: 'outline' as const, pages })),
+    ...detailBatches(deck).map((pages) => ({ kind: 'detail' as const, pages })),
+  ];
 
   const step = Number(body.step);
-  if (!Number.isInteger(step) || step < 0 || step >= totalSteps) {
+  if (!Number.isInteger(step) || step < 0 || step >= plan.length) {
     return Response.json(
-      { error: `step must be an integer from 0 to ${totalSteps - 1}.` },
+      { error: `step must be an integer from 0 to ${plan.length - 1}.` },
       { status: 400 },
     );
   }
 
+  const totalSteps = plan.length;
+  const current = plan[step];
+  const done = step === totalSteps - 1;
+
   try {
-    if (step === 0) {
+    if (current.kind === 'meta') {
       const analysis = await analyseDeckMeta(deck);
       const meta = mergeDeckMeta(deck.meta, analysis, new Date().toISOString());
       await store.save({ ...deck, meta }, stored.status);
@@ -123,7 +144,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       return Response.json({
         step,
         totalSteps,
-        done: totalSteps === 1,
+        done,
         label: 'Read the deck as a whole',
         // Useful to show, and the field most worth a trainer's attention.
         ownerNamedInDeck: analysis.ownerNamedInDeck,
@@ -131,18 +152,34 @@ export async function POST(request: Request, { params }: RouteContext) {
       });
     }
 
-    const pageNumbers = batches[step - 1];
-    const outlines = await analyseSlideBatch(deck, deck.meta, pageNumbers);
-    const updated = mergeSlideOutlines(deck, outlines);
-    await store.save(updated, stored.status);
+    const { pages } = current;
+    const span =
+      pages.length === 1 ? `page ${pages[0]}` : `pages ${pages[0]} to ${pages[pages.length - 1]}`;
+
+    if (current.kind === 'outline') {
+      const outlines = await analyseSlideBatch(deck, deck.meta, pages);
+      await store.save(mergeSlideOutlines(deck, outlines), stored.status);
+
+      return Response.json({
+        step,
+        totalSteps,
+        done,
+        label: `Described ${span}`,
+        described: outlines.length,
+        expected: pages.length,
+      });
+    }
+
+    const details = await analyseSlideDetail(deck, deck.meta, pages);
+    await store.save(mergeSlideDetail(deck, details), stored.status);
 
     return Response.json({
       step,
       totalSteps,
-      done: step === totalSteps - 1,
-      label: `Described pages ${pageNumbers[0]} to ${pageNumbers[pageNumbers.length - 1]}`,
-      described: outlines.length,
-      expected: pageNumbers.length,
+      done,
+      label: `Worked out how to teach ${span}`,
+      described: details.length,
+      expected: pages.length,
     });
   } catch (error) {
     // The model's own failures are the common case here: a rate limit, a safety

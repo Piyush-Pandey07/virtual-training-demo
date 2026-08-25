@@ -60,6 +60,11 @@ const MAX_META_CHARS = 600;
 const MAX_TITLE_CHARS = 200;
 const MAX_LABEL_CHARS = 24;
 const MAX_SUMMARY_CHARS = 200;
+/** A brief is instructions, not an essay. */
+const MAX_BRIEF_CHARS = 1200;
+/** One idea each, and the slide's own budget caps how many can be covered. */
+const MAX_LIST_ITEM_CHARS = 400;
+const MAX_LIST_ITEMS = 12;
 
 interface PatchBody {
   meta?: unknown;
@@ -146,6 +151,26 @@ function applySlides(deck: DeckRecord, raw: unknown, problems: string[]): DeckRe
         if (typeof edit.teaches === 'boolean') next.teaches = edit.teaches;
         else problems.push(`slide ${slide.id}: teaches must be true or false.`);
       }
+      if (typeof edit.narrationBrief === 'string' && edit.narrationBrief.trim()) {
+        next.narrationBrief = edit.narrationBrief.trim().slice(0, MAX_BRIEF_CHARS);
+      }
+
+      // Sent as an array from a textarea split on newlines, so blank lines are the
+      // normal case rather than an error, and emptying the box clears the list.
+      for (const field of ['keyPoints', 'discussionPrompts'] as const) {
+        const value = edit[field];
+        if (value === undefined) continue;
+        if (!Array.isArray(value)) {
+          problems.push(`slide ${slide.id}: ${field} must be an array.`);
+          continue;
+        }
+        next[field] = value
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim().slice(0, MAX_LIST_ITEM_CHARS))
+          .filter((item) => item.length > 0)
+          .slice(0, MAX_LIST_ITEMS);
+      }
+
       if (edit.targetSeconds !== undefined) {
         const seconds = Number(edit.targetSeconds);
         if (Number.isFinite(seconds) && seconds >= 15 && seconds <= 300) {

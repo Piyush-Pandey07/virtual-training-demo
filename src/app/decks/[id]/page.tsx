@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { DeckReview, type ReviewDeck } from './DeckReview';
@@ -66,6 +67,13 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
       // thumbnail, and sending every bullet would put the whole deck in the browser
       // again for no gain.
       bulletCount: slide.bullets.length,
+      // The three fields the teaching pass generates. They reach the spoken prompt
+      // directly and are the most freely invented thing on the slide, so the screen
+      // whose whole job is review has to show them.
+      narrationBrief: slide.narrationBrief,
+      keyPoints: slide.keyPoints,
+      discussionPrompts: slide.discussionPrompts,
+      briefLooksLikeSummary: briefReadsAsSummary(slide.narrationBrief),
       // The thumbnail's own size, not the full render's. Same ratio, but declaring
       // 1600 wide for an image that is 768 wide is a small lie in the markup.
       ...thumbSize(slide.width, slide.height),
