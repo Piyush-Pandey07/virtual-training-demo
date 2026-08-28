@@ -86,8 +86,7 @@ export default async function PeoplePage() {
           >
             <p className="font-semibold">There is no roster storage on this deployment.</p>
             <p className="text-muted mt-1 leading-relaxed">
-              People, assignments and progress cannot be saved. Set <code>DATABASE_URL</code> and
-              redeploy.
+              People, assignments and progress cannot be saved. Connect a Blob store and redeploy.
             </p>
           </div>
         ) : (

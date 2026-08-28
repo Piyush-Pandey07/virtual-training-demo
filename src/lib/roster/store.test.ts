@@ -6,6 +6,8 @@ import { after, beforeEach, describe, it } from 'node:test';
 
 import { coverageOf, percentComplete } from './completion';
 import { emailKeyOf, localPersonId, withCovered, type RosterStore } from './store';
+import type { BlobEntry, BlobClient } from '../decks/store-blob';
+import { BlobRosterStore } from './store-blob';
 import { FilesystemRosterStore } from './store-fs';
 import { NoRosterStore } from './store-none';
 
@@ -21,13 +23,54 @@ async function freshStore(): Promise<RosterStore> {
   return new FilesystemRosterStore(root);
 }
 
+/** In memory, in the shape the deck store's blob client already has. */
+function fakeBlobClient(): BlobClient {
+  const objects = new Map<string, string>();
+  const urlFor = (pathname: string) => `https://blob.test/${pathname}`;
+
+  return {
+    async put(pathname: string, body: string): Promise<BlobEntry> {
+      objects.set(pathname, body);
+      return { pathname, url: urlFor(pathname) };
+    },
+    async list(prefix: string): Promise<BlobEntry[]> {
+      return [...objects.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => ({ pathname: key, url: urlFor(key) }));
+    },
+    async remove(urls: string[]): Promise<void> {
+      for (const url of urls) objects.delete(url.replace('https://blob.test/', ''));
+    },
+    async read(pathname: string): Promise<string | null> {
+      return objects.get(pathname) ?? null;
+    },
+  };
+}
+
+/**
+ * Both writable stores are held to the same contract.
+ *
+ * They are different enough to drift — one keeps a single document, the other keeps
+ * an object per attempt — and the difference is exactly where a bug would hide.
+ */
+const HARNESSES: Array<{ name: string; make: () => Promise<RosterStore> }> = [
+  { name: 'the filesystem store', make: freshStore },
+  { name: 'the blob store', make: async () => new BlobRosterStore(fakeBlobClient()) },
+];
+
 const DECK = { deckId: 'fire-safety', slideCount: 5, totalSeconds: 500 };
 
-describe('the roster store', () => {
+for (const harness of HARNESSES) {
+  describe(harness.name, () => {
+    runContract(harness.make);
+  });
+}
+
+function runContract(make: () => Promise<RosterStore>) {
   let store: RosterStore;
 
   beforeEach(async () => {
-    store = await freshStore();
+    store = await make();
   });
 
   describe('people', () => {
@@ -239,7 +282,7 @@ describe('the roster store', () => {
       assert.equal(attempt.lastSlideId, null);
     });
   });
-});
+}
 
 describe('a deployment with no roster storage', () => {
   const store: RosterStore = new NoRosterStore();
@@ -251,7 +294,10 @@ describe('a deployment with no roster storage', () => {
   });
 
   it('refuses a write, naming what is missing', async () => {
-    await assert.rejects(() => store.upsertPerson({ email: 'a@technavious.com' }), /DATABASE_URL/);
+    await assert.rejects(
+      () => store.upsertPerson({ email: 'a@technavious.com' }),
+      /BLOB_READ_WRITE_TOKEN/,
+    );
   });
 
   it('assigns nobody, so nothing is reachable by default', async () => {

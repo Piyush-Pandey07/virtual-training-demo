@@ -95,17 +95,31 @@ export async function POST(request: Request) {
         );
       }
 
-      // An address that already has an account signs in instead. Accepting again
-      // would either fail on the duplicate or silently reset their password, and the
-      // second of those is a way in for whoever holds a forwarded link.
-      if (await findAccountByEmail(address)) {
-        return Response.json(
-          {
-            error: 'That address already has an account. Sign in, then open this link again.',
-            signIn: true,
-          },
-          { status: 409 },
-        );
+      // An address that already has an account keeps it. The password is never
+      // touched here: silently resetting it would be a way in for whoever holds a
+      // forwarded link, which is the one thing an invitation must not become.
+      //
+      // But it cannot simply be refused either. Somebody with an account and no row
+      // here — removed and re-invited, or restored from a backup — would otherwise be
+      // deadlocked: the invitation sends them to sign in, and signing in refuses them
+      // for having no row. So the row is created and the training assigned, and they
+      // are asked to sign in with the password they already have. Creating a row
+      // grants nothing on its own; they still need that password.
+      const existingUid = await findAccountByEmail(address);
+      if (existingUid) {
+        const linked = await store.upsertPerson({
+          id: existingUid,
+          email: address,
+          name: body.name?.trim(),
+        });
+        await accept(invite.id, invite.tokenHash, invite.deckIds, linked.id, address);
+
+        return Response.json({
+          ok: true,
+          signIn: true,
+          assigned: invite.deckIds.length,
+          message: 'Your training is ready. Sign in with your existing password.',
+        });
       }
 
       const password = body.password ?? '';

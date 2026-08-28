@@ -4,13 +4,15 @@
  * The same env-descending rule the deck registry uses, and cached the same way, so
  * the two cannot disagree about which deployment they are in.
  *
- *   DATABASE_URL set     → Postgres
- *   else not on Vercel   → the filesystem, under .data/roster
- *   else                 → none, which refuses writes and says why
+ *   BLOB_READ_WRITE_TOKEN set → Vercel Blob, which is what a deployment has
+ *   else not on Vercel        → the filesystem, under .data/roster
+ *   else                      → none, which refuses writes and says why
  */
 
 import 'server-only';
 
+import { vercelBlobClient } from '../decks/store-blob';
+import { BlobRosterStore } from './store-blob';
 import { FilesystemRosterStore, defaultRosterRoot } from './store-fs';
 import { NoRosterStore } from './store-none';
 import type { RosterStore } from './store';
@@ -20,15 +22,23 @@ let cached: RosterStore | null = null;
 export function rosterStore(): RosterStore {
   if (cached) return cached;
 
-  // Postgres lands here once a database is provisioned. Until then a deployment
-  // without one falls through to `none`, which refuses honestly rather than
-  // pretending to save a trainee's progress.
+  // Postgres lands here once a database is provisioned, ahead of blob storage. Until
+  // then blob is what a deployment actually has, and it is what the deck store
+  // already uses, so this needs no service nobody has set up.
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    cached = new BlobRosterStore(vercelBlobClient(token));
+    return cached;
+  }
+
   const onVercel = Boolean(process.env.VERCEL);
   if (!onVercel) {
     cached = new FilesystemRosterStore(process.env.ROSTER_STORE_DIR ?? defaultRosterRoot());
     return cached;
   }
 
+  // Nothing configured on a host with no writable disk. Refusing honestly beats
+  // pretending to save a trainee's progress.
   cached = new NoRosterStore();
   return cached;
 }

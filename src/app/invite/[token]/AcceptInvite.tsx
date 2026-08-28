@@ -48,13 +48,16 @@ export function AcceptInvite({
       const result = (await response.json()) as {
         error?: string;
         signIn?: boolean;
+        ok?: boolean;
         created?: boolean;
         email?: string;
       };
 
       if (result.signIn) {
-        // Sign in first, carrying the token so they land back here afterwards.
-        router.push(`/signin?next=${encodeURIComponent(`/invite/${token}`)}`);
+        // Either the account already existed and the training has just been attached
+        // to it, or real sign-in has to happen before accepting. Both end at the same
+        // place: sign in, then go where they were going.
+        router.push(`/signin?next=${encodeURIComponent(result.ok ? '/' : `/invite/${token}`)}`);
         return;
       }
       if (!response.ok) throw new Error(result.error ?? 'That did not work.');

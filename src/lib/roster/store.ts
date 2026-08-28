@@ -60,7 +60,7 @@ export interface AssignmentInput {
 
 export interface RosterStore {
   /** Human-readable, for diagnostics and the health endpoint. */
-  readonly kind: 'postgres' | 'filesystem' | 'none';
+  readonly kind: 'blob' | 'postgres' | 'filesystem' | 'none';
   /** False when no storage is configured, so the UI can say so rather than fail oddly. */
   readonly writable: boolean;
 
