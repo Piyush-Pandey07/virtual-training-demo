@@ -15,6 +15,7 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
+import { requireAdminPage } from '@/lib/auth/guard';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { DeckReview, type ReviewDeck } from './DeckReview';
 
@@ -40,6 +41,7 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
 }
 
 export default async function DeckReviewPage({ params }: ReviewPageProps) {
+  await requireAdminPage();
   const { id } = await params;
 
   // A bad id throws from the store rather than returning nothing, and a bad link

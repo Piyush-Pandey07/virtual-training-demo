@@ -9,6 +9,7 @@
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { requireAdminPage } from '@/lib/auth/guard';
 import { deckStore, listDecks } from '@/lib/decks/registry';
 
 // Read at request time. Prerendering this would bake in whichever decks existed
@@ -29,6 +30,10 @@ function formatDate(iso: string): string {
 }
 
 export default async function DeckLibraryPage() {
+  // The library is an administrator's tool. A trainee gets a 404 rather than a
+  // refusal: what decks exist is not something they need told.
+  await requireAdminPage('/decks');
+
   const decks = await listDecks();
   const store = deckStore();
 

@@ -10,14 +10,8 @@
 
 import 'server-only';
 
-import {
-  RosterStoreError,
-  type AssignmentInput,
-  type PersonInput,
-  type ProgressInput,
-  type RosterStore,
-} from './store';
-import type { Assignment, Attempt, Person, Role } from './types';
+import { RosterStoreError, type RosterStore } from './store';
+import type { Assignment, Attempt, Person } from './types';
 
 const WHY =
   'This deployment has no roster storage configured, so people, assignments and progress cannot be saved. Set DATABASE_URL to enable them.';
@@ -39,10 +33,10 @@ export class NoRosterStore implements RosterStore {
   async getPersonByEmail(): Promise<Person | undefined> {
     return undefined;
   }
-  async upsertPerson(_input: PersonInput): Promise<Person> {
+  async upsertPerson(): Promise<Person> {
     refuse();
   }
-  async setRole(_id: string, _role: Role): Promise<Person> {
+  async setRole(): Promise<Person> {
     refuse();
   }
   async removePerson(): Promise<void> {
@@ -58,7 +52,7 @@ export class NoRosterStore implements RosterStore {
   async isAssigned(): Promise<boolean> {
     return false;
   }
-  async assign(_input: AssignmentInput): Promise<Assignment> {
+  async assign(): Promise<Assignment> {
     refuse();
   }
   async unassign(): Promise<void> {
@@ -74,7 +68,7 @@ export class NoRosterStore implements RosterStore {
   async listAttemptsForDeck(): Promise<Attempt[]> {
     return [];
   }
-  async recordCovered(_input: ProgressInput): Promise<Attempt> {
+  async recordCovered(): Promise<Attempt> {
     refuse();
   }
   async touchAttempt(): Promise<Attempt> {

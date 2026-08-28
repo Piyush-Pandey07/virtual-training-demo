@@ -10,6 +10,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { requireAdminPage } from '@/lib/auth/guard';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { UploadDeck } from './UploadDeck';
 
@@ -18,6 +19,8 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Upload a deck' };
 
 export default async function NewDeckPage() {
+  await requireAdminPage('/decks/new');
+
   const decks = deckStore();
   const assets = assetStore();
   const canUpload = decks.writable && assets.writable;
