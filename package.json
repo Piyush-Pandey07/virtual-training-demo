@@ -19,6 +19,9 @@
     "answer-quality": "tsx --conditions react-server scripts/answer-quality.ts",
     "ablate": "tsx --conditions react-server scripts/ablate-answer-prompt.ts"
   },
+  "overrides": {
+    "jose": "^5.10.0"
+  },
   "dependencies": {
     "@deepgram/sdk": "^5.8.0",
     "@google/genai": "^2.17.1",
@@ -45,6 +48,6 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=22.12.0"
   }
 }
