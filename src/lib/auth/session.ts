@@ -36,6 +36,11 @@ export const DEV_SESSION_COOKIE = 'dev-person';
  * check would leave the other door open, and this is a door that must not be open.
  */
 export function devAuthEnabled(): boolean {
+  // Off wherever real sign-in works, not merely hidden there. The sign-in page stops
+  // offering it, but the page is not the control: a route that still answers is a
+  // second way in that takes anybody's word for who they are, sitting behind a
+  // deployment that has a real one.
+  if (firebaseAdminConfigured()) return false;
   return !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 }
 

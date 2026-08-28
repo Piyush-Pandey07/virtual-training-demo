@@ -6,16 +6,21 @@
  * This is the only place an ID token is accepted, and the only place the person
  * behind it is decided. Everything downstream reads the cookie.
  *
- * The tenant check here is what makes this authentication rather than a login page.
- * Checking that an address ends in the company domain would not be: the address is a
- * claim the app would be choosing to believe. The `tid` claim is bound to the
- * Microsoft tenant that issued the token, and Firebase has already verified the
- * signature over it by the time this runs.
+ * The gate here is roster membership, and with email and password it is the whole
+ * boundary. Firebase's own account-creation endpoint takes nothing but the public API
+ * key, so anybody who reads the bundle can create an account in the project and
+ * cannot be stopped from doing so. What they cannot do is get a session: accounts
+ * this app knows about are created server-side, from an invitation, and a Firebase
+ * account with no row here is turned away with nothing to show for it.
+ *
+ * The one exception is the first administrator, who has nobody to invite them. Their
+ * address is named in the deployment configuration, which is a claim about them made
+ * by whoever set the deployment up rather than by them.
  */
 
 import { cookies } from 'next/headers';
 
-import { SESSION_COOKIE } from '@/lib/auth/session';
+import { isBootstrapAdmin, SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
   firebaseAdminConfigured,
@@ -29,12 +34,7 @@ import { emailKeyOf, RosterStoreError } from '@/lib/roster/store';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** The Microsoft tenant whose accounts may sign in. */
-function allowedTenant(): string | undefined {
-  return process.env.MICROSOFT_TENANT_ID?.trim() || undefined;
-}
-
-/** Domains an address may end in, when one is configured. Defence in depth. */
+/** Domains an address may end in, when configured. */
 function allowedDomains(): string[] {
   return (process.env.ALLOWED_EMAIL_DOMAINS ?? '')
     .split(',')
@@ -76,16 +76,6 @@ export async function POST(request: Request) {
   const decoded = await verifySessionCookie(cookie);
   if (!decoded) return refuse('That sign-in could not be verified.', 401);
 
-  const tenant = allowedTenant();
-  const claimedTenant =
-    typeof decoded.firebase?.sign_in_attributes?.tid === 'string'
-      ? decoded.firebase.sign_in_attributes.tid
-      : undefined;
-
-  if (tenant && claimedTenant !== tenant) {
-    return refuse('That account is not part of this organisation.');
-  }
-
   const email = typeof decoded.email === 'string' ? decoded.email : '';
   if (!email) return refuse('That account has no email address attached to it.');
   if (decoded.email_verified === false) {
@@ -101,10 +91,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    // First sight creates them as a trainee; after that this only refreshes the name
-    // and the last-seen stamp. The role is never taken from here, so signing in
-    // cannot restore access an administrator has just removed.
-    const person = await rosterStore().upsertPerson({
+    const store = rosterStore();
+
+    // Known here already, or named as an administrator by the deployment. Anything
+    // else is a Firebase account nobody invited, and it gets no session.
+    const known = await store.getPersonByEmail(email);
+    if (!known && !isBootstrapAdmin(email)) {
+      return refuse(
+        'There is no training account for that address. Ask whoever runs your training for an invitation.',
+      );
+    }
+
+    // Refreshes the name and the last-seen stamp, and adopts the Firebase uid for
+    // somebody an administrator added by hand before they had ever signed in. The
+    // role is never taken from here, so signing in cannot restore access an
+    // administrator has just removed.
+    const person = await store.upsertPerson({
       id: decoded.uid,
       email,
       name: typeof decoded.name === 'string' ? decoded.name : undefined,

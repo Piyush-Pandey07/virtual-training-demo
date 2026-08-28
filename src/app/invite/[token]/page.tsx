@@ -12,7 +12,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { currentPerson } from '@/lib/auth/session';
+import { currentPerson, firebaseConfigured } from '@/lib/auth/session';
 import { listDecks } from '@/lib/decks/registry';
 import { explainProblem, hashToken, inviteProblem } from '@/lib/roster/invites';
 import { rosterStore } from '@/lib/roster/registry';
@@ -106,6 +106,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
               token={token}
               signedInAs={person?.email ?? null}
               boundEmail={invite.email}
+              needsPassword={firebaseConfigured()}
             />
           </>
         )}

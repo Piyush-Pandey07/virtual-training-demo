@@ -17,6 +17,8 @@
 import { cookies } from 'next/headers';
 
 import { currentPerson, DEV_SESSION_COOKIE, devAuthEnabled } from '@/lib/auth/session';
+import { passwordProblem } from '@/lib/auth/password';
+import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { explainProblem, hashToken, inviteProblem } from '@/lib/roster/invites';
 import { rosterStore } from '@/lib/roster/registry';
 import { emailKeyOf, RosterStoreError } from '@/lib/roster/store';
@@ -28,6 +30,7 @@ interface Body {
   token?: string;
   email?: string;
   name?: string;
+  password?: string;
 }
 
 export async function POST(request: Request) {
@@ -64,8 +67,60 @@ export async function POST(request: Request) {
       return await accept(invite.id, invite.tokenHash, invite.deckIds, signedIn.id, signedIn.email);
     }
 
-    // Nobody signed in. Real sign-in has to happen first, and the client sends them
-    // there carrying the token so they land back here afterwards.
+    // Nobody signed in, and real sign-in is configured: this is somebody accepting an
+    // invitation for the first time, so the account is created here.
+    //
+    // Created here rather than in the browser because Firebase's own signup endpoint
+    // takes nothing but the public API key. An account made that way could not be
+    // required to hold an invitation, and the password rules could not be enforced.
+    if (firebaseAdminConfigured()) {
+      const claimedHere = body.email?.trim();
+      if (invite.email && claimedHere && emailKeyOf(claimedHere) !== emailKeyOf(invite.email)) {
+        return Response.json({ error: explainProblem('wrong-email') }, { status: 403 });
+      }
+
+      const address = invite.email ?? claimedHere;
+      if (!address) {
+        return Response.json({ error: 'An email address is required.' }, { status: 400 });
+      }
+
+      const domains = (process.env.ALLOWED_EMAIL_DOMAINS ?? '')
+        .split(',')
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean);
+      if (domains.length > 0 && !domains.includes(emailKeyOf(address).split('@')[1] ?? '')) {
+        return Response.json(
+          { error: 'That address is not part of this organisation.' },
+          { status: 403 },
+        );
+      }
+
+      // An address that already has an account signs in instead. Accepting again
+      // would either fail on the duplicate or silently reset their password, and the
+      // second of those is a way in for whoever holds a forwarded link.
+      if (await findAccountByEmail(address)) {
+        return Response.json(
+          {
+            error: 'That address already has an account. Sign in, then open this link again.',
+            signIn: true,
+          },
+          { status: 409 },
+        );
+      }
+
+      const password = body.password ?? '';
+      const weak = passwordProblem(password, address);
+      if (weak) return Response.json({ error: weak }, { status: 400 });
+
+      const uid = await createAccount(address, password, body.name?.trim());
+      const person = await store.upsertPerson({ id: uid, email: address, name: body.name?.trim() });
+
+      // No cookie is set here. The browser signs in with the password it has just
+      // chosen, which proves the account works before anybody depends on it.
+      const done = await accept(invite.id, invite.tokenHash, invite.deckIds, person.id, address);
+      return Response.json({ ...(await done.json()), created: true });
+    }
+
     if (!devAuthEnabled()) {
       return Response.json(
         { error: 'Sign in first, then open the invitation link again.', signIn: true },
