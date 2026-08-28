@@ -29,6 +29,8 @@ import { deckStore } from '@/lib/decks/registry';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
+import { checkAdmin } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /**
@@ -46,6 +48,9 @@ interface RouteContext {
 }
 
 export async function POST(request: Request, { params }: RouteContext) {
+  const gate = await checkAdmin();
+  if (!gate.ok) return gate.response;
+
   const { id } = await params;
 
   const store = deckStore();

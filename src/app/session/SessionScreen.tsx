@@ -8,7 +8,7 @@ import { SessionControls } from '@/components/SessionControls';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
 import { TrainerPanel } from '@/components/TrainerPanel';
-import { useTrainingSession } from '@/hooks/useTrainingSession';
+import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { TRAINER_NAME } from '@/lib/trainer';
@@ -19,7 +19,15 @@ interface HealthState {
 }
 
 /** Pre-session screen. Collects an optional name and unlocks audio on the click. */
-function Lobby({ onStart, connecting }: { onStart: (name: string) => void; connecting: boolean }) {
+function Lobby({
+  onStart,
+  connecting,
+  resume,
+}: {
+  onStart: (name: string) => void;
+  connecting: boolean;
+  resume: ResumeState | null;
+}) {
   const deck = useDeck();
   const [name, setName] = useState('');
   const [health, setHealth] = useState<HealthState | null>(null);
@@ -57,6 +65,18 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
         way. Around {deck.estimatedMinutes} minutes, plus your questions.
       </p>
 
+      {resume && resume.percent > 0 && (
+        <div className="border-charcoal-line bg-charcoal-soft mt-6 rounded-xl border p-4">
+          <p className="text-mist text-sm font-semibold">
+            You are {resume.percent}% through this session.
+          </p>
+          <p className="text-muted mt-1 text-sm leading-relaxed">
+            {resume.coveredSlideIds.length} of {deck.totalSlides} slides have been taught. Picking
+            up from the first one you have not heard.
+          </p>
+        </div>
+      )}
+
       <label htmlFor="trainee-name" className="mt-8 block text-sm font-semibold">
         Your first name
         <span className="text-muted ml-2 font-normal">optional</span>
@@ -93,7 +113,11 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
         disabled={connecting || blocked}
         className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 w-full rounded-md px-6 py-3 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {connecting ? 'Connecting' : 'Start the session'}
+        {connecting
+          ? 'Connecting'
+          : resume && resume.percent > 0
+            ? 'Resume the session'
+            : 'Start the session'}
       </button>
 
       <p className="text-muted mt-4 text-sm">
@@ -112,9 +136,15 @@ function Lobby({ onStart, connecting }: { onStart: (name: string) => void; conne
  * deck, narrows it to what the browser may see, and hands that down. This half
  * never sees a presenter note.
  */
-export function SessionScreen({ reviewed }: { reviewed: boolean }) {
+export function SessionScreen({
+  reviewed,
+  resume = null,
+}: {
+  reviewed: boolean;
+  resume?: ResumeState | null;
+}) {
   const deck = useDeck();
-  const session = useTrainingSession();
+  const session = useTrainingSession(resume);
   const slide = getClientSlide(deck, session.slideId);
   const showLobby = session.phase === 'idle';
   const busy = session.phase === 'thinking' || session.phase === 'connecting';
@@ -173,6 +203,7 @@ export function SessionScreen({ reviewed }: { reviewed: boolean }) {
           <Lobby
             connecting={session.phase === 'connecting'}
             onStart={(name) => void session.startSession(name)}
+            resume={resume}
           />
         </main>
       ) : (

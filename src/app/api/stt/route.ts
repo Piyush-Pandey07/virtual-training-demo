@@ -13,6 +13,8 @@
 
 import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/config';
 
+import { checkUser } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /** Transcribing one utterance. Seconds, not minutes. */
@@ -40,6 +42,9 @@ interface DeepgramListenResponse {
 }
 
 export async function POST(request: Request) {
+  const gate = await checkUser();
+  if (!gate.ok) return gate.response;
+
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');

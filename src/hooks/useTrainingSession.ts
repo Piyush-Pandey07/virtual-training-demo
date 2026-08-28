@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clampSlideId, firstSlideId, totalSlides } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { classifyUtterance } from '@/lib/intent';
+import { reportProgress } from '@/lib/progress-client';
 import { sanitiseForSpeech } from '@/lib/speech';
 import { detectAnswerStyle } from '@/lib/intent';
 import type {
@@ -88,21 +89,53 @@ export interface UseTrainingSessionResult {
   dismissError: () => void;
 }
 
-export function useTrainingSession(): UseTrainingSessionResult {
+/**
+ * What a previous sitting left behind, loaded server-side and passed in.
+ *
+ * Slide ids and one percentage. Deliberately nothing about pacing: the weighting
+ * that produced the percentage is server-only, and shipping it here to recompute the
+ * same number would put it in the browser for no gain.
+ */
+export interface ResumeState {
+  coveredSlideIds: number[];
+  lastSlideId: number | null;
+  percent: number;
+}
+
+export function useTrainingSession(resume?: ResumeState | null): UseTrainingSessionResult {
   const deck = useDeck();
 
+  /**
+   * Where this session begins.
+   *
+   * The first slide not yet taught, rather than wherever the trainee was standing
+   * when they left. Somebody who walked out halfway through slide three never had it
+   * taught, so it never counted as covered, and resuming at four would silently skip
+   * it.
+   */
+  const resumeAt = (() => {
+    const covered = new Set(resume?.coveredSlideIds ?? []);
+    const uncovered = deck.slides.find((slide) => !covered.has(slide.id));
+    return uncovered?.id ?? resume?.lastSlideId ?? firstSlideId(deck);
+  })();
+
   const [phase, setPhase] = useState<SessionPhase>('idle');
-  const [slideId, setSlideId] = useState(() => firstSlideId(deck));
+  const [slideId, setSlideId] = useState(() => resumeAt);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>([]);
+  const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>(
+    () => resume?.coveredSlideIds ?? [],
+  );
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
   const [traineeName, setTraineeName] = useState<string | undefined>();
 
   /** Refs mirror state that async callbacks need to read without going stale. */
-  const slideIdRef = useRef(1);
+  // Seeded from the same values as the state above. This used to be `useRef(1)`
+  // while the state beside it was `firstSlideId(deck)`, which disagreed for any deck
+  // not numbered from one.
+  const slideIdRef = useRef(resumeAt);
   const transcriptRef = useRef<TranscriptEntry[]>([]);
-  const coveredRef = useRef<number[]>([]);
+  const coveredRef = useRef<number[]>(resume?.coveredSlideIds ?? []);
   const learnerRef = useRef<LearnerProfile>(EMPTY_LEARNER);
   const traineeNameRef = useRef<string | undefined>(undefined);
   const phaseRef = useRef<SessionPhase>('idle');
@@ -326,6 +359,10 @@ export function useTrainingSession(): UseTrainingSessionResult {
           const next = [...coveredRef.current, taughtSlide].sort((a, b) => a - b);
           coveredRef.current = next;
           setCoveredSlideIds(next);
+          // The only place progress is reported, because this is the only place a
+          // slide is known to have been taught: the audio finished, and the turn was
+          // not superseded. At most one call per slide, off the rendering path.
+          void reportProgress({ deckId: deck.meta.id, kind: 'covered', slideId: taughtSlide });
         }
 
         setPhase(kind === 'recap' ? 'ended' : 'listening');
@@ -453,25 +490,37 @@ export function useTrainingSession(): UseTrainingSessionResult {
       await ttsRef.current.unlock();
       await sttRef.current.start();
 
-      setSlideId(1);
-      slideIdRef.current = 1;
+      setSlideId(resumeAt);
+      slideIdRef.current = resumeAt;
+      // The transcript and the learner profile do start again. Progress is what
+      // carries across a sitting; the conversation does not, and pretending the
+      // trainer remembers a chat from last week would be worse than it not doing so.
       setTranscript([]);
       transcriptRef.current = [];
-      setCoveredSlideIds([]);
-      coveredRef.current = [];
+      const already = resume?.coveredSlideIds ?? [];
+      setCoveredSlideIds(already);
+      coveredRef.current = already;
       setLearner(EMPTY_LEARNER);
       learnerRef.current = EMPTY_LEARNER;
 
-      await runTurn('narrate', { slideId: firstSlideId(deck) });
+      void reportProgress({ deckId: deck.meta.id, kind: 'start' });
+      await runTurn('narrate', { slideId: resumeAt });
     },
-    [deck, runTurn],
+    [deck, resume, resumeAt, runTurn],
   );
 
   const endSession = useCallback(() => {
     cancelCurrentTurn();
     sttRef.current.stop();
     setPhase('ended');
-  }, [cancelCurrentTurn]);
+    // Where they stopped, so the lobby can say so next time. Every slide already
+    // taught is durable on its own, so losing this costs only the exact resume point.
+    void reportProgress({
+      deckId: deck.meta.id,
+      kind: 'end',
+      slideId: slideIdRef.current,
+    });
+  }, [cancelCurrentTurn, deck]);
 
   const goToSlide = useCallback(
     (id: number) => {

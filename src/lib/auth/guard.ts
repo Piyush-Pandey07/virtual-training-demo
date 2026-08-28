@@ -71,6 +71,39 @@ export async function requireAssignedDeck(deckId: string): Promise<Person> {
   return person;
 }
 
+/**
+ * The same three checks, as a value rather than an exception.
+ *
+ * Routes with a long body read better guarding at the top with an early return than
+ * wrapped in a try that has to tell an authorisation failure apart from a real one.
+ *
+ *   const gate = await checkAdmin();
+ *   if (!gate.ok) return gate.response;
+ */
+export type Gate = { ok: true; person: Person } | { ok: false; response: Response };
+
+async function gate(get: () => Promise<Person>): Promise<Gate> {
+  try {
+    return { ok: true, person: await get() };
+  } catch (error) {
+    const response = unauthorisedResponse(error);
+    if (response) return { ok: false, response };
+    throw error;
+  }
+}
+
+export function checkUser(): Promise<Gate> {
+  return gate(requireUser);
+}
+
+export function checkAdmin(): Promise<Gate> {
+  return gate(requireAdmin);
+}
+
+export function checkAssignedDeck(deckId: string): Promise<Gate> {
+  return gate(() => requireAssignedDeck(deckId));
+}
+
 // ------------------------------------------------------------------- for pages
 
 /** Sends a signed-out visitor to sign in, remembering where they were going. */

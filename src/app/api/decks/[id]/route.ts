@@ -19,6 +19,8 @@ import { assetStore } from '@/lib/decks/registry';
 import { DeckInvalidError, DeckStoreError, type DeckStatus } from '@/lib/decks/store';
 import type { DeckMeta, DeckRecord, SlideRole } from '@/lib/deck-types';
 
+import { checkAdmin } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -186,6 +188,9 @@ function applySlides(deck: DeckRecord, raw: unknown, problems: string[]): DeckRe
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
+  const gate = await checkAdmin();
+  if (!gate.ok) return gate.response;
+
   const { id } = await params;
   const store = deckStore();
 
@@ -251,6 +256,9 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
+  const gate = await checkAdmin();
+  if (!gate.ok) return gate.response;
+
   const { id } = await params;
   const store = deckStore();
 

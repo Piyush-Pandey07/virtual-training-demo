@@ -17,6 +17,8 @@ import { assertUsableAssetName, contentTypeFor } from '@/lib/decks/assets';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
 
+import { checkAdmin, checkAssignedDeck } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -32,6 +34,11 @@ interface RouteContext {
 
 export async function GET(request: Request, { params }: RouteContext) {
   const { id, name } = await params;
+
+  // Per deck, not merely signed in. Otherwise a trainee who guessed another deck's
+  // id could read every slide out of it.
+  const gate = await checkAssignedDeck(id);
+  if (!gate.ok) return gate.response;
   const assetName = name.join('/');
 
   try {
@@ -86,6 +93,9 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
+  const gate = await checkAdmin();
+  if (!gate.ok) return gate.response;
+
   const { id, name } = await params;
   const assetName = name.join('/');
 

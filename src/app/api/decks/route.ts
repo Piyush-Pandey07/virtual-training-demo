@@ -16,6 +16,8 @@ import { deckIdFrom, draftDeckFrom, titleFromFileName, type DraftPage } from '@/
 import { deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
 
+import { checkAdmin } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -77,6 +79,9 @@ function parsePages(raw: unknown): DraftPage[] | string {
 }
 
 export async function POST(request: Request) {
+  const gate = await checkAdmin();
+  if (!gate.ok) return gate.response;
+
   const store = deckStore();
   if (!store.writable) {
     return Response.json(

@@ -10,6 +10,8 @@
 
 import { AUDIO_SAMPLE_RATE, DEEPGRAM_TTS_MODEL, requireEnv } from '@/lib/config';
 
+import { checkUser } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /** One sentence per call, so a second or two. Generous headroom for a cold start. */
@@ -19,6 +21,9 @@ export const maxDuration = 30;
 const MAX_CHARS = 1800;
 
 export async function POST(request: Request) {
+  const gate = await checkUser();
+  if (!gate.ok) return gate.response;
+
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');

@@ -11,6 +11,8 @@
 import { DEEPGRAM_STT_MODEL, DEEPGRAM_TOKEN_TTL, requireEnv } from '@/lib/config';
 import type { DeepgramTokenResponse } from '@/lib/types';
 
+import { checkUser } from '@/lib/auth/guard';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /** A single upstream call that either works quickly or not at all. */
@@ -24,6 +26,12 @@ interface GrantResponse {
 }
 
 export async function POST() {
+  // This mints a real Deepgram credential. It was callable by anybody who found the
+  // URL, which made it the sharpest hole in the app: no body, no context, a live
+  // upstream token to whoever asked.
+  const gate = await checkUser();
+  if (!gate.ok) return gate.response;
+
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');

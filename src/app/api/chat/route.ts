@@ -12,11 +12,13 @@ import { GoogleGenAI, type Content } from '@google/genai';
 import { GEMINI_ANSWER_MODEL, GEMINI_MODEL, requireEnv } from '@/lib/config';
 import { clampSlideId, getSlide, totalSlides } from '@/lib/deck';
 import type { DeckRecord, DeckSlide } from '@/lib/deck-types';
-import { loadDeck } from '@/lib/decks/registry';
+import { DEFAULT_DECK_ID, loadDeck } from '@/lib/decks/registry';
 import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
 import { bestSlideForQuestion } from '@/lib/knowledge';
 import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
+
+import { checkAssignedDeck } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 /** Streaming only makes sense uncached. */
@@ -82,6 +84,13 @@ export async function POST(request: Request) {
   } catch {
     return badRequest('Request body must be JSON.');
   }
+
+  // Checked here and not only on the session page, because this route narrates
+  // whatever deck id its body names. A check on the page alone would protect
+  // nothing: the browser could post another id and have the trainer read out a deck
+  // the trainee was never assigned.
+  const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
+  if (!gate.ok) return gate.response;
 
   const deck = await loadDeck(body.deckId);
   if (!deck) return badRequest('No such deck.');
