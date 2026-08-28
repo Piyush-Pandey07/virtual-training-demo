@@ -11,7 +11,7 @@
 import 'server-only';
 
 import { RosterStoreError, type RosterStore } from './store';
-import type { Assignment, Attempt, Person } from './types';
+import type { Assignment, Attempt, Invite, Person } from './types';
 
 const WHY =
   'This deployment has no roster storage configured, so people, assignments and progress cannot be saved. Set DATABASE_URL to enable them.';
@@ -56,6 +56,22 @@ export class NoRosterStore implements RosterStore {
     refuse();
   }
   async unassign(): Promise<void> {
+    refuse();
+  }
+
+  async listInvites(): Promise<Invite[]> {
+    return [];
+  }
+  async createInvite(): Promise<Invite> {
+    refuse();
+  }
+  async findInviteByHash(): Promise<Invite | undefined> {
+    return undefined;
+  }
+  async useInvite(): Promise<Invite> {
+    refuse();
+  }
+  async revokeInvite(): Promise<void> {
     refuse();
   }
 

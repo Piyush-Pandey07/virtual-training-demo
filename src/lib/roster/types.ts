@@ -104,3 +104,37 @@ export interface ProgressRow {
    */
   deckChangedSince: boolean;
 }
+
+/**
+ * An invitation to join, as a link somebody can be sent.
+ *
+ * The link is a bearer credential: whoever holds it can use it. So the token itself
+ * is never stored — only a hash of it — and every invite carries the three bounds
+ * that make a leaked link survivable: it expires, it can be used a fixed number of
+ * times, and it can be revoked.
+ *
+ * `email` is the sharpest control. When it is set the invite only works for that
+ * address, so a link forwarded to the wrong person is inert. When it is null the
+ * invite is a shared one — "here is the link for fire safety, everybody do it" —
+ * which is genuinely useful and genuinely weaker, and the UI says so.
+ */
+export interface Invite {
+  id: string;
+  /** SHA-256 of the token. The token exists once, in the response that created it. */
+  tokenHash: string;
+  /** When set, only this address may accept. */
+  email: string | null;
+  /** Assigned to whoever accepts. */
+  deckIds: string[];
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  maxUses: number;
+  usedCount: number;
+  /** Who has accepted, so an admin can see where a shared link went. */
+  usedBy: string[];
+  revokedAt: string | null;
+}
+
+/** Why an invite cannot be used. Null means it can. */
+export type InviteProblem = 'unknown' | 'revoked' | 'expired' | 'exhausted' | 'wrong-email';

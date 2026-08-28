@@ -17,7 +17,7 @@
 
 import 'server-only';
 
-import type { Assignment, Attempt, CoveredSlide, Person, Role } from './types';
+import type { Assignment, Attempt, CoveredSlide, Invite, Person, Role } from './types';
 
 export class RosterStoreError extends Error {}
 
@@ -40,6 +40,15 @@ export interface ProgressInput {
   /** The deck as it is now, so a fresh attempt records what it is measured against. */
   slideCount: number;
   totalSeconds: number;
+}
+
+export interface InviteInput {
+  /** When set, only this address may accept. */
+  email?: string | null;
+  deckIds: string[];
+  createdBy: string;
+  expiresAt: string;
+  maxUses: number;
 }
 
 export interface AssignmentInput {
@@ -68,6 +77,17 @@ export interface RosterStore {
   isAssigned(personId: string, deckId: string): Promise<boolean>;
   assign(input: AssignmentInput): Promise<Assignment>;
   unassign(personId: string, deckId: string): Promise<void>;
+
+  listInvites(): Promise<Invite[]>;
+  /**
+   * Stores the hash and returns the invite. The token is the caller's to hand over
+   * once; nothing here can ever produce it again.
+   */
+  createInvite(input: InviteInput & { tokenHash: string }): Promise<Invite>;
+  findInviteByHash(tokenHash: string): Promise<Invite | undefined>;
+  /** Records that somebody used it. Refuses to go past `maxUses`. */
+  useInvite(tokenHash: string, personId: string): Promise<Invite>;
+  revokeInvite(id: string): Promise<void>;
 
   getAttempt(personId: string, deckId: string): Promise<Attempt | undefined>;
   listAttemptsForPerson(personId: string): Promise<Attempt[]>;

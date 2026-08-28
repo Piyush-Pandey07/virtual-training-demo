@@ -12,8 +12,10 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { isBootstrapAdmin } from '@/lib/auth/session';
+import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
-import { peopleOverview } from '@/lib/roster/report';
+import { inviteOverview, peopleOverview } from '@/lib/roster/report';
+import { InvitePanel, type InvitableDeck, type InviteLine } from './InvitePanel';
 import { PeopleList, type PersonLine } from './PeopleList';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +26,23 @@ export default async function PeoplePage() {
   const me = await requireAdminPage('/people');
   const store = rosterStore();
 
-  const rows = store.writable ? await peopleOverview() : [];
+  const [rows, invites, decks]: [
+    Awaited<ReturnType<typeof peopleOverview>>,
+    InviteLine[],
+    Awaited<ReturnType<typeof listDecks>>,
+  ] = store.writable
+    ? await Promise.all([peopleOverview(), inviteOverview(), listDecks()])
+    : [[], [], []];
+
+  // Only published decks can be attached, for the same reason a draft cannot be
+  // assigned: nobody has checked it yet.
+  const invitable: InvitableDeck[] = decks
+    .filter((deck) => deck.status === 'published')
+    .map((deck) => ({
+      id: deck.id,
+      title: deck.title,
+      estimatedMinutes: deck.estimatedMinutes,
+    }));
 
   const people: PersonLine[] = rows.map((row) => ({
     id: row.person.id,
@@ -73,7 +91,8 @@ export default async function PeoplePage() {
             </p>
           </div>
         ) : (
-          <div className="mt-8">
+          <div className="mt-8 space-y-12">
+            <InvitePanel invites={invites} decks={invitable} />
             <PeopleList people={people} meId={me.id} />
           </div>
         )}
