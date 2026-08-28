@@ -67,9 +67,20 @@ export async function GET(request: Request, { params }: RouteContext) {
       'Content-Type': asset.contentType,
       'Content-Length': String(asset.bytes.byteLength),
       ETag: etag,
-      // Private: a deck is internal training material, and a shared cache has no
-      // business holding it.
-      'Cache-Control': 'private, max-age=300, stale-while-revalidate=86400',
+      // Revalidate every time, and let the ETag make that cheap.
+      //
+      // This used to be `private, max-age=300, stale-while-revalidate=86400`, on the
+      // reasoning that a deck is several megabytes of renders and a trainee moves
+      // back and forth constantly. The reasoning was right about the cost and wrong
+      // about `private`, which excludes shared caches but not the browser's own disk
+      // cache, which is keyed on the URL alone. On a shared machine — the normal case
+      // for company training — the next person to sign in and open the same URL would
+      // be served from disk, and the request would never reach the server, so no
+      // access check could run.
+      //
+      // The strong ETag above means revalidating costs a 304 rather than the image,
+      // so almost all of the saving survives.
+      'Cache-Control': 'private, no-cache, must-revalidate',
     },
   });
 }

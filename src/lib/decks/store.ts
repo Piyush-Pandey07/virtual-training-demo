@@ -54,6 +54,64 @@ export interface StoredDeck {
   createdAt: string;
   updatedAt: string;
   readOnly: boolean;
+  /**
+   * True when the deck's `meta.json` was absent or unreadable.
+   *
+   * Such a deck reads as a draft, and this says why, so a deck that has gone dark
+   * can be explained rather than guessed at.
+   */
+  metaMissing: boolean;
+}
+
+/** What sits beside a deck: its status and its timestamps. */
+export interface StoredMeta {
+  status: DeckStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const EPOCH = new Date(0).toISOString();
+
+/**
+ * Reads the metadata beside a deck, failing closed.
+ *
+ * Shared by both writable stores because they used to disagree: the blob store
+ * caught a JSON parse failure and carried on, the filesystem store let it throw out
+ * of `get()`. One failed open, the other failed closed by accident.
+ *
+ * Anything that cannot be read as metadata yields a draft. That is a change: this
+ * used to yield `published`, on the reasoning that a deck with content and no
+ * metadata is better readable than not. That reasoning held while published was a
+ * label. It stops holding the moment published decides who may be taught from a
+ * deck, because `save()` writes `deck.json` first and `meta.json` second — so a
+ * failure between the two writes would promote an unreviewed deck to published and
+ * put it in front of a trainee as though a person had checked it.
+ */
+export function readStoredMeta(text: string | null): {
+  status: DeckStatus;
+  createdAt: string;
+  updatedAt: string;
+  metaMissing: boolean;
+} {
+  let meta: StoredMeta | null = null;
+  if (text !== null) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') meta = parsed as StoredMeta;
+    } catch {
+      meta = null;
+    }
+  }
+
+  const status: DeckStatus | null =
+    meta?.status === 'draft' || meta?.status === 'published' ? meta.status : null;
+
+  return {
+    status: status ?? 'draft',
+    createdAt: typeof meta?.createdAt === 'string' ? meta.createdAt : EPOCH,
+    updatedAt: typeof meta?.updatedAt === 'string' ? meta.updatedAt : EPOCH,
+    metaMissing: status === null,
+  };
 }
 
 export class DeckStoreError extends Error {}

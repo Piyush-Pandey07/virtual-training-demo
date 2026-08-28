@@ -386,7 +386,13 @@ describe('the blob store lays keys out as a prefix per deck', () => {
     );
   });
 
-  it('survives meta.json being unreadable, since the deck is what matters', async () => {
+  it('survives meta.json being unreadable, and reads the deck as a draft', async () => {
+    // This asserted `published` until accounts landed, on the reasoning that a deck
+    // with content and no metadata is better readable than not. That was right while
+    // published was a label on a review screen. It is wrong once published decides
+    // who may be taught from a deck, because save() writes deck.json first and
+    // meta.json second: a failure between the two would otherwise promote an
+    // unreviewed, model-generated deck to published and put it in front of a trainee.
     const client = fakeBlobClient();
     const store = new BlobDeckStore(client);
     await store.list();
@@ -394,7 +400,20 @@ describe('the blob store lays keys out as a prefix per deck', () => {
 
     const stored = await store.get('isms');
     assert.ok(stored);
-    assert.equal(stored.status, 'published');
+    assert.equal(stored.status, 'draft');
+    assert.equal(stored.metaMissing, true);
+  });
+
+  it('reads a deck whose meta.json is missing entirely as a draft too', async () => {
+    const client = fakeBlobClient();
+    const store = new BlobDeckStore(client);
+    await store.list();
+    client.objects.delete('decks/isms/meta.json');
+
+    const stored = await store.get('isms');
+    assert.ok(stored);
+    assert.equal(stored.status, 'draft');
+    assert.equal(stored.metaMissing, true);
   });
 });
 
@@ -412,6 +431,23 @@ describe('the filesystem store', () => {
     await writeFile(join(root, 'isms', 'deck.json'), '{"record":{"slides":"nope"}}', 'utf8');
 
     await assert.rejects(() => store.get('isms'), DeckInvalidError);
+  });
+
+  it('reads a deck with unreadable meta.json as a draft, exactly as the blob store does', async () => {
+    // These two used to disagree. The blob store caught the JSON parse failure and
+    // carried on as published; this one let the error escape get() entirely, so the
+    // deck vanished from the library and 404d when opened. One failed open, the other
+    // failed closed by accident. Both now go through readStoredMeta.
+    const other = await mkdtemp(join(tmpdir(), 'deck-fs-meta-'));
+    tempRoots.push(other);
+    const store = new FilesystemDeckStore(other);
+    await store.list();
+    await writeFile(join(other, 'isms', 'meta.json'), 'not json', 'utf8');
+
+    const stored = await store.get('isms');
+    assert.ok(stored, 'a corrupt meta.json must not make the deck unreadable');
+    assert.equal(stored.status, 'draft');
+    assert.equal(stored.metaMissing, true);
   });
 
   it('ignores a directory that holds no deck', async () => {

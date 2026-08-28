@@ -24,9 +24,11 @@ import { seedDecks } from './store-seeded';
 import {
   assertUsableDeckId,
   DeckInvalidError,
+  readStoredMeta,
   summarise,
   type DeckStatus,
   type DeckStore,
+  type StoredMeta,
   type DeckSummary,
   type StoredDeck,
 } from './store';
@@ -56,12 +58,6 @@ export interface BlobClient {
    * host from the token.
    */
   read(pathname: string): Promise<string | null>;
-}
-
-interface StoredMeta {
-  status: DeckStatus;
-  createdAt: string;
-  updatedAt: string;
 }
 
 const ROOT = 'decks';
@@ -235,21 +231,7 @@ export class BlobDeckStore implements DeckStore {
     const parsed = parseDeck(deckText);
     if (!parsed.ok) throw new DeckInvalidError(id, parsed.errors);
 
-    let meta: StoredMeta | null = null;
-    try {
-      meta = metaText ? (JSON.parse(metaText) as StoredMeta) : null;
-    } catch {
-      // Status and timestamps are recoverable; the deck itself is what matters.
-      meta = null;
-    }
-
-    return {
-      record: parsed.record,
-      status: meta?.status === 'draft' ? 'draft' : 'published',
-      createdAt: meta?.createdAt ?? new Date(0).toISOString(),
-      updatedAt: meta?.updatedAt ?? new Date(0).toISOString(),
-      readOnly: false,
-    };
+    return { record: parsed.record, ...readStoredMeta(metaText), readOnly: false };
   }
 
   async save(record: DeckRecord, status: DeckStatus): Promise<DeckSummary> {
@@ -285,7 +267,7 @@ export class BlobDeckStore implements DeckStore {
       await this.writeIndex([...(await this.listedIds()), record.meta.id]);
     }
 
-    return summarise({ record, ...meta, readOnly: false });
+    return summarise({ record, ...meta, readOnly: false, metaMissing: false });
   }
 
   async remove(id: string): Promise<void> {

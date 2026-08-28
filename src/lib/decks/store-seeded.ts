@@ -35,6 +35,7 @@ const SEEDED: StoredDeck[] = [
     createdAt: SEEDED_AT,
     updatedAt: SEEDED_AT,
     readOnly: true,
+    metaMissing: false,
   },
 ];
 

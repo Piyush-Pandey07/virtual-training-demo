@@ -119,7 +119,7 @@ const TOPICS_SCHEMA = {
             type: Type.ARRAY,
             items: { type: Type.STRING },
             description:
-              'Two or three concrete illustrations from the audience\'s own working world. Name the artefact and say what somebody did.',
+              "Two or three concrete illustrations from the audience's own working world. Name the artefact and say what somebody did.",
           },
           misconceptions: {
             type: Type.ARRAY,
@@ -127,8 +127,15 @@ const TOPICS_SCHEMA = {
               type: Type.OBJECT,
               required: ['belief', 'correction'],
               properties: {
-                belief: { type: Type.STRING, description: 'What trainees genuinely believe, in their words.' },
-                correction: { type: Type.STRING, description: 'What an expert says instead, written to be spoken, giving the belief its due first.' },
+                belief: {
+                  type: Type.STRING,
+                  description: 'What trainees genuinely believe, in their words.',
+                },
+                correction: {
+                  type: Type.STRING,
+                  description:
+                    'What an expert says instead, written to be spoken, giving the belief its due first.',
+                },
               },
             },
             description:
@@ -140,8 +147,14 @@ const TOPICS_SCHEMA = {
               type: Type.OBJECT,
               required: ['q', 'a'],
               properties: {
-                q: { type: Type.STRING, description: "A question trainees really ask, in their own words." },
-                a: { type: Type.STRING, description: 'The expert answer, written to be spoken aloud.' },
+                q: {
+                  type: Type.STRING,
+                  description: 'A question trainees really ask, in their own words.',
+                },
+                a: {
+                  type: Type.STRING,
+                  description: 'The expert answer, written to be spoken aloud.',
+                },
               },
             },
             description: 'Two or three questions this topic should already have an answer for.',
@@ -288,7 +301,10 @@ export function toKnowledgeTopics(
       if (slideIds.length === 0 || triggers.length === 0 || explanation.length === 0) return null;
 
       const misconceptions = (Array.isArray(raw.misconceptions) ? raw.misconceptions : [])
-        .filter((entry) => entry && typeof entry.belief === 'string' && typeof entry.correction === 'string')
+        .filter(
+          (entry) =>
+            entry && typeof entry.belief === 'string' && typeof entry.correction === 'string',
+        )
         .map((entry) => ({ belief: entry.belief.trim(), correction: entry.correction.trim() }))
         .filter((entry) => entry.belief && entry.correction)
         .slice(0, MAX_MISCONCEPTIONS);

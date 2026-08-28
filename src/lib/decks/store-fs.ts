@@ -21,9 +21,11 @@ import { seedDecks } from './store-seeded';
 import {
   assertUsableDeckId,
   DeckInvalidError,
+  readStoredMeta,
   summarise,
   type DeckStatus,
   type DeckStore,
+  type StoredMeta,
   type DeckSummary,
   type StoredDeck,
 } from './store';
@@ -39,12 +41,6 @@ import {
 const SEED_MARKER = '.seeded';
 
 /** Everything about a deck that is not the deck itself. */
-interface StoredMeta {
-  status: DeckStatus;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export class FilesystemDeckStore implements DeckStore {
   readonly kind = 'filesystem' as const;
   readonly writable = true;
@@ -147,15 +143,8 @@ export class FilesystemDeckStore implements DeckStore {
     if (!parsed.ok) throw new DeckInvalidError(id, parsed.errors);
 
     const metaText = await readFile(join(dir, 'meta.json'), 'utf8').catch(() => null);
-    const meta = metaText ? (JSON.parse(metaText) as StoredMeta) : null;
 
-    return {
-      record: parsed.record,
-      status: meta?.status === 'draft' ? 'draft' : 'published',
-      createdAt: meta?.createdAt ?? new Date(0).toISOString(),
-      updatedAt: meta?.updatedAt ?? new Date(0).toISOString(),
-      readOnly: false,
-    };
+    return { record: parsed.record, ...readStoredMeta(metaText), readOnly: false };
   }
 
   async save(record: DeckRecord, status: DeckStatus): Promise<DeckSummary> {
@@ -181,7 +170,7 @@ export class FilesystemDeckStore implements DeckStore {
     await writeFile(join(dir, 'deck.json'), serialiseDeck(record), 'utf8');
     await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8');
 
-    return summarise({ record, ...meta, readOnly: false });
+    return summarise({ record, ...meta, readOnly: false, metaMissing: false });
   }
 
   async remove(id: string): Promise<void> {

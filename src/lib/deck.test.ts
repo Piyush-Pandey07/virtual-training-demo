@@ -62,6 +62,36 @@ describe('the client projection', () => {
     }
   });
 
+  it('carries only meta fields a trainee may read', () => {
+    // toClientView does `meta: deck.meta` wholesale, so every field on DeckMeta ships
+    // to the browser. That is harmless today, because every one of them is speakable
+    // copy the trainer says out loud anyway. It stops being harmless the moment
+    // anything about ownership, assignment or access lands on DeckMeta, and the slide
+    // allow-list above would not have caught it — this is that allow-list's other half.
+    const allowed = [
+      'id',
+      'origin',
+      'title',
+      'subtitle',
+      'spokenSubject',
+      'owner',
+      'ownerDescription',
+      'trainerRole',
+      'practitionerCredential',
+      'exampleDomain',
+      'exampleContext',
+      'closingReminder',
+      'outlineAnalysedAt',
+      'outlinePromptVersion',
+    ];
+    for (const key of Object.keys(view.meta)) {
+      assert.ok(
+        allowed.includes(key),
+        `DeckMeta.${key} now reaches the browser; confirm a trainee may read it, then add it here`,
+      );
+    }
+  });
+
   it('contains no author-only note', () => {
     const notes = deck.slides.flatMap((slide) => slide.internalNotes);
     assert.ok(notes.length > 0, 'this fixture no longer exercises the rule');
