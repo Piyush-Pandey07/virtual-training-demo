@@ -12,10 +12,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { bootstrapAvailable } from '@/lib/auth/bootstrap';
 import { currentPerson, devAuthEnabled, firebaseConfigured } from '@/lib/auth/session';
 import { rosterStore } from '@/lib/roster/registry';
-import { FirstAdmin } from './FirstAdmin';
 import { PasswordSignIn } from './PasswordSignIn';
 import { SignInForm, type Candidate } from './SignInForm';
 
@@ -42,7 +40,6 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   // The development sign-in is a fallback, not an alternative: wherever real
   // sign-in works, it is the only one offered.
   const dev = !real && devAuthEnabled();
-  const firstRun = real && (await bootstrapAvailable());
 
   const people: Candidate[] = dev
     ? (await store.listPeople().catch(() => [])).map((entry) => ({
@@ -63,20 +60,11 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         </p>
         <h1 className="mt-3 text-3xl font-bold">Sign in</h1>
 
-        {firstRun ? (
+        {real ? (
           <>
             <p className="text-muted mt-3 text-sm leading-relaxed">
-              Nobody administers this yet. Create the first account, using an address listed in
-              AUTH_ADMIN_EMAILS. Everybody after you joins by invitation.
-            </p>
-            <div className="mt-8">
-              <FirstAdmin next={destination} />
-            </div>
-          </>
-        ) : real ? (
-          <>
-            <p className="text-muted mt-3 text-sm leading-relaxed">
-              Sign in with your Technavious email address.
+              Sign in with your Technavious email address. If somebody has added you and you have
+              not set a password yet, choose one here.
             </p>
             <div className="mt-8">
               <PasswordSignIn next={destination} />

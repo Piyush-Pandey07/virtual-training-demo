@@ -10,7 +10,6 @@
  *
  *   roster/people.json                        one document
  *   roster/assignments.json                   one document
- *   roster/invites.json                       one document
  *   roster/attempts/{personId}/{deckId}.json  one object per attempt
  *
  * The first three change rarely — somebody joins, somebody is assigned a deck — so a
@@ -41,18 +40,16 @@ import {
   RosterStoreError,
   withCovered,
   type AssignmentInput,
-  type InviteInput,
   type PersonInput,
   type ProgressInput,
   type RosterStore,
 } from './store';
-import type { Assignment, Attempt, Invite, Person, Role } from './types';
+import type { Assignment, Attempt, Person, Role } from './types';
 import type { BlobClient } from '../decks/store-blob';
 
 const ROOT = 'roster';
 const PEOPLE = `${ROOT}/people.json`;
 const ASSIGNMENTS = `${ROOT}/assignments.json`;
-const INVITES = `${ROOT}/invites.json`;
 
 /** Deck ids and person ids are both constrained, so this cannot escape the prefix. */
 function attemptKey(personId: string, deckId: string): string {
@@ -251,63 +248,6 @@ export class BlobRosterStore implements RosterStore {
     await this.updateList<Assignment, void>(ASSIGNMENTS, (rows) => {
       const at = rows.findIndex((row) => row.personId === personId && row.deckId === deckId);
       if (at >= 0) rows.splice(at, 1);
-    });
-  }
-
-  // ------------------------------------------------------------------ invites
-
-  async listInvites(): Promise<Invite[]> {
-    const invites = await this.readList<Invite>(INVITES);
-    return [...invites].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  }
-
-  async createInvite(input: InviteInput & { tokenHash: string }): Promise<Invite> {
-    return this.updateList<Invite, Invite>(INVITES, (rows) => {
-      const made: Invite = {
-        id: `inv-${input.tokenHash.slice(0, 12)}`,
-        tokenHash: input.tokenHash,
-        email: input.email ? emailKeyOf(input.email) : null,
-        deckIds: [...new Set(input.deckIds)],
-        createdBy: input.createdBy,
-        createdAt: new Date().toISOString(),
-        expiresAt: input.expiresAt,
-        maxUses: Math.max(1, Math.round(input.maxUses)),
-        usedCount: 0,
-        usedBy: [],
-        revokedAt: null,
-      };
-      rows.push(made);
-      return { ...made };
-    });
-  }
-
-  async findInviteByHash(tokenHash: string): Promise<Invite | undefined> {
-    return (await this.readList<Invite>(INVITES)).find((row) => row.tokenHash === tokenHash);
-  }
-
-  async useInvite(tokenHash: string, personId: string): Promise<Invite> {
-    return this.updateList<Invite, Invite>(INVITES, (rows) => {
-      const invite = rows.find((row) => row.tokenHash === tokenHash);
-      if (!invite) throw new RosterStoreError('No such invitation.');
-      if (invite.revokedAt) throw new RosterStoreError('This invitation has been withdrawn.');
-      if (invite.usedCount >= invite.maxUses) {
-        throw new RosterStoreError('This invitation has already been fully used.');
-      }
-
-      // Accepting twice from the same person is not a second use, or a refresh of the
-      // accept page would burn a seat on a shared link.
-      if (!invite.usedBy.includes(personId)) {
-        invite.usedBy.push(personId);
-        invite.usedCount += 1;
-      }
-      return { ...invite };
-    });
-  }
-
-  async revokeInvite(id: string): Promise<void> {
-    await this.updateList<Invite, void>(INVITES, (rows) => {
-      const invite = rows.find((row) => row.id === id);
-      if (invite && !invite.revokedAt) invite.revokedAt = new Date().toISOString();
     });
   }
 

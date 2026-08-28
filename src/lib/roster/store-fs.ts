@@ -25,17 +25,15 @@ import {
   withCovered,
   type AssignmentInput,
   type PersonInput,
-  type InviteInput,
   type ProgressInput,
   type RosterStore,
 } from './store';
-import type { Assignment, Attempt, Invite, Person, Role } from './types';
+import type { Assignment, Attempt, Person, Role } from './types';
 
 interface RosterFile {
   people: Person[];
   assignments: Assignment[];
   attempts: Attempt[];
-  invites: Invite[];
 }
 
 /**
@@ -47,7 +45,7 @@ interface RosterFile {
  * the same three arrays, and rows would appear in stores that never saw them.
  */
 function emptyRoster(): RosterFile {
-  return { people: [], assignments: [], attempts: [], invites: [] };
+  return { people: [], assignments: [], attempts: [] };
 }
 
 export function defaultRosterRoot(): string {
@@ -73,7 +71,6 @@ export class FilesystemRosterStore implements RosterStore {
         people: Array.isArray(parsed.people) ? parsed.people : [],
         assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
         attempts: Array.isArray(parsed.attempts) ? parsed.attempts : [],
-        invites: Array.isArray(parsed.invites) ? parsed.invites : [],
       };
     } catch {
       // A hand-edited file that will not parse is a developer's problem to see, not
@@ -225,67 +222,6 @@ export class FilesystemRosterStore implements RosterStore {
       );
       // The attempt stays. Somebody who did the training then had it unassigned still
       // did the training, and deleting the record would be the wrong kind of tidy.
-    });
-  }
-
-  // ------------------------------------------------------------------- invites
-
-  async listInvites(): Promise<Invite[]> {
-    const { invites } = await this.read();
-    return [...invites].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  }
-
-  async createInvite(input: InviteInput & { tokenHash: string }): Promise<Invite> {
-    return this.update((file) => {
-      const invite: Invite = {
-        id: `inv-${input.tokenHash.slice(0, 12)}`,
-        tokenHash: input.tokenHash,
-        email: input.email ? emailKeyOf(input.email) : null,
-        deckIds: [...new Set(input.deckIds)],
-        createdBy: input.createdBy,
-        createdAt: new Date().toISOString(),
-        expiresAt: input.expiresAt,
-        maxUses: Math.max(1, Math.round(input.maxUses)),
-        usedCount: 0,
-        usedBy: [],
-        revokedAt: null,
-      };
-      file.invites.push(invite);
-      return { ...invite };
-    });
-  }
-
-  async findInviteByHash(tokenHash: string): Promise<Invite | undefined> {
-    const { invites } = await this.read();
-    return invites.find((invite) => invite.tokenHash === tokenHash);
-  }
-
-  async useInvite(tokenHash: string, personId: string): Promise<Invite> {
-    return this.update((file) => {
-      const invite = file.invites.find((entry) => entry.tokenHash === tokenHash);
-      if (!invite) throw new RosterStoreError('No such invitation.');
-
-      // Checked again here rather than trusting the caller's earlier check. Between
-      // the two, somebody else may have taken the last use of a shared link.
-      if (invite.revokedAt) throw new RosterStoreError('This invitation has been withdrawn.');
-      if (invite.usedCount >= invite.maxUses) {
-        throw new RosterStoreError('This invitation has already been fully used.');
-      }
-
-      // Accepting twice from the same person is not a second use. Otherwise a
-      // refresh of the accept page would burn a seat on a shared link.
-      if (!invite.usedBy.includes(personId)) {
-        invite.usedBy.push(personId);
-        invite.usedCount += 1;
-      }
-      return { ...invite };
-    });
-  }
-
-  async revokeInvite(id: string): Promise<void> {
-    await this.update((file) => {
-      const invite = file.invites.find((entry) => entry.id === id);
-      if (invite && !invite.revokedAt) invite.revokedAt = new Date().toISOString();
     });
   }
 

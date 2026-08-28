@@ -19,19 +19,6 @@ import { coverageOf, emptyCoverage, percentComplete } from './completion';
 import { rosterStore } from './registry';
 import type { Attempt, Person, ProgressRow } from './types';
 
-/** One invitation, with the deck titles resolved and its state worked out. */
-export interface InviteSummary {
-  id: string;
-  email: string | null;
-  deckTitles: string[];
-  createdAt: string;
-  expiresAt: string;
-  maxUses: number;
-  usedCount: number;
-  revoked: boolean;
-  expired: boolean;
-}
-
 /**
  * What a deck is worth, for the denominator of a percentage.
  *
@@ -48,7 +35,6 @@ export function deckWeight(deck: DeckRecord): { slideCount: number; totalSeconds
   };
 }
 
-/** Best effort from a summary, for a deck nobody has attempted yet. */
 function weightFromSummary(summary: DeckSummary | undefined): {
   slideCount: number;
   totalSeconds: number;
@@ -191,33 +177,6 @@ export async function peopleOverview(): Promise<PersonOverview[]> {
   );
 
   return rows;
-}
-
-/**
- * Every invitation, ready to render.
- *
- * Built here rather than in the page because working out whether one has expired
- * needs the current time, and reading a clock while rendering is exactly the kind of
- * impurity that makes a server render and a client render disagree.
- */
-export async function inviteOverview(): Promise<InviteSummary[]> {
-  const [invites, decks] = await Promise.all([rosterStore().listInvites(), listDecks()]);
-  const byId = new Map(decks.map((deck) => [deck.id, deck]));
-  const now = Date.now();
-
-  return invites.map((invite) => ({
-    id: invite.id,
-    email: invite.email,
-    deckTitles: invite.deckIds
-      .map((deckId) => byId.get(deckId)?.title)
-      .filter((title): title is string => Boolean(title)),
-    createdAt: invite.createdAt,
-    expiresAt: invite.expiresAt,
-    maxUses: invite.maxUses,
-    usedCount: invite.usedCount,
-    revoked: invite.revokedAt !== null,
-    expired: new Date(invite.expiresAt).getTime() <= now,
-  }));
 }
 
 /** Unfinished first, then by due date, then by title. What to do next, in order. */
