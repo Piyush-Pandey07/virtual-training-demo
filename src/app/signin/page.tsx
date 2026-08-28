@@ -14,6 +14,7 @@ import { redirect } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { currentPerson, devAuthEnabled, firebaseConfigured } from '@/lib/auth/session';
 import { rosterStore } from '@/lib/roster/registry';
+import { MicrosoftSignIn } from './MicrosoftSignIn';
 import { SignInForm, type Candidate } from './SignInForm';
 
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,10 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   if (person) redirect(destination);
 
   const store = rosterStore();
-  const dev = devAuthEnabled();
+  const real = firebaseConfigured();
+  // The development sign-in is a fallback, not an alternative: wherever real
+  // sign-in works, it is the only one offered.
+  const dev = !real && devAuthEnabled();
 
   const people: Candidate[] = dev
     ? (await store.listPeople().catch(() => [])).map((entry) => ({
@@ -56,7 +60,19 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         </p>
         <h1 className="mt-3 text-3xl font-bold">Sign in</h1>
 
-        {dev ? (
+        {real ? (
+          <>
+            <p className="text-muted mt-3 text-sm leading-relaxed">
+              Sign in with your Technavious Microsoft account.
+            </p>
+            <div className="mt-8">
+              <MicrosoftSignIn
+                next={destination}
+                tenantId={process.env.MICROSOFT_TENANT_ID?.trim() || undefined}
+              />
+            </div>
+          </>
+        ) : dev ? (
           <>
             <p className="text-muted mt-3 text-sm leading-relaxed">
               This is the development sign-in: it takes your word for who you are. Company sign-in

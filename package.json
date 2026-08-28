@@ -23,6 +23,8 @@
     "@deepgram/sdk": "^5.8.0",
     "@google/genai": "^2.17.1",
     "@vercel/blob": "^2.8.0",
+    "firebase": "^12.18.0",
+    "firebase-admin": "^14.3.0",
     "next": "^16.3.1",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.0",

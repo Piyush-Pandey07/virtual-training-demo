@@ -17,6 +17,7 @@ import 'server-only';
 
 import { cookies } from 'next/headers';
 
+import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
 import { rosterStore } from '../roster/registry';
 import { emailKeyOf } from '../roster/store';
 import type { Person, Role } from '../roster/types';
@@ -38,13 +39,9 @@ export function devAuthEnabled(): boolean {
   return !process.env.VERCEL && process.env.NODE_ENV !== 'production';
 }
 
-/** Whether real sign-in is configured. False until Firebase credentials are set. */
+/** Whether real sign-in is configured. */
 export function firebaseConfigured(): boolean {
-  return Boolean(
-    process.env.FIREBASE_PROJECT_ID &&
-    process.env.FIREBASE_CLIENT_EMAIL &&
-    process.env.FIREBASE_PRIVATE_KEY,
-  );
+  return firebaseAdminConfigured();
 }
 
 /**
@@ -83,13 +80,24 @@ export function effectiveRole(person: Person): Role {
 export async function currentPerson(): Promise<Person | null> {
   const jar = await cookies();
 
-  // Real sign-in goes here. Firebase verifies its session cookie with
-  // `verifySessionCookie(value, true)` — the second argument checks revocation, which
-  // is what makes demoting or disabling somebody take effect on their next request
-  // rather than whenever their cookie happens to expire.
+  // The real one. Verified against Firebase on every request, including its
+  // revocation state, so disabling somebody or revoking their tokens takes effect on
+  // their next request rather than whenever the cookie happens to expire.
   const session = jar.get(SESSION_COOKIE)?.value;
-  if (session && firebaseConfigured()) {
-    return null;
+  if (session && firebaseAdminConfigured()) {
+    const decoded = await verifySessionCookie(session);
+    if (!decoded) return null;
+
+    const person = await rosterStore()
+      .getPerson(decoded.uid)
+      .catch(() => undefined);
+
+    // Signed in with Firebase but absent from the roster: the sign-in route creates
+    // that row, so this is a deployment whose roster storage went away underneath a
+    // live cookie. Treating it as nobody is the safe reading.
+    if (!person) return null;
+
+    return { ...person, role: effectiveRole(person) };
   }
 
   if (!devAuthEnabled()) return null;

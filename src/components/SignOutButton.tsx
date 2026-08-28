@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { signOutOfFirebase } from '@/lib/firebase/client';
+
 /** Clears the session and returns to the sign-in page. */
 export function SignOutButton({ label = 'Sign out' }: { label?: string }) {
   const router = useRouter();
@@ -14,7 +16,14 @@ export function SignOutButton({ label = 'Sign out' }: { label?: string }) {
       disabled={busy}
       onClick={() => {
         setBusy(true);
-        void fetch('/api/auth/dev', { method: 'DELETE' })
+        // Both halves. Clearing only the cookie would leave the browser still signed
+        // in to Microsoft, so the next attempt would walk straight back in without
+        // asking, which is not what anybody means by signing out.
+        void Promise.all([
+          fetch('/api/auth/session', { method: 'DELETE' }).catch(() => undefined),
+          fetch('/api/auth/dev', { method: 'DELETE' }).catch(() => undefined),
+          signOutOfFirebase().catch(() => undefined),
+        ])
           .catch(() => undefined)
           .then(() => {
             router.push('/signin');
