@@ -35,7 +35,7 @@ export function firebaseAdminConfigured(): boolean {
   );
 }
 
-function adminApp(): App {
+export function adminApp(): App {
   if (getApps().length > 0) return getApp();
 
   const projectId = process.env.FIREBASE_PROJECT_ID;

@@ -7,7 +7,9 @@ import { after, beforeEach, describe, it } from 'node:test';
 import { coverageOf, percentComplete } from './completion';
 import { emailKeyOf, localPersonId, withCovered, type RosterStore } from './store';
 import type { BlobEntry, BlobClient } from '../decks/store-blob';
+import { InMemoryDocumentStore } from './documents';
 import { BlobRosterStore } from './store-blob';
+import { DocumentRosterStore } from './store-documents';
 import { FilesystemRosterStore } from './store-fs';
 import { NoRosterStore } from './store-none';
 
@@ -56,6 +58,10 @@ function fakeBlobClient(): BlobClient {
 const HARNESSES: Array<{ name: string; make: () => Promise<RosterStore> }> = [
   { name: 'the filesystem store', make: freshStore },
   { name: 'the blob store', make: async () => new BlobRosterStore(fakeBlobClient()) },
+  {
+    name: 'the document store',
+    make: async () => new DocumentRosterStore(new InMemoryDocumentStore()),
+  },
 ];
 
 const DECK = { deckId: 'fire-safety', slideCount: 5, totalSeconds: 500 };
@@ -325,5 +331,81 @@ describe('the small shared pieces', () => {
     const twice = withCovered(once, { slideId: 1, targetSeconds: 999, coveredAt: 'later' });
     assert.equal(twice.length, 1);
     assert.equal(twice[0]?.targetSeconds, 100, 'the first time it was taught is the record');
+  });
+});
+
+/**
+ * The reason for moving off blob storage.
+ *
+ * A real database runs the change function again when another writer got there
+ * first, so it has to be a pure function of what it is handed and safe to run twice.
+ * Get that wrong and the retry is where a slide quietly goes missing — which is
+ * exactly the failure this whole change exists to remove, and it would never show up
+ * in a test that only ever calls it once.
+ */
+describe('surviving a retry, which is what makes a document store atomic', () => {
+  /** Runs every change twice, as a contended transaction would. */
+  class RetryingDocumentStore extends InMemoryDocumentStore {
+    override async update<T>(
+      collection: string,
+      id: string,
+      change: (current: T | undefined) => T,
+    ): Promise<T> {
+      // The first attempt is thrown away, exactly as a database discards the work of
+      // a transaction it is about to retry.
+      change(await this.get<T>(collection, id));
+      return super.update(collection, id, change);
+    }
+  }
+
+  const DECK = { deckId: 'fire-safety', slideCount: 5, totalSeconds: 500 };
+
+  it('counts a slide once even when the write is retried', async () => {
+    const store = new DocumentRosterStore(new RetryingDocumentStore());
+    const personId = (await store.upsertPerson({ email: 'a@technavious.com' })).id;
+
+    await store.recordCovered({ personId, slideId: 2, targetSeconds: 100, ...DECK });
+
+    const attempt = await store.getAttempt(personId, DECK.deckId);
+    assert.equal(attempt?.covered.length, 1);
+    assert.equal(attempt?.covered[0]?.slideId, 2);
+  });
+
+  it('keeps every slide when several are written in turn', async () => {
+    const store = new DocumentRosterStore(new RetryingDocumentStore());
+    const personId = (await store.upsertPerson({ email: 'a@technavious.com' })).id;
+
+    for (const slideId of [1, 2, 3, 4]) {
+      await store.recordCovered({ personId, slideId, targetSeconds: 100, ...DECK });
+    }
+
+    const attempt = await store.getAttempt(personId, DECK.deckId);
+    assert.deepEqual(
+      attempt?.covered.map((slide) => slide.slideId),
+      [1, 2, 3, 4],
+    );
+  });
+
+  it('does not stamp a completion twice under retry', async () => {
+    const store = new DocumentRosterStore(new RetryingDocumentStore());
+    const personId = (await store.upsertPerson({ email: 'a@technavious.com' })).id;
+
+    for (const slideId of [1, 2, 3, 4]) {
+      await store.recordCovered({ personId, slideId, targetSeconds: 125, ...DECK });
+    }
+    const first = (await store.getAttempt(personId, DECK.deckId))?.completedAt;
+
+    await store.recordCovered({ personId, slideId: 5, targetSeconds: 0, ...DECK });
+    assert.equal((await store.getAttempt(personId, DECK.deckId))?.completedAt, first);
+  });
+
+  it('does not duplicate an assignment when the write is retried', async () => {
+    const store = new DocumentRosterStore(new RetryingDocumentStore());
+    const personId = (await store.upsertPerson({ email: 'a@technavious.com' })).id;
+
+    await store.assign({ personId, deckId: DECK.deckId, assignedBy: 'admin' });
+    await store.assign({ personId, deckId: DECK.deckId, assignedBy: 'admin' });
+
+    assert.equal((await store.listAssignmentsForPerson(personId)).length, 1);
   });
 });

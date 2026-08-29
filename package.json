@@ -17,7 +17,8 @@
     "golden": "tsx --conditions react-server scripts/golden-prompts.ts",
     "prompt-size": "tsx --conditions react-server scripts/prompt-size.ts",
     "answer-quality": "tsx --conditions react-server scripts/answer-quality.ts",
-    "ablate": "tsx --conditions react-server scripts/ablate-answer-prompt.ts"
+    "ablate": "tsx --conditions react-server scripts/ablate-answer-prompt.ts",
+    "migrate-roster": "tsx --conditions react-server --env-file=.env.local scripts/migrate-roster.ts"
   },
   "overrides": {
     "jose": "^5.10.0"
