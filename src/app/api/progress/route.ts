@@ -17,7 +17,12 @@
  * only makes it after the audio has finished playing and the turn was not cut short.
  */
 
-import { NotAuthorised, requireAssignedDeck, unauthorisedResponse } from '@/lib/auth/guard';
+import {
+  checkUser,
+  NotAuthorised,
+  requireAssignedDeck,
+  unauthorisedResponse,
+} from '@/lib/auth/guard';
 import { getSlide, totalSlides } from '@/lib/deck';
 import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
@@ -39,6 +44,12 @@ interface Body {
 
 export async function POST(request: Request) {
   try {
+    // Signed in before anything else is read, so a stranger is told to sign in rather
+    // than told what a well-formed request would have looked like. Which deck they
+    // may attend needs the body, so that check comes after it.
+    const signedIn = await checkUser();
+    if (!signedIn.ok) return signedIn.response;
+
     let body: Body;
     try {
       body = (await request.json()) as Body;
