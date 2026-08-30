@@ -15,6 +15,7 @@
 import { deckIdFrom, draftDeckFrom, titleFromFileName, type DraftPage } from '@/lib/decks/draft';
 import { deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
+import { readable } from '@/lib/decks/readable';
 
 import { checkAdmin } from '@/lib/auth/guard';
 
@@ -70,14 +71,17 @@ function parsePages(raw: unknown): DraftPage[] | string {
       lines: lines
         .filter((line): line is string => typeof line === 'string')
         .slice(0, MAX_LINES_PER_PAGE)
-        .map((line) => line.slice(0, MAX_LINE_CHARS)),
-      titleHint: typeof page.titleHint === 'string' ? page.titleHint.slice(0, 200) : undefined,
+        .map((line) => readable(line.slice(0, MAX_LINE_CHARS)))
+        .filter(Boolean),
+      titleHint:
+        typeof page.titleHint === 'string' ? readable(page.titleHint.slice(0, 200)) : undefined,
       // Bounded like everything else that arrives from a browser. A notes page can
       // hold a great deal, and none of it is spoken, so a generous cap is still a cap.
       notes: notes
         .filter((line): line is string => typeof line === 'string')
         .slice(0, MAX_NOTES_PER_PAGE)
-        .map((line) => line.slice(0, MAX_NOTE_CHARS)),
+        .map((line) => readable(line.slice(0, MAX_NOTE_CHARS)))
+        .filter(Boolean),
     });
   }
 
