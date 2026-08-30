@@ -300,10 +300,7 @@ describe('a deployment with no roster storage', () => {
   });
 
   it('refuses a write, naming what is missing', async () => {
-    await assert.rejects(
-      () => store.upsertPerson({ email: 'a@technavious.com' }),
-      /BLOB_READ_WRITE_TOKEN/,
-    );
+    await assert.rejects(() => store.upsertPerson({ email: 'a@technavious.com' }), /Firebase/);
   });
 
   it('assigns nobody, so nothing is reachable by default', async () => {

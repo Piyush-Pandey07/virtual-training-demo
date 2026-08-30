@@ -123,6 +123,12 @@ export default async function DeckLibraryPage() {
                   >
                     {deck.status === 'published' ? 'Run this session' : 'Preview the draft'}
                   </Link>
+                  <Link
+                    href={`/decks/${encodeURIComponent(deck.id)}/progress`}
+                    className="border-charcoal-line text-muted hover:text-mist rounded-md border px-4 py-2 text-sm font-semibold transition-colors"
+                  >
+                    Who has attended
+                  </Link>
                   {!deck.readOnly && (
                     <Link
                       href={`/decks/${encodeURIComponent(deck.id)}`}

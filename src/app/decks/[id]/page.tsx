@@ -88,9 +88,19 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-          Deck library
-        </Link>
+        <div className="flex items-center gap-4">
+          {/* Where somebody lands after publishing, which is exactly when they want to
+              know who it went to. */}
+          <Link
+            href={`/decks/${encodeURIComponent(id)}/progress`}
+            className="text-muted hover:text-teal text-sm transition-colors"
+          >
+            Who has attended
+          </Link>
+          <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
+            Deck library
+          </Link>
+        </div>
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">

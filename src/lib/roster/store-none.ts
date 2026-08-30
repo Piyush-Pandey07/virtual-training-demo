@@ -14,7 +14,7 @@ import { RosterStoreError, type RosterStore } from './store';
 import type { Assignment, Attempt, Person } from './types';
 
 const WHY =
-  'This deployment has no roster storage configured, so people, assignments and progress cannot be saved. Set BLOB_READ_WRITE_TOKEN to enable them.';
+  'This deployment has no roster storage configured, so people, assignments and progress cannot be saved. Configure Firebase to enable them.';
 
 function refuse(): never {
   throw new RosterStoreError(WHY);
