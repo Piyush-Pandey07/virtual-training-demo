@@ -30,6 +30,45 @@ export function isBootstrapAdmin(email: string): boolean {
 }
 
 /**
+ * The domains an address may sign in from, if the deployment restricts them at all.
+ *
+ * Empty means unrestricted, which is the right default for a deployment that has not
+ * said otherwise -- the roster is the gate in that case, and it is a real one.
+ */
+export function allowedEmailDomains(): ReadonlySet<string> {
+  const raw = process.env.ALLOWED_EMAIL_DOMAINS ?? '';
+  return new Set(
+    raw
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0),
+  );
+}
+
+/**
+ * Whether an address may sign in at all, before anything is known about the person.
+ *
+ * An address named in AUTH_ADMIN_EMAILS passes whatever its domain. That reads like a
+ * hole and is not one: the same list already makes that exact address an administrator
+ * with access to everything, so refusing it here would deny nothing it cannot reach by
+ * being on the list at all. What it fixes is a real trap -- naming an outside address
+ * as the bootstrap administrator appeared to work, and then failed at sign-in with
+ * "not part of this organisation", which is the wrong explanation for the wrong reason
+ * and leaves the deployment with no administrator and no obvious way to get one.
+ *
+ * The exemption is per exact address and never per domain. Adding a whole public
+ * domain to ALLOWED_EMAIL_DOMAINS to let one person in would let in everybody holding
+ * an address there, and that is the mistake this exists to make unnecessary.
+ */
+export function emailAllowed(email: string): boolean {
+  const domains = allowedEmailDomains();
+  if (domains.size === 0) return true;
+  if (bootstrapAdminEmails().has(emailKeyOf(email))) return true;
+
+  return domains.has(emailKeyOf(email).split('@')[1] ?? '');
+}
+
+/**
  * The role that actually applies.
  *
  * Not always the stored one: an address named in the deployment configuration is an

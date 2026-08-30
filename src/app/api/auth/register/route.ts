@@ -14,20 +14,13 @@
  */
 
 import { passwordProblem } from '@/lib/auth/password';
-import { isBootstrapAdmin } from '@/lib/auth/roles';
+import { emailAllowed, isBootstrapAdmin } from '@/lib/auth/roles';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
-import { emailKeyOf, RosterStoreError } from '@/lib/roster/store';
+import { RosterStoreError } from '@/lib/roster/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function allowedDomains(): string[] {
-  return (process.env.ALLOWED_EMAIL_DOMAINS ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-}
 
 export async function POST(request: Request) {
   if (!firebaseAdminConfigured()) {
@@ -49,8 +42,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'An email address is required.' }, { status: 400 });
   }
 
-  const domains = allowedDomains();
-  if (domains.length > 0 && !domains.includes(emailKeyOf(email).split('@')[1] ?? '')) {
+  if (!emailAllowed(email)) {
     return Response.json(
       { error: 'That address is not part of this organisation.' },
       { status: 403 },

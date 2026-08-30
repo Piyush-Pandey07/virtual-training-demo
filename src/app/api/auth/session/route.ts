@@ -20,7 +20,7 @@
 
 import { cookies } from 'next/headers';
 
-import { effectiveRole, isBootstrapAdmin } from '@/lib/auth/roles';
+import { effectiveRole, emailAllowed, isBootstrapAdmin } from '@/lib/auth/roles';
 import { SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
@@ -30,18 +30,10 @@ import {
   verifySessionCookie,
 } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
-import { emailKeyOf, RosterStoreError } from '@/lib/roster/store';
+import { RosterStoreError } from '@/lib/roster/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Domains an address may end in, when configured. */
-function allowedDomains(): string[] {
-  return (process.env.ALLOWED_EMAIL_DOMAINS ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-}
 
 function refuse(message: string, status = 403): Response {
   return Response.json({ error: message }, { status });
@@ -83,12 +75,8 @@ export async function POST(request: Request) {
     return refuse('That account has an unverified email address.');
   }
 
-  const domains = allowedDomains();
-  if (domains.length > 0) {
-    const domain = emailKeyOf(email).split('@')[1] ?? '';
-    if (!domains.includes(domain)) {
-      return refuse('That account is not part of this organisation.');
-    }
+  if (!emailAllowed(email)) {
+    return refuse('That account is not part of this organisation.');
   }
 
   try {
