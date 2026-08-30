@@ -117,7 +117,7 @@ const TOPICS_SCHEMA = {
             type: Type.ARRAY,
             items: { type: Type.STRING },
             description:
-              'Five to ten words or short phrases that should pull this topic up when a trainee says them. Write what a trainee would actually say out loud, not the formal term: "dodgy email" belongs here as much as "phishing". Single words are matched by prefix, so "classif" catches classification and classify. Multi-word entries are matched as whole phrases. These decide both what the trainer knows and which slide a question moves to, so a topic with vague triggers is one nobody can reach.',
+              'Five to ten words or short phrases that should pull this topic up when a trainee says them. Write what a trainee would actually say out loud, not the formal term: "dodgy email" belongs here as much as "phishing". Write every word in full. A single word may be a stem, so "classif" is fine on its own and catches classification and classify, but never abbreviate a word inside a phrase: "data classif" is not something anybody says and matches nothing. These decide both what the trainer knows and which slide a question moves to, so a topic nobody would say the words of is a topic nobody can reach.',
           },
           explanation: {
             type: Type.ARRAY,

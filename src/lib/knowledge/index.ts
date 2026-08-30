@@ -40,6 +40,30 @@ export function normalise(text: string): string {
 }
 
 /**
+ * Whether two words are the same word wearing a different ending.
+ *
+ * "classify" and "classification" are one idea, and neither is a prefix of the other:
+ * they part company at the "y". Comparing whole words missed that, so asking "how do
+ * we classify information" scored one point against a topic titled "Information
+ * Classification Purpose" and the deck stayed where it was.
+ *
+ * Six characters is the shortest prefix that is worth trusting on its own — "policy"
+ * and "police" share five and mean nothing to each other — and requiring most of the
+ * shorter word keeps a long word from swallowing a short one it merely starts with.
+ * A real stemmer would be better and is a dependency and a dictionary; this is the
+ * approximation the rest of the matcher already makes, made symmetric.
+ */
+function sharesAStem(a: string, b: string): boolean {
+  if (a === b) return true;
+
+  const shorter = Math.min(a.length, b.length);
+  let shared = 0;
+  while (shared < shorter && a[shared] === b[shared]) shared += 1;
+
+  return shared >= 6 && shared >= shorter - 3;
+}
+
+/**
  * Scores a topic against a question.
  *
  * Single-word triggers match on word prefix, so the stem "classif" catches
@@ -48,7 +72,12 @@ export function normalise(text: string): string {
  * classification scored zero against the classification topic.
  *
  * Multi-word triggers still match as phrases, since "client site" should not fire
- * on "client" alone.
+ * on "client" alone, and also when every word of the phrase turns up in some other
+ * order or ending.
+ *
+ * The topic's title contributes as well, below the weight of a trigger. A phrase
+ * needs all of its words, and a trainee asking about "confidential" says one of
+ * them; the topic named "Confidential Information Use" should still be reachable.
  */
 export function scoreAgainstQuestion(topic: KnowledgeTopic, normalisedQuestion: string): number {
   let score = 0;
@@ -58,15 +87,46 @@ export function scoreAgainstQuestion(topic: KnowledgeTopic, normalisedQuestion: 
     const needle = normalise(trigger).trim();
     if (!needle) continue;
 
-    const hit = needle.includes(' ')
-      ? normalisedQuestion.includes(` ${needle} `)
-      : questionWords.some((word) => word.startsWith(needle));
+    const parts = needle.split(' ').filter(Boolean);
+    const startsSomeWord = (part: string) => questionWords.some((word) => word.startsWith(part));
+
+    // A phrase matches when it is said, and also when its words are all there in
+    // some other order or ending. "info classif" reaches "how do we classify
+    // information", which the exact-phrase test alone would miss.
+    //
+    // That looseness is doing real work rather than being generous for its own sake.
+    // Generated triggers arrive abbreviated — a model told that single words match by
+    // prefix applies the same truncation inside a phrase, where it never could match —
+    // and a topic nobody can reach is a slide a question never moves to.
+    const hit =
+      parts.length === 1
+        ? startsSomeWord(parts[0]!)
+        : normalisedQuestion.includes(` ${needle} `) || parts.every(startsSomeWord);
 
     if (hit) {
       // Longer, more specific triggers are stronger evidence than short ones.
       score += trigger.length >= 8 ? 3 : 2;
     }
   }
+  // The topic's own name, which is a signal that was going unused.
+  //
+  // Triggers are phrases, and a phrase needs all of its words. A trainee asking "what
+  // does confidential mean" says one of them, so "confidential data" and "confidential
+  // information" both miss and the question stays where it is — even though a topic
+  // called "Confidential Information Use" is plainly the answer. Titles are short and
+  // written to name the subject, so a distinctive word in one is good evidence.
+  //
+  // Scored below a trigger, and only on words long enough to mean something, so this
+  // decides a question nothing else caught rather than overruling one that was.
+  const titleWords = normalise(topic.title)
+    .trim()
+    .split(' ')
+    .filter((word) => word.length > 5);
+  const titleHits = titleWords.filter((word) =>
+    questionWords.some((asked) => sharesAStem(asked, word)),
+  ).length;
+  if (titleHits > 0) score += titleHits >= 2 ? 2 : 1;
+
   // A question that names something from a worked example is usually about it.
   for (const faq of topic.faqs ?? []) {
     const words = normalise(faq.q).trim().split(' ');
