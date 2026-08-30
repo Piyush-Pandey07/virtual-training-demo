@@ -25,6 +25,10 @@ export const maxDuration = 30;
 /** A page of text is generous. A megabyte of it is someone probing. */
 const MAX_LINES_PER_PAGE = 200;
 const MAX_LINE_CHARS = 2000;
+
+/** A notes page holds more than a slide does, and none of it is ever spoken. */
+const MAX_NOTES_PER_PAGE = 40;
+const MAX_NOTE_CHARS = 4000;
 const MAX_PAGES = 500;
 
 interface CreateDeckBody {
@@ -57,6 +61,7 @@ function parsePages(raw: unknown): DraftPage[] | string {
       return 'pages[' + index + '] must carry a positive width and height.';
     }
 
+    const notes = Array.isArray(page.notes) ? page.notes : [];
     const lines = Array.isArray(page.lines) ? page.lines : [];
     pages.push({
       pageNumber,
@@ -67,6 +72,12 @@ function parsePages(raw: unknown): DraftPage[] | string {
         .slice(0, MAX_LINES_PER_PAGE)
         .map((line) => line.slice(0, MAX_LINE_CHARS)),
       titleHint: typeof page.titleHint === 'string' ? page.titleHint.slice(0, 200) : undefined,
+      // Bounded like everything else that arrives from a browser. A notes page can
+      // hold a great deal, and none of it is spoken, so a generous cap is still a cap.
+      notes: notes
+        .filter((line): line is string => typeof line === 'string')
+        .slice(0, MAX_NOTES_PER_PAGE)
+        .map((line) => line.slice(0, MAX_NOTE_CHARS)),
     });
   }
 

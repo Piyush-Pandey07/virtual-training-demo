@@ -16,6 +16,8 @@
 import Link from 'next/link';
 import { useCallback, useRef, useState } from 'react';
 
+import { extractSpeakerNotes, isPowerPoint } from '@/lib/pptx/notes';
+
 import { pageAssetName } from '@/lib/decks/asset-paths';
 import { readOutline, renderPage } from '@/lib/pdf/render';
 
@@ -48,7 +50,7 @@ export function UploadDeck() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const upload = useCallback(async (file: File) => {
+  const upload = useCallback(async (file: File, powerPoint?: File) => {
     setError(null);
     setFinished(null);
     setProgress({ phase: 'reading', pagesTotal: 0, pagesDone: 0, bytesUploaded: 0 });
@@ -58,6 +60,21 @@ export function UploadDeck() {
     try {
       // --- pass one: text and page sizes -------------------------------
       const { outline, doc, close } = await readOutline(file);
+
+      // --- the notes, if a PowerPoint came with it ---------------------
+      //
+      // Read here rather than uploaded: the PowerPoint never leaves this machine,
+      // which is the same promise the PDF already makes. Only the notes go, and
+      // they go straight into internalNotes, which the trainer never says aloud
+      // until somebody has read them and moved them across.
+      const notes = powerPoint
+        ? extractSpeakerNotes(await powerPoint.arrayBuffer())
+        : new Map<number, string[]>();
+
+      const pages = outline.pages.map((page) => ({
+        ...page,
+        notes: notes.get(page.pageNumber),
+      }));
 
       setProgress({
         phase: 'creating',
@@ -73,7 +90,7 @@ export function UploadDeck() {
         body: JSON.stringify({
           fileName: file.name,
           documentTitle: outline.documentTitle,
-          pages: outline.pages,
+          pages,
         }),
       });
 
@@ -167,20 +184,39 @@ export function UploadDeck() {
       >
         <p className="font-semibold">Choose a PDF</p>
         <p className="text-muted mt-1 text-sm">
-          It is read in your browser. Only the rendered pages are uploaded.
+          Add the PowerPoint alongside it and the speaker notes come too. Both are read in your
+          browser; only the rendered pages and the notes are uploaded.
         </p>
         <input
           ref={inputRef}
           id="deck-file"
           type="file"
-          accept="application/pdf,.pdf"
+          multiple
+          accept="application/pdf,.pdf,.pptx"
           disabled={busy}
           className="sr-only"
           onChange={(event) => {
-            const file = event.target.files?.[0];
+            const chosen = [...(event.target.files ?? [])];
             // Cleared so choosing the same file twice fires a change event again.
             event.target.value = '';
-            if (file) void upload(file);
+            if (chosen.length === 0) return;
+
+            // The PDF carries the slides. Nothing in a browser renders PowerPoint, so
+            // a PowerPoint on its own has notes and no pictures, and saying so beats
+            // starting an upload that cannot finish.
+            const pdf = chosen.find((entry) => /\.pdf$/i.test(entry.name));
+            const pptx = chosen.find((entry) => isPowerPoint(entry.name));
+
+            if (!pdf) {
+              setError(
+                pptx
+                  ? 'A PDF is needed as well: the slide images come from it. Export the PowerPoint to PDF and choose both together.'
+                  : 'Choose a PDF.',
+              );
+              return;
+            }
+
+            void upload(pdf, pptx);
           }}
         />
       </label>

@@ -24,6 +24,19 @@ export interface DraftPage {
   lines: string[];
   /** The line the browser found set in the largest type, if one stood out. */
   titleHint?: string;
+  /**
+   * What the author wrote on this slide's notes page, when a PowerPoint was supplied
+   * beside the PDF.
+   *
+   * Lands in `internalNotes`, which reaches neither the model nor the browser, and
+   * stays there until a person moves it across on the review screen. That is not
+   * caution for its own sake: the first real note in the deck this was built from
+   * reads "Push the OutThink Platform in a slide and call to action", an author's
+   * to-do about promoting a third-party product. Spoken aloud in a session it would
+   * have pitched something to a trainee. Losing a useful note costs a little depth;
+   * speaking that one costs a client's trust.
+   */
+  notes?: string[];
 }
 
 export interface DraftInput {
@@ -224,7 +237,7 @@ export function draftDeckFrom(input: DraftInput, deckId: string): DeckRecord {
       // difference between an uploaded deck and the hand-authored one, and it is
       // why PPTX is the format worth supporting properly.
       speakerNotes: [],
-      internalNotes: [],
+      internalNotes: page.notes ?? [],
       narrationBrief: teaches
         ? 'This deck has not been analysed yet, so you have only what is printed on the slide. Explain it in your own words, say what it means in practice, and be straightforward that you are working from the slide itself.'
         : 'This is the opening page. Welcome the trainee, say what the session covers, and set them at ease.',
