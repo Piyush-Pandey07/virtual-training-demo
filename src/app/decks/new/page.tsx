@@ -42,10 +42,17 @@ export default async function NewDeckPage() {
         </Link>
 
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">New deck</p>
-        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Upload a PDF</h1>
+        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Upload a deck</h1>
         <p className="text-muted mt-3 text-base leading-relaxed">
-          The deck is read and rendered in your browser, and only the rendered pages are sent here.
-          Each page becomes a slide, and the text printed on it becomes what the trainer works from.
+          Export your presentation to PDF and choose it here. Add the PowerPoint file beside it and
+          the speaker notes come across too. Both are read in your browser, and only the rendered
+          pages and the notes are sent here.
+        </p>
+        <p className="text-muted mt-3 text-base leading-relaxed">
+          The PDF is the part that cannot be skipped: nothing in a browser can turn a PowerPoint
+          into a picture, so the slides your trainee looks at come from it. In PowerPoint, that is
+          <span className="text-mist font-semibold"> File &rarr; Save As</span> and then
+          <span className="text-mist font-semibold"> PDF</span>.
         </p>
 
         {canUpload ? (
@@ -82,8 +89,10 @@ export default async function NewDeckPage() {
               the trainer has no expertise behind the slides and will say so.
             </li>
             <li>
-              A PDF carries no presenter notes. That is the one thing a PowerPoint has that survives
-              nothing else, and it is why PPTX is worth supporting directly.
+              A PDF carries no presenter notes, which is the one thing a PowerPoint has that
+              survives nothing else. Add the .pptx beside the PDF and they are read from it
+              directly, then held back for review rather than spoken: an author&rsquo;s note is as
+              likely to be a reminder to themselves as it is teaching material.
             </li>
           </ul>
         </section>

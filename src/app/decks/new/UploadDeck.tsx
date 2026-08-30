@@ -182,10 +182,10 @@ export function UploadDeck() {
           busy ? 'cursor-not-allowed opacity-60' : 'hover:border-teal'
         }`}
       >
-        <p className="font-semibold">Choose a PDF</p>
+        <p className="font-semibold">Choose your PDF</p>
         <p className="text-muted mt-1 text-sm">
-          Add the PowerPoint alongside it and the speaker notes come too. Both are read in your
-          browser; only the rendered pages and the notes are uploaded.
+          Select the .pptx at the same time and its speaker notes come across as well. Both are read
+          in your browser; only the rendered pages and the notes are uploaded.
         </p>
         <input
           ref={inputRef}
@@ -210,8 +210,8 @@ export function UploadDeck() {
             if (!pdf) {
               setError(
                 pptx
-                  ? 'A PDF is needed as well: the slide images come from it. Export the PowerPoint to PDF and choose both together.'
-                  : 'Choose a PDF.',
+                  ? 'The PDF is missing. Nothing in a browser can turn a PowerPoint into a picture, so the slides come from the PDF export. In PowerPoint: File, then Save As, then PDF \u2014 then choose the PDF and the .pptx together.'
+                  : 'That is not a PDF. Choose the PDF export of your deck, and the .pptx beside it if you want the speaker notes.',
               );
               return;
             }
