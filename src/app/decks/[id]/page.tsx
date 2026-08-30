@@ -17,6 +17,9 @@ import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import { rosterStore } from '@/lib/roster/registry';
+import { effectiveRole } from '@/lib/auth/roles';
+import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
 import { DeckReview, type ReviewDeck } from './DeckReview';
 
 export const dynamic = 'force-dynamic';
@@ -85,6 +88,67 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
     authored: record.meta.origin === 'authored',
   };
 
+  // Who could attend this, and who already has it.
+  //
+  // Read here rather than in the panel so the browser is never handed the roster of a
+  // deck somebody is only allowed to look at: this page is behind requireAdminPage, and
+  // what crosses is a name, an address and a due date, which is what the screen shows.
+  //
+  // A roster that is not configured is not an error. The deck half of this app works
+  // without one, and a review screen that 500s because nobody has set up Firestore
+  // would take the whole upload flow down with it.
+  let assigned: Assignee[] = [];
+  let candidates: Candidate[] = [];
+  let rosterAvailable = false;
+
+  const store = rosterStore();
+  if (store.writable) {
+    try {
+      const [people, assignments] = await Promise.all([
+        store.listPeople(),
+        store.listAssignmentsForDeck(id),
+      ]);
+
+      const byId = new Map(people.map((person) => [person.id, person]));
+      assigned = assignments.flatMap((assignment) => {
+        const person = byId.get(assignment.personId);
+        return person
+          ? [
+              {
+                id: person.id,
+                name: person.name,
+                email: person.email,
+                dueAt: assignment.dueAt,
+                assignedAt: assignment.assignedAt,
+              },
+            ]
+          : [];
+      });
+
+      // Administrators are included, marked as such.
+      //
+      // They can open any deck without being assigned one, so listing them looks
+      // redundant — but an assignment is the record of who *must* complete something,
+      // not a grant of access. Whoever runs ISMS training has to sit through ISMS
+      // training, and leaving them off the list means the one person who could notice
+      // that gap is the one person who cannot be tracked against it.
+      const taken = new Set(assignments.map((assignment) => assignment.personId));
+      candidates = people
+        .filter((person) => !taken.has(person.id))
+        .map((person) => ({
+          id: person.id,
+          name: person.name,
+          email: person.email,
+          admin: effectiveRole(person) === 'admin',
+        }));
+
+      rosterAvailable = true;
+    } catch {
+      // Left unavailable. The panel says so rather than the page failing.
+      rosterAvailable = false;
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
@@ -114,8 +178,17 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
             : 'This deck has been rendered but not read. Analysing it fills in the titles, summaries and pacing from the pages themselves.'}
         </p>
 
-        <div className="mt-8">
+        <div className="mt-8 space-y-8">
           <DeckReview initial={review} />
+
+          {rosterAvailable && (
+            <AssignDeck
+              deckId={review.id}
+              published={stored.status === 'published'}
+              candidates={candidates}
+              assigned={assigned}
+            />
+          )}
         </div>
       </main>
     </div>

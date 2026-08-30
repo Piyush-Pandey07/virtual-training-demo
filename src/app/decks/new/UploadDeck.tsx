@@ -297,10 +297,10 @@ export function UploadDeck() {
 
           <div className="mt-4 flex flex-wrap gap-3">
             <Link
-              href={`/session?deck=${encodeURIComponent(finished.deckId)}`}
-              className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+              href={`/decks/${encodeURIComponent(finished.deckId)}`}
+              className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-6 py-3 text-base font-semibold transition-colors"
             >
-              Preview the session
+              Review and assign it
             </Link>
             <Link
               href="/decks"
