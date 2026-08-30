@@ -9,18 +9,19 @@
  * The gate here is roster membership, and with email and password it is the whole
  * boundary. Firebase's own account-creation endpoint takes nothing but the public API
  * key, so anybody who reads the bundle can create an account in the project and
- * cannot be stopped from doing so. What they cannot do is get a session: accounts
- * this app knows about are created server-side, from an invitation, and a Firebase
- * account with no row here is turned away with nothing to show for it.
+ * cannot be stopped from doing so. What they cannot do is get a session: an account
+ * this app knows about was added by an administrator first, and a Firebase account
+ * with no row here is turned away with nothing to show for it.
  *
- * The one exception is the first administrator, who has nobody to invite them. Their
+ * The one exception is the first administrator, whom nobody is there to add. Their
  * address is named in the deployment configuration, which is a claim about them made
  * by whoever set the deployment up rather than by them.
  */
 
 import { cookies } from 'next/headers';
 
-import { effectiveRole, isBootstrapAdmin, SESSION_COOKIE } from '@/lib/auth/session';
+import { effectiveRole, isBootstrapAdmin } from '@/lib/auth/roles';
+import { SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
   firebaseAdminConfigured,
@@ -94,11 +95,11 @@ export async function POST(request: Request) {
     const store = rosterStore();
 
     // Known here already, or named as an administrator by the deployment. Anything
-    // else is a Firebase account nobody invited, and it gets no session.
+    // else is a Firebase account nobody added here, and it gets no session.
     const known = await store.getPersonByEmail(email);
     if (!known && !isBootstrapAdmin(email)) {
       return refuse(
-        'There is no training account for that address. Ask whoever runs your training for an invitation.',
+        'There is no training account for that address. Ask whoever runs your training to add you.',
       );
     }
 

@@ -19,8 +19,8 @@ import { cookies } from 'next/headers';
 
 import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
 import { rosterStore } from '../roster/registry';
-import { emailKeyOf } from '../roster/store';
-import type { Person, Role } from '../roster/types';
+import { effectiveRole } from './roles';
+import type { Person } from '../roster/types';
 
 /** The cookie the real sign-in will set. Read here so the swap is one function. */
 export const SESSION_COOKIE = 'session';
@@ -47,33 +47,6 @@ export function devAuthEnabled(): boolean {
 /** Whether real sign-in is configured. */
 export function firebaseConfigured(): boolean {
   return firebaseAdminConfigured();
-}
-
-/**
- * Addresses that are administrators whatever the stored role says.
- *
- * The bootstrap: the first administrator cannot be promoted by an administrator who
- * does not exist yet. Kept as a floor rather than a one-time seed, so an empty
- * roster, an unmigrated database, or an administrator who demoted themselves is
- * recoverable by an environment variable rather than by a database console.
- */
-export function bootstrapAdminEmails(): ReadonlySet<string> {
-  const raw = process.env.AUTH_ADMIN_EMAILS ?? '';
-  return new Set(
-    raw
-      .split(',')
-      .map((entry) => emailKeyOf(entry))
-      .filter((entry) => entry.length > 0),
-  );
-}
-
-export function isBootstrapAdmin(email: string): boolean {
-  return bootstrapAdminEmails().has(emailKeyOf(email));
-}
-
-/** The role that actually applies: the stored one, or admin by fiat. */
-export function effectiveRole(person: Person): Role {
-  return isBootstrapAdmin(person.email) ? 'admin' : person.role;
 }
 
 /**

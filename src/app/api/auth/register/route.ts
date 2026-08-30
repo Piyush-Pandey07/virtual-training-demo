@@ -14,7 +14,7 @@
  */
 
 import { passwordProblem } from '@/lib/auth/password';
-import { isBootstrapAdmin } from '@/lib/auth/session';
+import { isBootstrapAdmin } from '@/lib/auth/roles';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { emailKeyOf, RosterStoreError } from '@/lib/roster/store';

@@ -1,11 +1,15 @@
 # Virtual Training Demo
 
-An AI trainer that delivers Technavious's ISO 27001 ISMS awareness deck as a live one to one
-session. It speaks, it listens, and it answers questions out loud. The trainee can interrupt
-mid-sentence, ask for anything to be explained again, jump to any slide, or ask to be tested.
+An AI trainer that delivers a slide deck as a live one to one session. It speaks, it listens, and
+it answers questions out loud. The trainee can interrupt mid-sentence, ask for anything to be
+explained again, jump to any slide, or ask to be tested.
+
+Upload a PDF and it is read, analysed and taught the same way as the hand-authored ISMS deck it was
+built around. HR assigns a deck to somebody; they attend it; HR sees how much of it was actually
+taught to them.
 
 Gemini does the teaching and the question answering. Deepgram does both speech to text and text to
-speech.
+speech. Firebase does sign-in and holds the roster.
 
 ---
 
@@ -25,6 +29,54 @@ speech.
 | Opens by naming the session       | The first sentence welcomes the trainee to the virtual training session and names its subject, before the trainer introduces itself.                                         |
 | Works without a microphone        | If mic access is blocked, the session still runs and questions can be typed.                                                                                                 |
 | Answers stay short                | Follow-ups are budgeted by register, from 65 words for "simpler" up to 170 for "go deeper", so a question gets an answer rather than a lecture.                              |
+
+---
+
+## Who can do what
+
+Two roles, and the same URL takes each of them somewhere different.
+
+|                           | A trainee sees                                      | An administrator sees                                |
+| ------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
+| `/`                       | Their assigned training, ordered by what to do next | The deck library, the upload, and the reports        |
+| `/decks`, `/decks/{id}`   | 404                                                 | The library and the review screen                    |
+| `/people`, `/people/{id}` | 404                                                 | Everybody, and where each of them has got to         |
+| `/decks/{id}/progress`    | 404                                                 | Everybody assigned that deck, least progressed first |
+| `/session?deck={id}`      | Only a deck they were assigned                      | Any deck, including a draft, for previewing          |
+
+The refusals are 404 rather than 403 wherever a particular deck is involved. Deck ids are a title
+slug plus six random characters, so a 403 on `/session?deck=redundancy-plan-2026-a7f3k2` confirms
+that deck exists to somebody who guessed the title. A 404 confirms nothing.
+
+### How somebody gets an account
+
+An administrator adds them by address, and they set their own password the first time they arrive.
+There is no open sign-up and no emailed temporary password.
+
+The gate is the roster, not Firebase. Firebase's own account-creation endpoint takes nothing but the
+public API key, so anybody who reads the bundle can create an account in the project and cannot be
+stopped from doing so. What they cannot do is get a session: an address nobody added here is turned
+away with nothing to show for it. That refusal is the boundary, and it is worth re-testing whenever
+this path changes.
+
+The first administrator has nobody to add them, so an address named in `AUTH_ADMIN_EMAILS` may set
+its own password. That stays a floor rather than a one-time seed, so an empty roster or an
+administrator who demoted themselves is recoverable by an environment variable rather than by a
+database console.
+
+### What "complete" means
+
+A slide counts once the trainer has **finished narrating it** — the audio played to the end and the
+turn was not cut short by a question, by navigation, or by the trainee leaving. Skipping ahead
+counts for nothing.
+
+The percentage is weighted by each slide's spoken budget rather than counting slides, because a
+forty second title card and a hundred and fifty second content slide are not worth the same. Both
+the weighting and the deck's total are snapshotted onto the attempt, so re-analysing a deck cannot
+move the denominator under somebody halfway through it.
+
+Completion sits at 90%, not 100%. The last slide of a deck is usually a thank-you card, and
+requiring it would leave people marked incomplete for stopping where the material ran out.
 
 ---
 
@@ -88,7 +140,45 @@ Development:
 Every other setting has a default in `src/lib/config.ts`, which is deliberate: one source of truth
 beats a dashboard that quietly disagrees with the code.
 
-### Storage, if you want trainers to upload decks
+### Sign-in, and where the roster lives
+
+Without Firebase configured nobody can sign in, and a deployment says so rather than
+half-working. Locally there is a stand-in that takes your word for who you are; it refuses to run
+on Vercel, in a production build, or anywhere Firebase is configured, so it cannot be mistaken for
+the real thing.
+
+In the Firebase console: **Authentication → Sign-in method → Email/Password**, enabled. Then
+**Project settings → Service accounts → Generate new private key**, which gives the three
+`FIREBASE_*` values. The four `NEXT_PUBLIC_FIREBASE_*` values are the web config from the same
+settings page, and are public by design — they identify the project and ship in the bundle
+whatever you do.
+
+**Firestore holds the roster**: people, assignments and progress. Enable it under **Build →
+Firestore Database**, in the same region as the functions, and lock the rules completely:
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+```
+
+That looks wrong and is correct. The app only ever reaches Firestore through the admin SDK, which
+bypasses rules; anything those rules would apply to is not this app.
+
+Firestore is chosen over blob storage for one reason: a document can be changed atomically. Two
+trainees finishing slides at the same moment, or two administrators assigning at the same instant,
+cannot lose each other's writes. Blob storage has no compare-and-swap, so it could and did have to
+document that it might. `npm run migrate-roster` moves rows from the older tier; it copies rather
+than moves and is safe to run twice.
+
+`/api/health` reports which tier is actually in use, which is worth checking after any change to
+the environment — a deployment that has quietly moved between tiers looks fine from outside
+otherwise.
+
+### Storage for the decks themselves
 
 Without this the deployment still runs, presenting the built-in deck only, and says so on the upload
 page rather than offering a button that cannot work. Vercel's filesystem is read-only apart from a

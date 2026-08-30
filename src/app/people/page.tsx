@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
-import { isBootstrapAdmin } from '@/lib/auth/session';
+import { isBootstrapAdmin } from '@/lib/auth/roles';
 import { rosterStore } from '@/lib/roster/registry';
 import { peopleOverview } from '@/lib/roster/report';
 import { PeopleList, type PersonLine } from './PeopleList';

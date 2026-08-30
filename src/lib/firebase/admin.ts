@@ -85,8 +85,8 @@ export async function revokeSessions(uid: string): Promise<void> {
  *
  * Deliberately not `createUserWithEmailAndPassword` in the browser. That call goes
  * straight from the page to Firebase with nothing but the public API key, so it is
- * open to anybody who reads the bundle: it cannot be made to require an invitation,
- * because no code of ours is in the path. Creating accounts here means an invitation
+ * open to anybody who reads the bundle: it could not be made to require being on the
+ * roster, because no code of ours is in the path. Creating accounts here means that
  * is checked first, and the password rules are enforced by something a determined
  * person cannot skip.
  *
@@ -102,8 +102,8 @@ export async function createAccount(
     email,
     password,
     displayName: name || undefined,
-    // The invitation was sent to this address and opened from it, which is the same
-    // evidence a verification email would produce, one round trip earlier.
+    // An administrator has already vouched for this address by adding it, which is
+    // the evidence a verification email would have gone looking for.
     emailVerified: true,
   });
   return user.uid;
@@ -115,13 +115,6 @@ export async function findAccountByEmail(email: string): Promise<string | null> 
   } catch {
     return null;
   }
-}
-
-/** Used by an administrator resetting somebody who cannot get in. */
-export async function setAccountPassword(uid: string, password: string): Promise<void> {
-  await getAuth(adminApp()).updateUser(uid, { password });
-  // Every existing session ends, which is the point of a reset.
-  await getAuth(adminApp()).revokeRefreshTokens(uid);
 }
 
 /** Sets the role claim, so an authorisation check costs no database round trip. */

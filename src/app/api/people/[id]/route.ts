@@ -10,7 +10,8 @@
  */
 
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
-import { isBootstrapAdmin } from '@/lib/auth/session';
+import { isBootstrapAdmin } from '@/lib/auth/roles';
+import { revokeSessions } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 import type { Role } from '@/lib/roster/types';
@@ -82,6 +83,13 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     }
 
     await rosterStore().removePerson(id);
+
+    // Their session ends at Firebase as well. Losing the roster row is already enough
+    // — every request re-reads it, so they are refused on the next one — but leaving a
+    // live refresh token behind for somebody who has been removed is not tidy, and
+    // this is the moment to spend one call on it.
+    await revokeSessions(id).catch(() => undefined);
+
     return Response.json({ ok: true });
   } catch (error) {
     const refused = unauthorisedResponse(error);
