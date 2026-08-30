@@ -25,8 +25,7 @@ import { GoogleGenAI, Type, type Content, type Part } from '@google/genai';
 
 import { GEMINI_MODEL, requireEnv } from '../config';
 import type { DeckMeta, DeckRecord, DeckSlide, SlideRole } from '../deck-types';
-import { assetStore } from '../decks/registry';
-import { pageAssetName } from '../decks/asset-paths';
+import { IMAGE_INSTRUCTION, slideImageParts } from './slide-images';
 
 /**
  * Bumped when the prompts or schemas change in a way that would produce a different
@@ -37,25 +36,10 @@ export const OUTLINE_PROMPT_VERSION = 1;
 /** Pages per slide-detail call. */
 export const OUTLINE_BATCH_SIZE = 10;
 
-/**
- * Below this many words, a page's text does not say what the page is, so its
- * thumbnail is attached.
- *
- * Attaching every thumbnail would be simpler and six times the cost: a page at 768
- * across is one image tile, and sixty of those is most of the budget for reading a
- * deck. Most pages have text that speaks for itself; the ones that do not are
- * usually a diagram, and those are exactly the ones worth looking at.
- */
-const WORDS_BEFORE_IMAGE_HELPS = 12;
-
 /** What one page contributes to a whole-deck view. */
 function pageHeadline(slide: DeckSlide): string {
   const first = slide.bullets.find((line) => line.trim().length > 0) ?? '(no text)';
   return `Page ${slide.id}: ${first.slice(0, 120)}`;
-}
-
-function wordsOn(slide: DeckSlide): number {
-  return slide.bullets.reduce((total, line) => total + line.split(/\s+/).filter(Boolean).length, 0);
 }
 
 // ===========================================================================
@@ -328,6 +312,8 @@ ${pages
 
 Return one entry per page listed, and no others.
 
+${IMAGE_INSTRUCTION}
+
 For the title, start from the line set in the largest type. If it reads as a heading, keep it and keep its capitalisation. If it is a code snippet, a diagram label, or a fragment that stops mid-clause, ignore it and write a short heading of your own in sentence case that says what the page is about. A title appears in a navigation chip and is read by a trainee, so it has to read like a title.
 
 Summaries appear to a trainee as a list of what the session covers, so write the substance directly. "How an uploaded deck becomes a session" reads as a contents entry; "This page describes how an uploaded deck becomes a session" reads as a report about a document, and it is what every model writes unless told not to.
@@ -374,20 +360,7 @@ export async function analyseSlideBatch(
 
   const parts: Part[] = [{ text: slideBatchPrompt(deck, meta, pages) }];
 
-  // Thumbnails, only where the text does not speak for itself.
-  const store = assetStore();
-  for (const slide of pages) {
-    if (wordsOn(slide) >= WORDS_BEFORE_IMAGE_HELPS) continue;
-    const asset = await store.get(deck.meta.id, pageAssetName(slide.id, 'thumb')).catch(() => null);
-    if (!asset) continue;
-    parts.push({ text: `Image of page ${slide.id}:` });
-    parts.push({
-      inlineData: {
-        mimeType: asset.contentType,
-        data: Buffer.from(asset.bytes).toString('base64'),
-      },
-    });
-  }
+  parts.push(...(await slideImageParts(deck, pages)));
 
   const contents: Content[] = [{ role: 'user', parts }];
 

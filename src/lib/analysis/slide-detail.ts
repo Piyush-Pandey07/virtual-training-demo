@@ -27,17 +27,13 @@ import { GoogleGenAI, Type, type Content, type Part } from '@google/genai';
 
 import { GEMINI_MODEL, requireEnv } from '../config';
 import type { DeckMeta, DeckRecord, DeckSlide } from '../deck-types';
-import { pageAssetName } from '../decks/asset-paths';
-import { assetStore } from '../decks/registry';
+import { IMAGE_INSTRUCTION, slideImageParts } from './slide-images';
 
 /** Bumped when these prompts change enough to produce a different answer. */
 export const DETAIL_PROMPT_VERSION = 1;
 
 /** Pages per call. Smaller than the outline pass: each page returns far more text. */
 export const DETAIL_BATCH_SIZE = 5;
-
-/** Below this many words a page's text does not say what it is, so its image goes too. */
-const WORDS_BEFORE_IMAGE_HELPS = 12;
 
 /** Exactly what the hand-authored deck carries on every slide. */
 const DISCUSSION_PROMPTS = 2;
@@ -95,10 +91,6 @@ const SLIDE_DETAIL_SCHEMA = {
   },
 } as const;
 
-function wordsOn(slide: DeckSlide): number {
-  return slide.bullets.reduce((total, line) => total + line.split(/\s+/).filter(Boolean).length, 0);
-}
-
 /**
  * The word budget the trainer will actually be held to on this page.
  *
@@ -136,6 +128,8 @@ ${pages
 
 Return one entry per page listed, and no others.
 
+${IMAGE_INSTRUCTION}
+
 THE THING THAT GOES WRONG
 A brief that says explain this and also this and also this is a length instruction wearing a disguise, and the trainer obeys the brief over its word budget. Every page here has a word budget, and most pages carry more than fits.
 
@@ -166,22 +160,7 @@ export async function analyseSlideDetail(
   const ai = new GoogleGenAI({ apiKey: requireEnv('GEMINI_API_KEY') });
   const parts: Part[] = [{ text: detailPrompt(deck, meta, pages) }];
 
-  // Thumbnails, only where the text does not speak for itself. A page at 768 across
-  // is one image tile, so attaching every one of them multiplies the cost of reading
-  // a deck for pages whose text already says what they are.
-  const store = assetStore();
-  for (const slide of pages) {
-    if (wordsOn(slide) >= WORDS_BEFORE_IMAGE_HELPS) continue;
-    const asset = await store.get(deck.meta.id, pageAssetName(slide.id, 'thumb')).catch(() => null);
-    if (!asset) continue;
-    parts.push({ text: `Image of page ${slide.id}:` });
-    parts.push({
-      inlineData: {
-        mimeType: asset.contentType,
-        data: Buffer.from(asset.bytes).toString('base64'),
-      },
-    });
-  }
+  parts.push(...(await slideImageParts(deck, pages)));
 
   const contents: Content[] = [{ role: 'user', parts }];
 

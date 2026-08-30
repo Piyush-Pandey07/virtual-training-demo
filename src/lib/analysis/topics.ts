@@ -30,24 +30,34 @@
 
 import 'server-only';
 
-import { GoogleGenAI, Type, type Content } from '@google/genai';
+import { GoogleGenAI, Type, type Content, type Part } from '@google/genai';
 
 import { GEMINI_MODEL, requireEnv } from '../config';
 import type { DeckMeta, DeckRecord, DeckSlide } from '../deck-types';
 import { normalise, scoreAgainstQuestion } from '../knowledge';
 import type { KnowledgeTopic } from '../knowledge/types';
+import { IMAGE_INSTRUCTION, slideImageParts } from './slide-images';
 
 /** Bumped when these prompts change enough to produce a different answer. */
 export const TOPICS_PROMPT_VERSION = 1;
 
 /**
- * Slides per call.
+ * Slides per call. One.
  *
- * Smaller than either earlier pass. A topic carries five explanation lines, examples,
- * misconceptions and questions, so three slides of them is already a long response and
- * six would risk the model thinning every topic to fit.
+ * It was three, to keep the number of calls down. Measured on a real deck, the same
+ * page analysed alone rather than alongside two others got five topics instead of
+ * three, 496 words of explanation instead of 268, ten misconceptions instead of
+ * three, and ten questions instead of six — and the call was *faster*, 35 seconds
+ * against 48, because the response it was struggling to fit is what took the time.
+ *
+ * The batching was not saving anything worth having. A model asked about three pages
+ * at once writes a third as much about each of them, which is the whole difference
+ * between expertise a trainer can answer from and a summary of the slide.
+ *
+ * Set TOPICS_BATCH_SIZE higher only if the number of calls per deck becomes a real
+ * constraint, and know what it costs.
  */
-export const TOPICS_BATCH_SIZE = 3;
+export const TOPICS_BATCH_SIZE = 1;
 
 /**
  * Topics per slide, from the time the slide has.
@@ -191,6 +201,10 @@ ${pages
 
 Write topics only for the pages listed above. Return the most important first: the order is used as the teaching priority when there is not time for all of them.
 
+${IMAGE_INSTRUCTION}
+
+A page whose meaning is a picture is where this matters most. A trainee looking at a diagram asks about the diagram, and a topic written from the caption alone cannot answer them.
+
 WHERE YOUR AUTHORITY ENDS
 This is general professional knowledge, not ${meta.owner} policy. You do not know this organisation's retention periods, approved tools, named systems, exception processes, contact details or figures, and inventing one is worse than every other mistake available to you, because the trainer will state it as policy and a trainee will act on it. Where a question needs one, put it in outOfScope so the trainer names the gap instead.
 
@@ -207,9 +221,14 @@ export async function analyseTopics(
   if (pages.length === 0) return [];
 
   const ai = new GoogleGenAI({ apiKey: requireEnv('GEMINI_API_KEY') });
-  const contents: Content[] = [
-    { role: 'user', parts: [{ text: topicsPrompt(deck, meta, pages) }] },
-  ];
+
+  // This pass ran blind until now, which was the worst place for it to. The other two
+  // describe a page; this one writes what a practitioner knows about what is on it,
+  // and half the time what is on it is a diagram.
+  const parts: Part[] = [{ text: topicsPrompt(deck, meta, pages) }];
+  parts.push(...(await slideImageParts(deck, pages)));
+
+  const contents: Content[] = [{ role: 'user', parts }];
 
   const result = await ai.models.generateContent({
     model: GEMINI_MODEL(),

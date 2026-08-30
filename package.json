@@ -18,7 +18,9 @@
     "prompt-size": "tsx --conditions react-server scripts/prompt-size.ts",
     "answer-quality": "tsx --conditions react-server scripts/answer-quality.ts",
     "ablate": "tsx --conditions react-server scripts/ablate-answer-prompt.ts",
-    "migrate-roster": "tsx --conditions react-server --env-file=.env.local scripts/migrate-roster.ts"
+    "migrate-roster": "tsx --conditions react-server --env-file=.env.local scripts/migrate-roster.ts",
+    "compare-models": "tsx --conditions react-server --env-file=.env.local scripts/compare-analysis-models.ts",
+    "compare-batch": "tsx --conditions react-server --env-file=.env.local scripts/compare-batch-size.ts"
   },
   "overrides": {
     "jose": "^5.10.0"

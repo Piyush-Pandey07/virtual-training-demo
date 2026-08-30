@@ -5,28 +5,37 @@ import { useState } from 'react';
 
 import { MIN_PASSWORD_LENGTH, passwordProblem } from '@/lib/auth/password';
 import { explainAuthError, sendReset, signInWithPassword } from '@/lib/firebase/client';
+import type { Role } from '@/lib/roster/types';
 
 type Mode = 'signin' | 'first';
 
 /**
  * Signing in, and setting a password the first time.
  *
- * One form with two modes rather than two pages, because from the person's side it
- * is one question — let me in — and which of the two applies is not something they
- * should have to work out before typing anything.
+ * The two buttons at the top choose which kind of person is signing in. They do not
+ * choose the role, and cannot: whoever holds the page could otherwise pick
+ * administrator. The role comes from the roster, decided on the server, exactly as it
+ * did before this control existed.
  *
- * Neither mode is open registration. Setting a password works only for an address an
- * administrator has already added, which the server checks; this form cannot tell in
- * advance whether it will succeed, and does not pretend to.
+ * What they do is set expectations and where somebody lands, and — more usefully —
+ * they make a mismatch something the person is told about rather than something they
+ * puzzle over. Somebody who picks HR and turns out to be a trainee is shown their own
+ * training with a line saying so, instead of an administrator's page they cannot see
+ * quietly not appearing.
+ *
+ * One form under both, because from the person's side it is one question — let me in —
+ * and which case applies is not something they should work out before typing anything.
  */
 export function PasswordSignIn({ next }: { next: string }) {
   const router = useRouter();
+  const [expecting, setExpecting] = useState<Role>('trainee');
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
 
   const weak = mode === 'first' && password ? passwordProblem(password, email) : null;
@@ -39,7 +48,7 @@ export function PasswordSignIn({ next }: { next: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
     });
-    const result = (await response.json()) as { error?: string };
+    const result = (await response.json()) as { error?: string; role?: Role };
 
     if (!response.ok) {
       // Refused by us rather than by Firebase. Drop the browser-side session too, or
@@ -49,6 +58,15 @@ export function PasswordSignIn({ next }: { next: string }) {
       throw new Error(result.error ?? 'That sign-in was refused.');
     }
 
+    // The role the server decided, which is the only one that counts.
+    if (result.role && result.role !== expecting) {
+      setNote(
+        result.role === 'trainee'
+          ? 'You are signed in as a trainee. If you should have administrator access, ask whoever runs your training.'
+          : 'You are signed in as an administrator.',
+      );
+    }
+
     router.push(next);
     router.refresh();
   }
@@ -56,6 +74,7 @@ export function PasswordSignIn({ next }: { next: string }) {
   async function submit() {
     setBusy(true);
     setError(null);
+    setNote(null);
     setResetSent(false);
     try {
       if (mode === 'first') {
@@ -105,14 +124,59 @@ export function PasswordSignIn({ next }: { next: string }) {
   const field =
     'bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset';
 
+  const CHOICES: Array<{ role: Role; label: string; blurb: string }> = [
+    {
+      role: 'trainee',
+      label: 'Trainee',
+      blurb: 'Attend the training you have been given.',
+    },
+    {
+      role: 'admin',
+      label: 'HR or manager',
+      blurb: 'Upload decks, assign them, and see who has attended.',
+    },
+  ];
+
   return (
     <form
-      className="space-y-4"
+      className="space-y-5"
       onSubmit={(event) => {
         event.preventDefault();
         if (email.trim() && password && !weak) void submit();
       }}
     >
+      <div>
+        <div
+          role="radiogroup"
+          aria-label="What are you signing in as?"
+          className="border-charcoal-line grid grid-cols-2 gap-1 rounded-lg border p-1"
+        >
+          {CHOICES.map((choice) => {
+            const on = expecting === choice.role;
+            return (
+              <button
+                key={choice.role}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => {
+                  setExpecting(choice.role);
+                  setNote(null);
+                }}
+                className={`rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
+                  on ? 'bg-azure text-mist' : 'text-muted hover:text-mist'
+                }`}
+              >
+                {choice.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-muted mt-2 text-xs leading-relaxed">
+          {CHOICES.find((choice) => choice.role === expecting)?.blurb}
+        </p>
+      </div>
+
       <div>
         <label htmlFor="email" className="block text-sm font-semibold">
           Email
@@ -174,7 +238,7 @@ export function PasswordSignIn({ next }: { next: string }) {
         {busy ? 'Just a moment' : mode === 'first' ? 'Set password and sign in' : 'Sign in'}
       </button>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           disabled={busy}
@@ -182,6 +246,7 @@ export function PasswordSignIn({ next }: { next: string }) {
             setMode(mode === 'signin' ? 'first' : 'signin');
             setPassword('');
             setError(null);
+            setNote(null);
             setResetSent(false);
           }}
           className="text-muted hover:text-teal text-sm transition-colors disabled:opacity-50"
@@ -200,6 +265,8 @@ export function PasswordSignIn({ next }: { next: string }) {
           </button>
         )}
       </div>
+
+      {note && <p className="border-azure/40 bg-azure/10 rounded-md border p-3 text-sm">{note}</p>}
 
       {resetSent && (
         <p className="border-teal/40 bg-teal/10 rounded-md border p-3 text-sm">
