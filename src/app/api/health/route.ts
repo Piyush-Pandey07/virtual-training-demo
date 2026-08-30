@@ -21,6 +21,7 @@ import {
   GEMINI_MODEL,
 } from '@/lib/config';
 import { deckStore, listDecks } from '@/lib/decks/registry';
+import { rosterStore } from '@/lib/roster/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,6 +60,21 @@ export interface HealthResponse {
      */
     error?: string;
   };
+  /**
+   * Which roster tier is in use, and how many people are in it.
+   *
+   * Added after a deployment moved itself from blob storage to Firestore and there
+   * was no way to see that it had. The people simply appeared to be gone, and the
+   * only reported store was the deck one, which had not changed. A tier that swaps
+   * underneath a running deployment is exactly the class of thing this endpoint
+   * exists to make visible.
+   */
+  roster: {
+    store: 'firestore' | 'blob' | 'filesystem' | 'none';
+    writable: boolean;
+    people: number;
+    error?: string;
+  };
 }
 
 function isSet(name: string): boolean {
@@ -78,6 +94,13 @@ export async function GET() {
     return [];
   });
 
+  const roster = rosterStore();
+  let rosterError: string | undefined;
+  const people = await roster.listPeople().catch((error: unknown) => {
+    rosterError = error instanceof Error ? error.message : 'unknown storage failure';
+    return [];
+  });
+
   const body: HealthResponse = {
     ready: missing.length === 0,
     missing,
@@ -92,6 +115,12 @@ export async function GET() {
       writable: store.writable,
       count: decks.length,
       ...(deckError ? { error: deckError } : {}),
+    },
+    roster: {
+      store: roster.kind,
+      writable: roster.writable,
+      people: people.length,
+      ...(rosterError ? { error: rosterError } : {}),
     },
   };
 
