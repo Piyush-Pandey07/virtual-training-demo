@@ -14,7 +14,7 @@
  */
 
 import { passwordProblem } from '@/lib/auth/password';
-import { emailAllowed, isBootstrapAdmin } from '@/lib/auth/roles';
+import { emailAllowed, isBootstrapAdmin, selfEnrolmentAllowed } from '@/lib/auth/roles';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
@@ -53,7 +53,12 @@ export async function POST(request: Request) {
     const store = rosterStore();
     const known = await store.getPersonByEmail(email);
 
-    if (!known && !isBootstrapAdmin(email)) {
+    // Somebody has vouched for this address: an administrator put it on the roster, or
+    // the deployment names it as an administrator. Anybody else is enrolling themselves,
+    // which is allowed on a configured company domain and nowhere else.
+    const vouched = Boolean(known) || isBootstrapAdmin(email);
+
+    if (!vouched && !selfEnrolmentAllowed(email)) {
       return Response.json(
         {
           error:
@@ -79,7 +84,12 @@ export async function POST(request: Request) {
     const weak = passwordProblem(body.password ?? '', email);
     if (weak) return Response.json({ error: weak }, { status: 400 });
 
-    const uid = await createAccount(email, body.password ?? '', body.name?.trim());
+    // A vouched address is trusted immediately. A self-enrolled one is not, and has to
+    // receive the verification mail the browser sends next before the sign-in route
+    // will issue it a session.
+    const uid = await createAccount(email, body.password ?? '', body.name?.trim(), {
+      verified: vouched,
+    });
 
     // Links the new account to the row an administrator already made, carrying across
     // any training assigned before this person had ever signed in.
@@ -87,8 +97,9 @@ export async function POST(request: Request) {
     if (!known && isBootstrapAdmin(email)) await store.setRole(person.id, 'admin');
 
     // No cookie here. The browser signs in with the password it has just chosen,
-    // through the one route that decides who somebody is.
-    return Response.json({ ok: true, email: person.email }, { status: 201 });
+    // through the one route that decides who somebody is -- unless it has to prove the
+    // address first, in which case `verify` tells it to send the mail and stop.
+    return Response.json({ ok: true, email: person.email, verify: !vouched }, { status: 201 });
   } catch (error) {
     if (error instanceof RosterStoreError) {
       return Response.json({ error: error.message }, { status: 503 });

@@ -65,6 +65,25 @@ export async function signInWithPassword(email: string, password: string): Promi
 }
 
 /**
+ * Proves somebody receives mail at the address they just claimed.
+ *
+ * Needs a signed-in user, because Firebase sends this on behalf of an account rather
+ * than an address -- so it signs in with the password just chosen, sends, and signs out
+ * again. Signing out matters: the account is not verified yet, so leaving the browser
+ * holding a session for it would let the next click try to open a session the server is
+ * about to refuse, and the person would read that refusal as the password being wrong.
+ */
+export async function sendVerification(email: string, password: string): Promise<void> {
+  const { sendEmailVerification, signOut } = await import('firebase/auth');
+  const credential = await signInWithEmailAndPassword(auth(), email.trim(), password);
+  try {
+    await sendEmailVerification(credential.user);
+  } finally {
+    await signOut(auth());
+  }
+}
+
+/**
  * Sends a reset email, and says nothing about whether the address is known.
  *
  * Firebase throws `auth/user-not-found` for an unknown address. Passing that through

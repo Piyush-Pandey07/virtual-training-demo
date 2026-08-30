@@ -97,14 +97,22 @@ export async function createAccount(
   email: string,
   password: string,
   name?: string,
+  options: { verified: boolean } = { verified: false },
 ): Promise<string> {
   const user = await getAuth(adminApp()).createUser({
     email,
     password,
     displayName: name || undefined,
-    // An administrator has already vouched for this address by adding it, which is
-    // the evidence a verification email would have gone looking for.
-    emailVerified: true,
+    // Verified only when somebody vouched for the address by putting it on the roster,
+    // which is the evidence a verification email would have gone looking for.
+    //
+    // Not a default, and deliberately so. This used to be an unconditional `true`,
+    // correct only while an administrator had to add every address first. Once anybody
+    // on the domain can enrol themselves, an unconditional `true` would let a stranger
+    // claim a colleague's address, receive the training assigned to it, and lock the
+    // real person out of their own account -- and the sign-in route would wave it
+    // through, because it trusts this flag.
+    emailVerified: options.verified,
   });
   return user.uid;
 }

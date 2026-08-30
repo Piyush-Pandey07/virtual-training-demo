@@ -4,7 +4,12 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { MIN_PASSWORD_LENGTH, passwordProblem } from '@/lib/auth/password';
-import { explainAuthError, sendReset, signInWithPassword } from '@/lib/firebase/client';
+import {
+  explainAuthError,
+  sendReset,
+  sendVerification,
+  signInWithPassword,
+} from '@/lib/firebase/client';
 import type { Role } from '@/lib/roster/types';
 
 type Mode = 'signin' | 'first';
@@ -37,6 +42,7 @@ export function PasswordSignIn({ next }: { next: string }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const [verifySent, setVerifySent] = useState(false);
 
   const weak = mode === 'first' && password ? passwordProblem(password, email) : null;
 
@@ -76,6 +82,7 @@ export function PasswordSignIn({ next }: { next: string }) {
     setError(null);
     setNote(null);
     setResetSent(false);
+    setVerifySent(false);
     try {
       if (mode === 'first') {
         const response = await fetch('/api/auth/register', {
@@ -83,13 +90,30 @@ export function PasswordSignIn({ next }: { next: string }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email.trim(), name: name.trim(), password }),
         });
-        const result = (await response.json()) as { error?: string; signIn?: boolean };
+        const result = (await response.json()) as {
+          error?: string;
+          signIn?: boolean;
+          verify?: boolean;
+        };
 
         if (!response.ok) {
           // An address that already has a password belongs in the other mode, so send
           // them there rather than making them find it.
           if (result.signIn) setMode('signin');
           throw new Error(result.error ?? 'That did not work.');
+        }
+
+        // Nobody vouched for this address, so it has to prove it before it gets a
+        // session. Stopping here rather than trying to sign in is the point: the
+        // attempt would be refused for being unverified, and "your email address is
+        // unverified" reads as a failure when it is the expected next step.
+        if (result.verify) {
+          await sendVerification(email.trim(), password);
+          setVerifySent(true);
+          setMode('signin');
+          setPassword('');
+          setBusy(false);
+          return;
         }
       }
 
@@ -248,6 +272,7 @@ export function PasswordSignIn({ next }: { next: string }) {
             setError(null);
             setNote(null);
             setResetSent(false);
+            setVerifySent(false);
           }}
           className="text-muted hover:text-teal text-sm transition-colors disabled:opacity-50"
         >
@@ -267,6 +292,13 @@ export function PasswordSignIn({ next }: { next: string }) {
       </div>
 
       {note && <p className="border-azure/40 bg-azure/10 rounded-md border p-3 text-sm">{note}</p>}
+
+      {verifySent && (
+        <p className="border-teal/40 bg-teal/10 rounded-md border p-3 text-sm">
+          Your password is set. Check your email for a link confirming the address is yours, then
+          come back and sign in.
+        </p>
+      )}
 
       {resetSent && (
         <p className="border-teal/40 bg-teal/10 rounded-md border p-3 text-sm">

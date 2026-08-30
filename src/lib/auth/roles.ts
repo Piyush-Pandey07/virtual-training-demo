@@ -69,6 +69,25 @@ export function emailAllowed(email: string): boolean {
 }
 
 /**
+ * Whether somebody may add themselves, rather than waiting for an administrator.
+ *
+ * Requires a configured domain that the address matches. That the domain list is
+ * non-empty is the whole safety argument: a deployment that has not named its domain
+ * would otherwise let any address on the internet enrol, so silence means closed.
+ *
+ * This does not make the address trustworthy on its own -- anybody can type a
+ * colleague's address into a form. What makes it safe is that a self-enrolled account
+ * has to prove it receives mail there before a session is issued; see the register
+ * route, which is the other half of this.
+ */
+export function selfEnrolmentAllowed(email: string): boolean {
+  const domains = allowedEmailDomains();
+  if (domains.size === 0) return false;
+
+  return domains.has(emailKeyOf(email).split('@')[1] ?? '');
+}
+
+/**
  * The role that actually applies.
  *
  * Not always the stored one: an address named in the deployment configuration is an

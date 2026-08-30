@@ -20,7 +20,12 @@
 
 import { cookies } from 'next/headers';
 
-import { effectiveRole, emailAllowed, isBootstrapAdmin } from '@/lib/auth/roles';
+import {
+  effectiveRole,
+  emailAllowed,
+  isBootstrapAdmin,
+  selfEnrolmentAllowed,
+} from '@/lib/auth/roles';
 import { SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
@@ -82,10 +87,16 @@ export async function POST(request: Request) {
   try {
     const store = rosterStore();
 
-    // Known here already, or named as an administrator by the deployment. Anything
-    // else is a Firebase account nobody added here, and it gets no session.
+    // Known here already, named as an administrator by the deployment, or on a company
+    // domain that admits its own people. Anything else is a Firebase account nobody
+    // added here, and it gets no session.
+    //
+    // The self-enrolled case is safe here and only here: the verified-address check
+    // above has already run, so reaching this line means Firebase saw them follow a
+    // link sent to that mailbox. Moving this check above that one would turn it into
+    // open registration for anybody who can spell the domain.
     const known = await store.getPersonByEmail(email);
-    if (!known && !isBootstrapAdmin(email)) {
+    if (!known && !isBootstrapAdmin(email) && !selfEnrolmentAllowed(email)) {
       return refuse(
         'There is no training account for that address. Ask whoever runs your training to add you.',
       );
