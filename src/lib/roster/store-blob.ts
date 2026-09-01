@@ -150,6 +150,7 @@ export class BlobRosterStore implements RosterStore {
         emailKey,
         name: input.name ?? '',
         role: input.role ?? 'trainee',
+        orgId: input.orgId,
         createdAt: now,
         lastSeenAt: input.id ? now : null,
       };
@@ -177,6 +178,15 @@ export class BlobRosterStore implements RosterStore {
       const person = people.find((entry) => entry.id === id);
       if (!person) throw new RosterStoreError(`No such person: ${id}`);
       person.role = role;
+      return { ...person };
+    });
+  }
+
+  async setOrgId(id: string, orgId: string): Promise<Person> {
+    return this.updateList<Person, Person>(PEOPLE, (people) => {
+      const person = people.find((entry) => entry.id === id);
+      if (!person) throw new RosterStoreError(`No such person: ${id}`);
+      person.orgId = orgId;
       return { ...person };
     });
   }

@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { after, beforeEach, describe, it } from 'node:test';
 
 import { coverageOf, percentComplete } from './completion';
-import { emailKeyOf, localPersonId, withCovered, type RosterStore } from './store';
+import {
+  emailKeyOf,
+  localPersonId,
+  RosterStoreError,
+  withCovered,
+  type RosterStore,
+} from './store';
 import type { BlobEntry, BlobClient } from '../decks/store-blob';
 import { InMemoryDocumentStore } from './documents';
 import { BlobRosterStore } from './store-blob';
@@ -77,6 +83,69 @@ function runContract(make: () => Promise<RosterStore>) {
 
   beforeEach(async () => {
     store = await make();
+  });
+
+  describe('which customer somebody belongs to', () => {
+    it('keeps the organisation a new person was created in', async () => {
+      const person = await store.upsertPerson({ email: 'aditi@acme.com', orgId: 'acme' });
+      assert.equal(person.orgId, 'acme');
+      assert.equal((await store.getPersonByEmail('aditi@acme.com'))?.orgId, 'acme');
+    });
+
+    it('refuses to move somebody when they sign in', async () => {
+      // upsertPerson runs on every single sign-in. An organisation it could write is
+      // an organisation that signing in could change — and since the whole isolation
+      // rests on which one somebody is in, that would be a way to walk into another
+      // customer's data by claiming to belong there.
+      const person = await store.upsertPerson({ email: 'aditi@acme.com', orgId: 'acme' });
+
+      const again = await store.upsertPerson({
+        id: person.id,
+        email: 'aditi@acme.com',
+        orgId: 'globex',
+      });
+
+      assert.equal(again.orgId, 'acme', 'signing in moved somebody to another customer');
+    });
+
+    it('moves somebody only through the deliberate path', async () => {
+      const person = await store.upsertPerson({ email: 'aditi@acme.com', orgId: 'acme' });
+
+      const moved = await store.setOrgId(person.id, 'globex');
+      assert.equal(moved.orgId, 'globex');
+      assert.equal((await store.getPerson(person.id))?.orgId, 'globex');
+    });
+
+    it('places a row that predates organisations', async () => {
+      // What the migration does. A row with no organisation belongs to nobody and is
+      // reachable by nobody once the stores are scoped, so this is the path out.
+      const person = await store.upsertPerson({ email: 'old@technavious.com' });
+      assert.equal(person.orgId, undefined);
+
+      const placed = await store.setOrgId(person.id, 'technavious');
+      assert.equal(placed.orgId, 'technavious');
+    });
+
+    it('refuses to place somebody who does not exist', async () => {
+      await assert.rejects(() => store.setOrgId('nobody', 'acme'), RosterStoreError);
+    });
+
+    it('leaves the organisation alone when a name or address is refreshed', async () => {
+      const person = await store.upsertPerson({
+        email: 'aditi@acme.com',
+        name: 'Aditi',
+        orgId: 'acme',
+      });
+
+      const renamed = await store.upsertPerson({
+        id: person.id,
+        email: 'aditi@acme.com',
+        name: 'Aditi Sharma',
+      });
+
+      assert.equal(renamed.name, 'Aditi Sharma');
+      assert.equal(renamed.orgId, 'acme', 'a rename dropped the organisation');
+    });
   });
 
   describe('people', () => {

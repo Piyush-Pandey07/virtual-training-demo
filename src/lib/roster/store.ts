@@ -28,6 +28,15 @@ export interface PersonInput {
   email: string;
   name?: string;
   role?: Role;
+  /**
+   * The customer this person belongs to.
+   *
+   * Set when the row is created and never changed by an update, for the same reason
+   * `role` is not: signing in must not be able to move somebody between customers.
+   * Moving them is a deliberate act with its own path, because it has to revoke their
+   * tokens as well — their organisation rides in the session cookie as a claim.
+   */
+  orgId?: string;
 }
 
 /** One slide finishing, from the server that verified it. */
@@ -61,6 +70,16 @@ export interface RosterStore {
   /** Creates on first sight, refreshes `lastSeenAt` and name after that. */
   upsertPerson(input: PersonInput): Promise<Person>;
   setRole(id: string, role: Role): Promise<Person>;
+  /**
+   * Moves somebody to another customer, or places a row that predates them.
+   *
+   * Separate from `upsertPerson` on purpose: that runs on every sign-in, and an
+   * organisation it could write would be an organisation signing in could change.
+   * This is the deliberate act, and callers must revoke the person's tokens after it
+   * — their organisation rides in the session cookie as a claim, so until the cookie
+   * is re-minted they keep reading the customer they just left.
+   */
+  setOrgId(id: string, orgId: string): Promise<Person>;
   removePerson(id: string): Promise<void>;
 
   listAssignmentsForPerson(personId: string): Promise<Assignment[]>;

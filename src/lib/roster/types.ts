@@ -13,6 +13,16 @@ export type Role = 'admin' | 'trainee';
 export interface Person {
   /** Stable identity. The auth provider's uid once sign-in exists. */
   id: string;
+  /**
+   * The customer company this person belongs to.
+   *
+   * Optional only while the deployment is being migrated: rows written before
+   * organisations existed have none, and a row with none belongs to nobody and is
+   * reachable by nobody. That is the right way for the gap to fail, and it is why
+   * this is not defaulted to a home organisation at read time — a default here would
+   * quietly hand every unmigrated row to whoever the default names.
+   */
+  orgId?: string;
   /** As the person spells it, for display. */
   email: string;
   /** Lower-cased and trimmed. The key everything joins on. */

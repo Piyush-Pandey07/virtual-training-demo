@@ -173,6 +173,7 @@ export class DocumentRosterStore implements RosterStore {
       emailKey,
       name: input.name ?? '',
       role: input.role ?? 'trainee',
+      orgId: input.orgId,
       createdAt: now,
       lastSeenAt: input.id ? now : null,
     };
@@ -184,6 +185,14 @@ export class DocumentRosterStore implements RosterStore {
     const person = await this.getPerson(id);
     if (!person) throw new RosterStoreError(`No such person: ${id}`);
     const updated = { ...person, role };
+    await this.docs.set(PEOPLE, id, updated);
+    return updated;
+  }
+
+  async setOrgId(id: string, orgId: string): Promise<Person> {
+    const person = await this.getPerson(id);
+    if (!person) throw new RosterStoreError(`No such person: ${id}`);
+    const updated = { ...person, orgId };
     await this.docs.set(PEOPLE, id, updated);
     return updated;
   }

@@ -149,6 +149,7 @@ export class FilesystemRosterStore implements RosterStore {
         emailKey,
         name: input.name ?? '',
         role: input.role ?? 'trainee',
+        orgId: input.orgId,
         createdAt: now,
         lastSeenAt: input.id ? now : null,
       };
@@ -162,6 +163,15 @@ export class FilesystemRosterStore implements RosterStore {
       const person = file.people.find((entry) => entry.id === id);
       if (!person) throw new RosterStoreError(`No such person: ${id}`);
       person.role = role;
+      return { ...person };
+    });
+  }
+
+  async setOrgId(id: string, orgId: string): Promise<Person> {
+    return this.update((file) => {
+      const person = file.people.find((entry) => entry.id === id);
+      if (!person) throw new RosterStoreError(`No such person: ${id}`);
+      person.orgId = orgId;
       return { ...person };
     });
   }

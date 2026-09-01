@@ -39,6 +39,9 @@ export class NoRosterStore implements RosterStore {
   async setRole(): Promise<Person> {
     refuse();
   }
+  async setOrgId(): Promise<Person> {
+    refuse();
+  }
   async removePerson(): Promise<void> {
     refuse();
   }

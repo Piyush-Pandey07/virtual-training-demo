@@ -35,18 +35,32 @@ function assertUsableDocId(id: string): void {
   }
 }
 
+/**
+ * The one Firestore handle, cached for the module rather than per call.
+ *
+ * `getFirestore(adminApp())` returns the same underlying instance every time, and
+ * `settings()` may be called on it exactly once and only before it is used. Caching
+ * inside `firestoreDocuments()` looked equivalent and was not: the second caller got
+ * its own empty cache, called `settings()` on an instance the first caller had already
+ * used, and threw "Firestore has already been initialized".
+ *
+ * That stayed hidden while the roster was the only consumer. It surfaced the moment
+ * organisations became a second one, which is the shape of most latent singleton bugs.
+ */
+let handle: Firestore | null = null;
+
+function db(): Firestore {
+  if (!handle) {
+    handle = getFirestore(adminApp());
+    // Undefined is what an optional field looks like in this codebase, and Firestore
+    // rejects it by default rather than treating it as absent. Ignoring it keeps the
+    // shapes here the same as everywhere else in the app.
+    handle.settings({ ignoreUndefinedProperties: true });
+  }
+  return handle;
+}
+
 export function firestoreDocuments(): DocumentStore {
-  let cached: Firestore | null = null;
-  const db = (): Firestore => {
-    if (!cached) {
-      cached = getFirestore(adminApp());
-      // Undefined is what an optional field looks like in this codebase, and Firestore
-      // rejects it by default rather than treating it as absent. Ignoring it keeps the
-      // shapes here the same as everywhere else in the app.
-      cached.settings({ ignoreUndefinedProperties: true });
-    }
-    return cached;
-  };
 
   return {
     kind: 'firestore',
