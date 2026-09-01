@@ -48,7 +48,11 @@ async function main(): Promise<void> {
   }
 
   const orgs = orgStore();
-  const roster = rosterStore();
+  // Reads the home organisation, which is where stage 1 placed everybody. A row with
+  // no organisation is invisible to a scoped store, so anything still homeless after
+  // that first run has to be found and placed by hand -- which is what the read-back
+  // at the end of this script reports.
+  const roster = rosterStore(HOME_ORG_ID);
 
   const people = await roster.listPeople();
   const homeless = people.filter((person) => !person.orgId);

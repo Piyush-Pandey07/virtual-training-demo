@@ -12,6 +12,7 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { currentPerson } from '@/lib/auth/session';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { trainingFor } from '@/lib/roster/report';
@@ -25,22 +26,30 @@ interface PersonPageProps {
 
 export async function generateMetadata({ params }: PersonPageProps): Promise<Metadata> {
   const { id } = await params;
-  const person = await rosterStore()
+  // Asks who is signed in rather than reading blind: `generateMetadata` runs outside
+  // the page's guard, and a name in a tab title is still somebody's name.
+  const viewer = await currentPerson();
+  if (!viewer) return { title: 'Technavious' };
+
+  const person = await rosterStore(viewer.orgId)
     .getPerson(id)
     .catch(() => undefined);
   return { title: person ? `${person.name || person.email} | Technavious` : 'Technavious' };
 }
 
 export default async function PersonPage({ params }: PersonPageProps) {
-  await requireAdminPage();
+  const admin = await requireAdminPage();
   const { id } = await params;
 
-  const person = await rosterStore()
+  const person = await rosterStore(admin.orgId)
     .getPerson(id)
     .catch(() => undefined);
   if (!person) notFound();
 
-  const [rows, decks] = await Promise.all([trainingFor(person), listDecks()]);
+  const [rows, decks] = await Promise.all([
+    trainingFor({ ...person, orgId: admin.orgId }),
+    listDecks(admin.orgId),
+  ]);
   const already = new Set(rows.map((row) => row.deckId));
 
   // Only published decks, and only ones they do not already have. A draft has not

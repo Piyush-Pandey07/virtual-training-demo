@@ -21,6 +21,7 @@
     "migrate-roster": "tsx --conditions react-server --env-file=.env.local scripts/migrate-roster.ts",
     "provision-org": "tsx --conditions react-server --env-file=.env.local scripts/provision-org.ts",
     "migrate-orgs": "tsx --conditions react-server --env-file=.env.local scripts/migrate-orgs.ts",
+    "migrate-decks": "tsx --conditions react-server --env-file=.env.local scripts/migrate-decks.ts",
     "compare-models": "tsx --conditions react-server --env-file=.env.local scripts/compare-analysis-models.ts",
     "compare-batch": "tsx --conditions react-server --env-file=.env.local scripts/compare-batch-size.ts"
   },

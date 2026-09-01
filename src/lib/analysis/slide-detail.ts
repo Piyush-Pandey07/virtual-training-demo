@@ -150,6 +150,7 @@ Ground the two prompts in work the audience would recognise: ${meta.exampleDomai
 
 /** Runs the teaching pass for one batch of pages. */
 export async function analyseSlideDetail(
+  orgId: string,
   deck: DeckRecord,
   meta: DeckMeta,
   pageNumbers: number[],
@@ -160,7 +161,7 @@ export async function analyseSlideDetail(
   const ai = new GoogleGenAI({ apiKey: requireEnv('GEMINI_API_KEY') });
   const parts: Part[] = [{ text: detailPrompt(deck, meta, pages) }];
 
-  parts.push(...(await slideImageParts(deck, pages)));
+  parts.push(...(await slideImageParts(orgId, deck, pages)));
 
   const contents: Content[] = [{ role: 'user', parts }];
 

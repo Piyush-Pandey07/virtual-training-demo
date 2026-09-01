@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
-import { deckStore, resetDeckStore } from './registry';
+import { deckStore, deckStorage, resetDeckStore } from './registry';
 
 /**
  * Which store gets used is decided from the environment, and getting it wrong is
@@ -36,22 +36,22 @@ describe('choosing a deck store', () => {
   it('uses blob storage when a token is present', () => {
     setEnv('BLOB_READ_WRITE_TOKEN', 'vercel_blob_rw_test');
     resetDeckStore();
-    assert.equal(deckStore().kind, 'blob');
-    assert.equal(deckStore().writable, true);
+    assert.equal(deckStorage().kind, 'blob');
+    assert.equal(deckStorage().writable, true);
   });
 
   it('prefers blob storage over the filesystem even on a developer machine', () => {
     setEnv('BLOB_READ_WRITE_TOKEN', 'vercel_blob_rw_test');
     setEnv('VERCEL', undefined);
     resetDeckStore();
-    assert.equal(deckStore().kind, 'blob');
+    assert.equal(deckStorage().kind, 'blob');
   });
 
   it('uses the filesystem locally when there is no token', () => {
     setEnv('BLOB_READ_WRITE_TOKEN', undefined);
     setEnv('VERCEL', undefined);
     resetDeckStore();
-    assert.equal(deckStore().kind, 'filesystem');
+    assert.equal(deckStorage().kind, 'filesystem');
   });
 
   it('falls back to the built-in deck on Vercel with no token', () => {
@@ -59,14 +59,23 @@ describe('choosing a deck store', () => {
     setEnv('BLOB_READ_WRITE_TOKEN', undefined);
     setEnv('VERCEL', '1');
     resetDeckStore();
-    assert.equal(deckStore().kind, 'seeded');
-    assert.equal(deckStore().writable, false);
+    assert.equal(deckStorage().kind, 'seeded');
+    assert.equal(deckStorage().writable, false);
   });
 
-  it('resolves the store once, so seeding is not re-checked per request', () => {
+  it('resolves a customer store once, so seeding is not re-checked per request', () => {
     setEnv('BLOB_READ_WRITE_TOKEN', undefined);
     setEnv('VERCEL', undefined);
     resetDeckStore();
-    assert.equal(deckStore(), deckStore());
+    assert.equal(deckStore('acme'), deckStore('acme'));
+  });
+
+  it('gives two customers two different stores', () => {
+    // The cache is per customer now. One shared store would have handed Globex's
+    // request whichever customer happened to ask first after a cold start.
+    setEnv('BLOB_READ_WRITE_TOKEN', undefined);
+    setEnv('VERCEL', undefined);
+    resetDeckStore();
+    assert.notEqual(deckStore('acme'), deckStore('globex'));
   });
 });

@@ -61,7 +61,6 @@ function db(): Firestore {
 }
 
 export function firestoreDocuments(): DocumentStore {
-
   return {
     kind: 'firestore',
 

@@ -16,7 +16,9 @@
 
 import { vercelBlobClient } from '../src/lib/decks/store-blob';
 import { firestoreDocuments } from '../src/lib/firebase/firestore';
-import { BlobRosterStore } from '../src/lib/roster/store-blob';
+import { HOME_ORG_ID } from '../src/lib/orgs/types';
+import { scopedDocuments } from '../src/lib/orgs/scope';
+import { BlobRosterStore, LEGACY_ROSTER_ROOT } from '../src/lib/roster/store-blob';
 import { DocumentRosterStore } from '../src/lib/roster/store-documents';
 
 async function main() {
@@ -26,8 +28,11 @@ async function main() {
     process.exit(1);
   }
 
-  const from = new BlobRosterStore(vercelBlobClient(token));
-  const to = new DocumentRosterStore(firestoreDocuments());
+  // Both ends are named explicitly. This script predates customers: it reads the one
+  // unscoped roster that existed then and writes into the home organisation, which is
+  // where stage 1 put everybody who was already here.
+  const from = new BlobRosterStore(vercelBlobClient(token), LEGACY_ROSTER_ROOT);
+  const to = new DocumentRosterStore(scopedDocuments(firestoreDocuments(), HOME_ORG_ID));
 
   const people = await from.listPeople();
   console.log(`${people.length} people`);

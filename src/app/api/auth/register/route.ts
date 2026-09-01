@@ -15,6 +15,7 @@
 
 import { passwordProblem } from '@/lib/auth/password';
 import { emailAllowed, isBootstrapAdmin, selfEnrolmentAllowed } from '@/lib/auth/roles';
+import { orgStore } from '@/lib/orgs/registry';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
@@ -50,7 +51,31 @@ export async function POST(request: Request) {
   }
 
   try {
-    const store = rosterStore();
+    // Which customer this address belongs to, before any roster is read. A domain no
+    // customer has claimed is refused in the same words as an unknown account, because
+    // from outside they are the same thing and the difference is not something a
+    // stranger should be able to probe for.
+    const orgs = orgStore();
+    const orgId = await orgs.orgIdForEmail(email).catch(() => undefined);
+    if (!orgId) {
+      return Response.json(
+        {
+          error:
+            'There is no training account for that address. Ask whoever runs your training to add you.',
+        },
+        { status: 403 },
+      );
+    }
+
+    const organisation = await orgs.get(orgId).catch(() => undefined);
+    if (organisation?.status === 'suspended') {
+      return Response.json(
+        { error: 'Training for this organisation is currently suspended.' },
+        { status: 403 },
+      );
+    }
+
+    const store = rosterStore(orgId);
     const known = await store.getPersonByEmail(email);
 
     // Somebody has vouched for this address: an administrator put it on the roster, or

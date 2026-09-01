@@ -20,7 +20,7 @@
 import { orgStore, orgsConfigured } from '../src/lib/orgs/registry';
 import { OrgStoreError } from '../src/lib/orgs/store';
 import { rosterStore } from '../src/lib/roster/registry';
-import { RosterStoreError } from '../src/lib/roster/store';
+import { emailKeyOf, RosterStoreError } from '../src/lib/roster/store';
 
 interface Options {
   id?: string;
@@ -120,14 +120,18 @@ async function main(): Promise<void> {
   );
 
   if (options.admin) {
-    const roster = rosterStore();
-    const existing = await roster.getPersonByEmail(options.admin);
-    if (existing) {
+    // Asked of the directory, not of the new customer's roster. That roster is empty
+    // by definition, so a check against it would never fire -- and the case worth
+    // catching is precisely somebody who already exists in a *different* customer.
+    const held = await orgStore().orgIdHolding(emailKeyOf(options.admin));
+    if (held) {
       throw new OrgStoreError(
-        `${options.admin} is already on the roster, in "${existing.orgId ?? 'no organisation'}". ` +
-          'Move them deliberately rather than through provisioning.',
+        `${options.admin} already belongs to "${held}". ` +
+          'Somebody belongs to one customer; move them deliberately rather than through provisioning.',
       );
     }
+
+    const roster = rosterStore(organisation.id);
 
     const person = await roster.upsertPerson({
       email: options.admin,

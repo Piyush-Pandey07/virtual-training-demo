@@ -12,6 +12,9 @@ import { BlobDeckStore, type BlobClient, type BlobEntry } from './store-blob';
 import { FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
 
+/** One customer's prefix. The stores are scoped at construction, so tests are too. */
+const TEST_DECK_BASE = 'orgs/test-org/decks';
+
 /** A second deck, so listing and defaulting are exercised with more than one. */
 function otherDeck(): DeckRecord {
   return {
@@ -231,7 +234,7 @@ const tempRoots: string[] = [];
 const harnesses: Harness[] = [
   {
     name: 'blob',
-    make: async () => new BlobDeckStore(fakeBlobClient()),
+    make: async () => new BlobDeckStore(fakeBlobClient(), TEST_DECK_BASE),
     cleanup: async () => {},
   },
   {
@@ -331,30 +334,35 @@ for (const harness of harnesses) {
 describe('the blob store lays keys out as a prefix per deck', () => {
   it('writes deck.json and meta.json under the deck id', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
 
     assert.deepEqual(
       [...client.objects.keys()].sort(),
       // The marker and the index both sit beside the decks rather than inside one,
       // so they survive a deck being deleted, which is the whole point of the marker.
-      ['decks/.seeded', 'decks/index.json', 'decks/isms/deck.json', 'decks/isms/meta.json'],
+      [
+        `${TEST_DECK_BASE}/.seeded`,
+        `${TEST_DECK_BASE}/index.json`,
+        `${TEST_DECK_BASE}/isms/deck.json`,
+        `${TEST_DECK_BASE}/isms/meta.json`,
+      ],
     );
   });
 
   it('only counts a deck as present once deck.json exists', async () => {
     // A half-finished upload should be invisible rather than a broken library entry.
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
-    client.objects.delete('decks/isms/deck.json');
+    client.objects.delete(`${TEST_DECK_BASE}/isms/deck.json`);
 
     assert.deepEqual(await store.list(), []);
   });
 
   it('seeds once, not on every call', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
     const afterFirst = client.puts;
     await store.list();
@@ -365,19 +373,19 @@ describe('the blob store lays keys out as a prefix per deck', () => {
 
   it('reports why a corrupt deck cannot be opened', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
-    client.objects.set('decks/isms/deck.json', '{"version":1,"record":{"meta":{}}}');
+    client.objects.set(`${TEST_DECK_BASE}/isms/deck.json`, '{"version":1,"record":{"meta":{}}}');
 
     await assert.rejects(() => store.get('isms'), DeckInvalidError);
   });
 
   it('keeps the library usable when one deck is corrupt', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
     await store.save(otherDeck(), 'published');
-    client.objects.set('decks/isms/deck.json', 'not json at all');
+    client.objects.set(`${TEST_DECK_BASE}/isms/deck.json`, 'not json at all');
 
     const decks = await store.list();
     assert.deepEqual(
@@ -394,9 +402,9 @@ describe('the blob store lays keys out as a prefix per deck', () => {
     // meta.json second: a failure between the two would otherwise promote an
     // unreviewed, model-generated deck to published and put it in front of a trainee.
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
-    client.objects.set('decks/isms/meta.json', 'not json');
+    client.objects.set(`${TEST_DECK_BASE}/isms/meta.json`, 'not json');
 
     const stored = await store.get('isms');
     assert.ok(stored);
@@ -406,9 +414,9 @@ describe('the blob store lays keys out as a prefix per deck', () => {
 
   it('reads a deck whose meta.json is missing entirely as a draft too', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
-    client.objects.delete('decks/isms/meta.json');
+    client.objects.delete(`${TEST_DECK_BASE}/isms/meta.json`);
 
     const stored = await store.get('isms');
     assert.ok(stored);
@@ -560,7 +568,7 @@ describe('publish readiness', () => {
 describe('recovering from a store emptied underneath the process', () => {
   it('re-seeds when everything including the marker has gone', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
     assert.ok(await store.get('isms'));
 
@@ -575,7 +583,7 @@ describe('recovering from a store emptied underneath the process', () => {
   it('still leaves a deliberately deleted deck deleted', async () => {
     // remove() leaves the marker, so this must not come back.
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
     await store.remove('isms');
 
@@ -608,7 +616,7 @@ describe('recovering from a store emptied underneath the process', () => {
 describe('what a blob read costs in round trips', () => {
   it('reads a deck without listing anything', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.save(ISMS_DECK, 'published');
 
     client.lists = 0;
@@ -618,7 +626,7 @@ describe('what a blob read costs in round trips', () => {
 
   it('does not ask the API for the library at all once the index exists', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     for (const id of ['alpha', 'beta', 'gamma', 'delta']) {
       await store.save({ ...ISMS_DECK, meta: { ...ISMS_DECK.meta, id } }, 'published');
     }
@@ -637,7 +645,7 @@ describe('what a blob read costs in round trips', () => {
     // The marker check is cached per process. Without that, each request paid for it
     // again before doing any of its own work.
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.list();
 
     const before = client.reads;
@@ -651,23 +659,23 @@ describe('what a blob read costs in round trips', () => {
 
   it('falls back to the API when the index is missing, and writes it back', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.save(ISMS_DECK, 'published');
-    client.objects.delete('decks/index.json');
+    client.objects.delete(`${TEST_DECK_BASE}/index.json`);
 
     client.lists = 0;
     const listed = await store.list();
 
     assert.equal(listed.length, 1);
     assert.equal(client.lists, 1, 'should have asked the API once');
-    assert.ok(client.objects.has('decks/index.json'), 'should have rebuilt the index');
+    assert.ok(client.objects.has(`${TEST_DECK_BASE}/index.json`), 'should have rebuilt the index');
   });
 
   it('falls back to the API when the index is not readable as JSON', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.save(ISMS_DECK, 'published');
-    client.objects.set('decks/index.json', 'not json at all');
+    client.objects.set(`${TEST_DECK_BASE}/index.json`, 'not json at all');
 
     const listed = await store.list();
     assert.equal(listed.length, 1);
@@ -675,11 +683,13 @@ describe('what a blob read costs in round trips', () => {
 
   it('drops a deleted deck from the index', async () => {
     const client = fakeBlobClient();
-    const store = new BlobDeckStore(client);
+    const store = new BlobDeckStore(client, TEST_DECK_BASE);
     await store.save({ ...ISMS_DECK, meta: { ...ISMS_DECK.meta, id: 'temp' } }, 'published');
     await store.remove('temp');
 
-    const index = JSON.parse(client.objects.get('decks/index.json') ?? '{}') as { ids: string[] };
+    const index = JSON.parse(client.objects.get(`${TEST_DECK_BASE}/index.json`) ?? '{}') as {
+      ids: string[];
+    };
     assert.ok(!index.ids.includes('temp'));
   });
 });

@@ -13,6 +13,7 @@
 import { cookies } from 'next/headers';
 
 import { DEV_SESSION_COOKIE, devAuthEnabled } from '@/lib/auth/session';
+import { HOME_ORG_ID } from '@/lib/orgs/types';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 
@@ -38,7 +39,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Request body must be JSON.' }, { status: 400 });
   }
 
-  const store = rosterStore();
+  // Local development only -- this route refuses to exist wherever real sign-in
+  // works, so there is one customer here and it is the deployment's own.
+  const store = rosterStore(HOME_ORG_ID);
 
   try {
     // Either sign in as somebody already known, or add them and sign in as them,

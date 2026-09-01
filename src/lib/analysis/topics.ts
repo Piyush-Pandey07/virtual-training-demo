@@ -213,6 +213,7 @@ Do not cite a standard, a clause or a control number. Not even one you are confi
 
 /** Runs the expertise pass for one batch of slides. */
 export async function analyseTopics(
+  orgId: string,
   deck: DeckRecord,
   meta: DeckMeta,
   pageNumbers: number[],
@@ -226,7 +227,7 @@ export async function analyseTopics(
   // describe a page; this one writes what a practitioner knows about what is on it,
   // and half the time what is on it is a diagram.
   const parts: Part[] = [{ text: topicsPrompt(deck, meta, pages) }];
-  parts.push(...(await slideImageParts(deck, pages)));
+  parts.push(...(await slideImageParts(orgId, deck, pages)));
 
   const contents: Content[] = [{ role: 'user', parts }];
 

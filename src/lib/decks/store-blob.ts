@@ -60,7 +60,13 @@ export interface BlobClient {
   read(pathname: string): Promise<string | null>;
 }
 
-const ROOT = 'decks';
+/**
+ * Where decks lived before there were customers.
+ *
+ * Exported only so the migration can point a store at the old location and read what
+ * is there. Nothing in the running app builds a deck store without an organisation.
+ */
+export const LEGACY_DECK_ROOT = 'decks';
 
 /**
  * Marks that the built-in decks have already been copied in.
@@ -69,7 +75,7 @@ const ROOT = 'decks';
  * state after someone deletes the only deck. An in-process flag is not enough
  * either: each serverless cold start is a fresh process and would seed again.
  */
-const SEED_MARKER = `${ROOT}/.seeded`;
+const SEED_MARKER_NAME = '.seeded';
 
 /**
  * Which decks exist, as an object rather than a question asked of the API.
@@ -83,7 +89,7 @@ const SEED_MARKER = `${ROOT}/.seeded`;
  * does not parse, falls back to a real listing and writes the result back, so the
  * worst a damaged index can do is cost one slow request.
  */
-const INDEX = `${ROOT}/index.json`;
+const INDEX_NAME = 'index.json';
 
 export class BlobDeckStore implements DeckStore {
   readonly kind = 'blob' as const;
@@ -93,11 +99,27 @@ export class BlobDeckStore implements DeckStore {
   /** True while seeding, so the saves it performs do not recurse. */
   private seeding = false;
 
-  constructor(private readonly client: BlobClient) {}
+  /**
+   * @param base every path this store touches sits under it, e.g. `orgs/acme/decks`.
+   *   Required rather than defaulted: a default would be a way to read every
+   *   customer's decks at once, which is the thing this exists to prevent.
+   */
+  constructor(
+    private readonly client: BlobClient,
+    private readonly base: string,
+  ) {}
+
+  private get seedMarker(): string {
+    return `${this.base}/${SEED_MARKER_NAME}`;
+  }
+
+  private get index(): string {
+    return `${this.base}/${INDEX_NAME}`;
+  }
 
   private prefix(id: string): string {
     assertUsableDeckId(id);
-    return `${ROOT}/${id}`;
+    return `${this.base}/${id}`;
   }
 
   /**
@@ -112,7 +134,7 @@ export class BlobDeckStore implements DeckStore {
   private async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
 
-    const existing = await this.client.read(SEED_MARKER);
+    const existing = await this.client.read(this.seedMarker);
     if (existing !== null) {
       this.seeded = true;
       return;
@@ -120,7 +142,7 @@ export class BlobDeckStore implements DeckStore {
 
     // The marker goes down first, so a failure partway through cannot seed twice.
     // `seeding` guards the reentry from save(), which calls back into here.
-    await this.client.put(SEED_MARKER, new Date().toISOString());
+    await this.client.put(this.seedMarker, new Date().toISOString());
     this.seeding = true;
     try {
       for (const { record, status } of seedDecks()) {
@@ -135,22 +157,25 @@ export class BlobDeckStore implements DeckStore {
 
   /** Deck ids present under the root, by asking the API. The slow, authoritative way. */
   private async listedIds(): Promise<string[]> {
-    const blobs = await this.client.list(`${ROOT}/`);
+    const blobs = await this.client.list(`${this.base}/`);
     const found = new Set<string>();
     for (const blob of blobs) {
-      // decks/{id}/deck.json — the id is the second segment, and a deck only counts
-      // as present once its deck.json exists, so a half-finished upload is invisible.
-      const parts = blob.pathname.split('/');
-      if (parts.length >= 3 && parts[0] === ROOT && parts[2] === 'deck.json') {
-        found.add(parts[1]);
-      }
+      // {base}/{id}/deck.json — a deck only counts as present once its deck.json
+      // exists, so a half-finished upload is invisible.
+      //
+      // Measured from the end of the base rather than from the front of the path: the
+      // base used to be one segment and is now three, and counting segments from the
+      // front silently found nothing the moment that changed.
+      if (!blob.pathname.startsWith(`${this.base}/`)) continue;
+      const parts = blob.pathname.slice(this.base.length + 1).split('/');
+      if (parts.length === 2 && parts[1] === 'deck.json') found.add(parts[0]);
     }
     return [...found];
   }
 
   /** The index, or null when it is absent or unreadable. */
   private async indexedIds(): Promise<string[] | null> {
-    const text = await this.client.read(INDEX);
+    const text = await this.client.read(this.index);
     if (text === null) return null;
     try {
       const parsed = JSON.parse(text) as { ids?: unknown };
@@ -162,7 +187,7 @@ export class BlobDeckStore implements DeckStore {
   }
 
   private async writeIndex(ids: string[]): Promise<void> {
-    await this.client.put(INDEX, JSON.stringify({ ids: [...new Set(ids)].sort() }, null, 2));
+    await this.client.put(this.index, JSON.stringify({ ids: [...new Set(ids)].sort() }, null, 2));
   }
 
   /** Deck ids, from the index when it is usable and from the API when it is not. */

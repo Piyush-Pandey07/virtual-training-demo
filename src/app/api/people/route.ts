@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
 
     let body: { email?: string; name?: string };
     try {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       return Response.json({ error: 'An email address is required.' }, { status: 400 });
     }
 
-    const store = rosterStore();
+    const store = rosterStore(admin.orgId);
     const existing = await store.getPersonByEmail(email);
     const person = await store.upsertPerson({ email, name: body.name?.trim() });
 

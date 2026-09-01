@@ -33,8 +33,11 @@ export default async function HomePage() {
     return <HomeForTrainee person={person} rows={await trainingFor(person)} />;
   }
 
-  const store = deckStore();
-  const [decks, people] = await Promise.all([listDecks(), peopleOverview().catch(() => [])]);
+  const store = deckStore(person.orgId);
+  const [decks, people] = await Promise.all([
+    listDecks(person.orgId),
+    peopleOverview(person.orgId).catch(() => []),
+  ]);
 
   // Uploaded decks only. The built-in deck is reachable from the one button in the
   // hero, and listing it here as well would put the sample back in the middle of a
@@ -52,7 +55,7 @@ export default async function HomePage() {
       canUpload={store.writable}
       peopleCount={people.length}
       outstanding={people.reduce((total, row) => total + row.assigned - row.completed, 0)}
-      rosterReady={rosterStore().writable}
+      rosterReady={rosterStore(person.orgId).writable}
     />
   );
 }

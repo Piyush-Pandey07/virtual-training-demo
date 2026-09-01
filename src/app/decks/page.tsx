@@ -32,10 +32,10 @@ function formatDate(iso: string): string {
 export default async function DeckLibraryPage() {
   // The library is an administrator's tool. A trainee gets a 404 rather than a
   // refusal: what decks exist is not something they need told.
-  await requireAdminPage('/decks');
+  const admin = await requireAdminPage('/decks');
 
-  const decks = await listDecks();
-  const store = deckStore();
+  const decks = await listDecks(admin.orgId);
+  const store = deckStore(admin.orgId);
 
   return (
     <div className="flex min-h-screen flex-col">

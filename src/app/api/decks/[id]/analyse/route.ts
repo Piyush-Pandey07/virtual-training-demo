@@ -53,7 +53,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   const { id } = await params;
 
-  const store = deckStore();
+  const store = deckStore(gate.person.orgId);
   if (!store.writable) {
     return Response.json(
       { error: 'This deployment has no deck storage configured, so analysis cannot be saved.' },
@@ -189,7 +189,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       pages.length === 1 ? `page ${pages[0]}` : `pages ${pages[0]} to ${pages[pages.length - 1]}`;
 
     if (current.kind === 'outline') {
-      const outlines = await analyseSlideBatch(deck, deck.meta, pages);
+      const outlines = await analyseSlideBatch(gate.person.orgId, deck, deck.meta, pages);
       await store.save(mergeSlideOutlines(deck, outlines), stored.status);
 
       return Response.json({
@@ -203,7 +203,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     if (current.kind === 'detail') {
-      const details = await analyseSlideDetail(deck, deck.meta, pages);
+      const details = await analyseSlideDetail(gate.person.orgId, deck, deck.meta, pages);
       await store.save(mergeSlideDetail(deck, details), stored.status);
 
       return Response.json({
@@ -216,7 +216,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       });
     }
 
-    const generated = await analyseTopics(deck, deck.meta, pages);
+    const generated = await analyseTopics(gate.person.orgId, deck, deck.meta, pages);
     await store.save(mergeTopics(deck, pages, generated), stored.status);
 
     return Response.json({

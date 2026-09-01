@@ -112,12 +112,16 @@ export class BlobAssetStore implements AssetStore {
   readonly kind = 'blob' as const;
   readonly writable = true;
 
-  constructor(private readonly client: BinaryBlobClient) {}
+  /** @param base the same prefix the deck store uses, e.g. `orgs/acme/decks`. */
+  constructor(
+    private readonly client: BinaryBlobClient,
+    private readonly base: string,
+  ) {}
 
   private key(deckId: string, name: string): string {
     assertUsableDeckId(deckId);
     assertUsableAssetName(name);
-    return `decks/${deckId}/${name}`;
+    return `${this.base}/${deckId}/${name}`;
   }
 
   async put(deckId: string, name: string, bytes: Uint8Array, contentType: string): Promise<void> {

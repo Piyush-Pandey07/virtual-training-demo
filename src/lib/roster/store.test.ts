@@ -19,6 +19,9 @@ import { DocumentRosterStore } from './store-documents';
 import { FilesystemRosterStore } from './store-fs';
 import { NoRosterStore } from './store-none';
 
+/** One customer's prefix. The stores are scoped at construction, so tests are too. */
+const TEST_ROSTER_BASE = 'orgs/test-org/roster';
+
 const roots: string[] = [];
 
 after(async () => {
@@ -63,7 +66,10 @@ function fakeBlobClient(): BlobClient {
  */
 const HARNESSES: Array<{ name: string; make: () => Promise<RosterStore> }> = [
   { name: 'the filesystem store', make: freshStore },
-  { name: 'the blob store', make: async () => new BlobRosterStore(fakeBlobClient()) },
+  {
+    name: 'the blob store',
+    make: async () => new BlobRosterStore(fakeBlobClient(), TEST_ROSTER_BASE),
+  },
   {
     name: 'the document store',
     make: async () => new DocumentRosterStore(new InMemoryDocumentStore()),

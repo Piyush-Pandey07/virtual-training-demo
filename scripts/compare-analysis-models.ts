@@ -17,6 +17,7 @@
 
 import { analyseTopics } from '../src/lib/analysis/topics';
 import { loadDeck } from '../src/lib/decks/registry';
+import { HOME_ORG_ID } from '../src/lib/orgs/types';
 
 const DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
 
@@ -51,11 +52,14 @@ async function main() {
     const started = Date.now();
 
     try {
-      const topics = await analyseTopics(deck, deck.meta, pages);
+      const topics = await analyseTopics(HOME_ORG_ID, deck, deck.meta, pages);
       const seconds = ((Date.now() - started) / 1000).toFixed(1);
 
       const explanation = topics.map((topic) => topic.explanation?.length ?? 0);
-      const words = topics.flatMap((topic) => topic.explanation ?? []).join(' ').split(/\s+/).length;
+      const words = topics
+        .flatMap((topic) => topic.explanation ?? [])
+        .join(' ')
+        .split(/\s+/).length;
 
       // The one thing that is unambiguously wrong rather than merely different. A
       // generated clause number is the failure this pass is built to avoid.
@@ -71,7 +75,9 @@ async function main() {
         `  misconceptions    ${topics.reduce((t, x) => t + (x.misconceptions?.length ?? 0), 0)}`,
       );
       console.log(`  questions         ${topics.reduce((t, x) => t + (x.faqs?.length ?? 0), 0)}`);
-      console.log(`  examples          ${topics.reduce((t, x) => t + (x.examples?.length ?? 0), 0)}`);
+      console.log(
+        `  examples          ${topics.reduce((t, x) => t + (x.examples?.length ?? 0), 0)}`,
+      );
       console.log(`  invented refs     ${invented}${invented > 0 ? '  <-- disqualifying' : ''}`);
 
       const sample = topics[0];

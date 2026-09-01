@@ -197,6 +197,24 @@ export class OrgStore {
     return entry?.orgId;
   }
 
+  /**
+   * Which customer already holds an address, anywhere in the deployment.
+   *
+   * The only question in the app that legitimately spans customers, and it exists to
+   * enforce that somebody belongs to exactly one. A scoped roster cannot answer it --
+   * it would look in one customer and report "not found" for a person sitting in
+   * another, which is how the same human ends up in two companies with two sets of
+   * training records and no way to tell.
+   */
+  async orgIdHolding(emailKey: string): Promise<string | undefined> {
+    const rows = await this.docs.where<DirectoryEntry>(
+      DIRECTORY,
+      'emailKey',
+      emailKey.trim().toLowerCase(),
+    );
+    return rows[0]?.orgId;
+  }
+
   async remember(entry: DirectoryEntry): Promise<void> {
     await this.docs.set<DirectoryEntry>(DIRECTORY, entry.uid, entry);
   }

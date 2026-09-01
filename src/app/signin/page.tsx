@@ -13,6 +13,7 @@ import { redirect } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { currentPerson, devAuthEnabled, firebaseConfigured } from '@/lib/auth/session';
+import { HOME_ORG_ID } from '@/lib/orgs/types';
 import { rosterStore } from '@/lib/roster/registry';
 import { PasswordSignIn } from './PasswordSignIn';
 import { SignInForm, type Candidate } from './SignInForm';
@@ -35,7 +36,9 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const person = await currentPerson();
   if (person) redirect(destination);
 
-  const store = rosterStore();
+  // Only ever read for the development sign-in's list of people to pick from, which
+  // exists only where Firebase does not -- so, one customer, and it is the home one.
+  const store = rosterStore(HOME_ORG_ID);
   const real = firebaseConfigured();
   // The development sign-in is a fallback, not an alternative: wherever real
   // sign-in works, it is the only one offered.

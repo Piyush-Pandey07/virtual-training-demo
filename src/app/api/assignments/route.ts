@@ -40,10 +40,10 @@ export async function POST(request: Request) {
       return Response.json({ error: 'personId and deckId are required.' }, { status: 400 });
     }
 
-    const store = rosterStore();
+    const store = rosterStore(admin.orgId);
     const [person, stored] = await Promise.all([
       store.getPerson(personId),
-      loadStoredDeck(deckId).catch(() => undefined),
+      loadStoredDeck(admin.orgId, deckId).catch(() => undefined),
     ]);
 
     if (!person) return Response.json({ error: 'No such person.' }, { status: 404 });
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireAdmin();
+    const admin = await requireAdmin();
 
     const body = await readBody(request);
     if (!body?.personId || !body.deckId) {
@@ -85,7 +85,7 @@ export async function DELETE(request: Request) {
 
     // The attempt is deliberately left alone. Somebody who did the training and then
     // had it unassigned still did the training.
-    await rosterStore().unassign(body.personId, body.deckId);
+    await rosterStore(admin.orgId).unassign(body.personId, body.deckId);
     return Response.json({ ok: true });
   } catch (error) {
     const refused = unauthorisedResponse(error);

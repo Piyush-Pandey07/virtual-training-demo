@@ -14,6 +14,7 @@
 import 'server-only';
 
 import type { DeckRecord } from '../deck-types';
+import { deckPrefix, filesystemRoot } from '../orgs/scope';
 import { BlobAssetStore, FilesystemAssetStore, NoAssetStore, type AssetStore } from './assets';
 import type { DeckStore, DeckSummary, StoredDeck } from './store';
 import { BlobDeckStore, vercelBinaryBlobClient, vercelBlobClient } from './store-blob';
@@ -23,35 +24,60 @@ import { SeededDeckStore } from './store-seeded';
 /** Used when a request does not name a deck. */
 export const DEFAULT_DECK_ID = 'isms';
 
-let cached: DeckStore | null = null;
-let cachedAssets: AssetStore | null = null;
+const cached = new Map<string, DeckStore>();
+const cachedAssets = new Map<string, AssetStore>();
 
 /**
- * Picks a store once per process.
+ * One customer's decks, and no other customer's.
  *
- * Cached because the filesystem and blob stores each seed themselves on first use,
- * and that check should happen once rather than on every request.
+ * The organisation is required. That is the whole point: a store handed back here can
+ * only see one customer, so no query above this line can forget to filter by one —
+ * there is no unfiltered query available to write.
+ *
+ * Cached per customer because the filesystem and blob stores each seed themselves on
+ * first use, and that check should happen once per customer rather than per request.
+ *
+ * Each customer's store seeds itself with the worked example, so every one of them has
+ * a deck to look at on their first day. That is a copy rather than a shared platform
+ * deck, which is a small deviation from the plan and a deliberate one: a copy is what
+ * the seeding already did, needs no special case in `get`, `list`, `save` or `remove`,
+ * and lets a customer delete the example if they do not want it in their library.
  */
-export function deckStore(): DeckStore {
-  if (cached) return cached;
+export function deckStore(orgId: string): DeckStore {
+  const existing = cached.get(orgId);
+  if (existing) return existing;
 
+  const store = buildDeckStore(orgId);
+  cached.set(orgId, store);
+  return store;
+}
+
+/**
+ * Which storage tier this deployment would use, without naming a customer.
+ *
+ * For the health check, which is anonymous and so has no organisation to ask about.
+ * Constructing a store performs no I/O -- the filesystem and blob stores seed on first
+ * use, not on construction -- so this reports the decision without acting on it, and
+ * cannot drift from the real one because it *is* the real one.
+ */
+export function deckStorage(): { kind: DeckStore['kind']; writable: boolean } {
+  const probe = buildDeckStore('health');
+  return { kind: probe.kind, writable: probe.writable };
+}
+
+function buildDeckStore(orgId: string): DeckStore {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (token) {
-    cached = new BlobDeckStore(vercelBlobClient(token));
-    return cached;
-  }
+  if (token) return new BlobDeckStore(vercelBlobClient(token), deckPrefix(orgId));
 
   // Vercel's filesystem is read-only apart from a temporary directory that does not
   // outlive a request, so writing decks there would appear to work and then lose
   // them. Falling through to the built-in deck is the honest behaviour.
-  const onVercel = Boolean(process.env.VERCEL);
-  if (!onVercel) {
-    cached = new FilesystemDeckStore(process.env.DECK_STORE_DIR ?? defaultFilesystemRoot());
-    return cached;
+  if (!process.env.VERCEL) {
+    const base = process.env.DECK_STORE_DIR ?? defaultFilesystemRoot();
+    return new FilesystemDeckStore(filesystemRoot(base, orgId, 'decks'));
   }
 
-  cached = new SeededDeckStore();
-  return cached;
+  return new SeededDeckStore();
 }
 
 /**
@@ -61,42 +87,49 @@ export function deckStore(): DeckStore {
  * which deployment they are in. A deck in blob storage whose images sat on a
  * filesystem that does not survive the request would be worse than either.
  */
-export function assetStore(): AssetStore {
-  if (cachedAssets) return cachedAssets;
+export function assetStore(orgId: string): AssetStore {
+  const existing = cachedAssets.get(orgId);
+  if (existing) return existing;
 
+  const store = buildAssetStore(orgId);
+  cachedAssets.set(orgId, store);
+  return store;
+}
+
+function buildAssetStore(orgId: string): AssetStore {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (token) {
-    cachedAssets = new BlobAssetStore(vercelBinaryBlobClient(token));
-    return cachedAssets;
-  }
+  if (token) return new BlobAssetStore(vercelBinaryBlobClient(token), deckPrefix(orgId));
 
   if (!process.env.VERCEL) {
-    cachedAssets = new FilesystemAssetStore(process.env.DECK_STORE_DIR ?? defaultFilesystemRoot());
-    return cachedAssets;
+    const base = process.env.DECK_STORE_DIR ?? defaultFilesystemRoot();
+    return new FilesystemAssetStore(filesystemRoot(base, orgId, 'decks'));
   }
 
-  cachedAssets = new NoAssetStore();
-  return cachedAssets;
+  return new NoAssetStore();
 }
 
 /** Only for tests, which need a fresh store per case. */
-export function resetDeckStore(store?: DeckStore): void {
-  cached = store ?? null;
-  cachedAssets = null;
+export function resetDeckStore(store?: DeckStore, orgId = 'test-org'): void {
+  cached.clear();
+  cachedAssets.clear();
+  if (store) cached.set(orgId, store);
 }
 
-export async function loadDeck(id: string = DEFAULT_DECK_ID): Promise<DeckRecord | undefined> {
-  const stored = await deckStore().get(id);
+export async function loadDeck(
+  orgId: string,
+  id: string = DEFAULT_DECK_ID,
+): Promise<DeckRecord | undefined> {
+  const stored = await deckStore(orgId).get(id);
   return stored?.record;
 }
 
 /** The deck plus its status and timestamps, for anything that manages decks. */
-export async function loadStoredDeck(id: string): Promise<StoredDeck | undefined> {
-  return deckStore().get(id);
+export async function loadStoredDeck(orgId: string, id: string): Promise<StoredDeck | undefined> {
+  return deckStore(orgId).get(id);
 }
 
-export async function listDecks(): Promise<DeckSummary[]> {
-  return deckStore().list();
+export async function listDecks(orgId: string): Promise<DeckSummary[]> {
+  return deckStore(orgId).list();
 }
 
 /**
@@ -106,8 +139,8 @@ export async function listDecks(): Promise<DeckSummary[]> {
  * whatever exists. A library that has had its seed deck deleted should still open on
  * something rather than on an error.
  */
-export async function defaultDeck(): Promise<DeckSummary | undefined> {
-  const decks = await listDecks();
+export async function defaultDeck(orgId: string): Promise<DeckSummary | undefined> {
+  const decks = await listDecks(orgId);
   return (
     decks.find((deck) => deck.id === DEFAULT_DECK_ID) ??
     decks.find((deck) => deck.status === 'published') ??

@@ -20,8 +20,8 @@ import {
   GEMINI_ANSWER_MODEL,
   GEMINI_MODEL,
 } from '@/lib/config';
-import { deckStore, listDecks } from '@/lib/decks/registry';
-import { rosterStore } from '@/lib/roster/registry';
+import { deckStorage } from '@/lib/decks/registry';
+import { rosterStorage } from '@/lib/roster/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,40 +40,36 @@ export interface HealthResponse {
     textToSpeech: string;
   };
   /**
-   * Which deck store is in use, and how many decks it holds.
+   * Which deck store is in use.
    *
    * Worth reporting because the store is chosen from the environment and falls
    * back silently. A deployment that intended blob storage and is quietly serving
    * the built-in deck read-only looks identical from the outside otherwise, which
    * is exactly the class of thing this endpoint exists to catch.
+   *
+   * It used to report a count as well. That was a useful operational number while
+   * there was one company, and became an anonymous endpoint telling whoever asked
+   * how many customers this deployment has and how much they hold. There is also no
+   * organisation to count on behalf of here: this endpoint has no session.
    */
   decks: {
     store: 'blob' | 'filesystem' | 'seeded';
     writable: boolean;
-    count: number;
-    /**
-     * Why the store could not be read, when it could not be.
-     *
-     * This used to be swallowed, and a store that was failing looked exactly like
-     * a store that was empty. Diagnosing a deployment is the entire purpose of
-     * this endpoint, so the reason is reported.
-     */
-    error?: string;
   };
   /**
-   * Which roster tier is in use, and how many people are in it.
+   * Which roster tier is in use.
    *
    * Added after a deployment moved itself from blob storage to Firestore and there
    * was no way to see that it had. The people simply appeared to be gone, and the
    * only reported store was the deck one, which had not changed. A tier that swaps
    * underneath a running deployment is exactly the class of thing this endpoint
    * exists to make visible.
+   *
+   * The head count is gone for the same reason the deck count is.
    */
   roster: {
-    store: 'firestore' | 'blob' | 'filesystem' | 'none';
+    store: 'blob' | 'filesystem' | 'firestore' | 'none';
     writable: boolean;
-    people: number;
-    error?: string;
   };
 }
 
@@ -85,21 +81,14 @@ export async function GET() {
   const required = ['GEMINI_API_KEY', 'DEEPGRAM_API_KEY'];
   const missing = required.filter((name) => !isSet(name));
 
-  const store = deckStore();
-  // A storage failure must not take the readiness check down with it, since the
-  // whole point is to report what is wrong. It is reported, not swallowed.
-  let deckError: string | undefined;
-  const decks = await listDecks().catch((error: unknown) => {
-    deckError = error instanceof Error ? error.message : 'unknown storage failure';
-    return [];
-  });
-
-  const roster = rosterStore();
-  let rosterError: string | undefined;
-  const people = await roster.listPeople().catch((error: unknown) => {
-    rosterError = error instanceof Error ? error.message : 'unknown storage failure';
-    return [];
-  });
+  // Storage is reported as a capability rather than as contents.
+  //
+  // It used to count every deck and every person in the deployment. With one company
+  // that was a useful ops number; with customers it is an anonymous endpoint telling
+  // whoever asks how many customers there are and how big they are. There is also no
+  // organisation to count on behalf of here, this endpoint having no session.
+  const store = deckStorage();
+  const roster = rosterStorage();
 
   const body: HealthResponse = {
     ready: missing.length === 0,
@@ -113,14 +102,10 @@ export async function GET() {
     decks: {
       store: store.kind,
       writable: store.writable,
-      count: decks.length,
-      ...(deckError ? { error: deckError } : {}),
     },
     roster: {
       store: roster.kind,
       writable: roster.writable,
-      people: people.length,
-      ...(rosterError ? { error: rosterError } : {}),
     },
   };
 

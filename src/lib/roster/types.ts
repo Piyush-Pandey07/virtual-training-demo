@@ -34,6 +34,22 @@ export interface Person {
   lastSeenAt: string | null;
 }
 
+/**
+ * A person the guard has resolved, whose customer is therefore known.
+ *
+ * `Person.orgId` is optional because a stored row written before organisations
+ * existed has none. This is the shape everything downstream of a guard sees, and it
+ * is not optional there: `currentPerson` refuses anybody it cannot place, so by the
+ * time a route holds one of these the organisation is a fact rather than a maybe.
+ *
+ * Worth a separate type rather than a non-null assertion at each of fifty call sites.
+ * The assertion would be a claim repeated fifty times; this is the claim made once,
+ * where it is actually established.
+ */
+export interface SignedInPerson extends Person {
+  orgId: string;
+}
+
 /** A deck somebody has been asked to attend. */
 export interface Assignment {
   personId: string;

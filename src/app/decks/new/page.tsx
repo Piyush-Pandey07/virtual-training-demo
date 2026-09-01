@@ -19,10 +19,10 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Upload a deck' };
 
 export default async function NewDeckPage() {
-  await requireAdminPage('/decks/new');
+  const admin = await requireAdminPage('/decks/new');
 
-  const decks = deckStore();
-  const assets = assetStore();
+  const decks = deckStore(admin.orgId);
+  const assets = assetStore(admin.orgId);
   const canUpload = decks.writable && assets.writable;
 
   return (

@@ -192,7 +192,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (!gate.ok) return gate.response;
 
   const { id } = await params;
-  const store = deckStore();
+  const store = deckStore(gate.person.orgId);
 
   let stored;
   try {
@@ -260,7 +260,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   if (!gate.ok) return gate.response;
 
   const { id } = await params;
-  const store = deckStore();
+  const store = deckStore(gate.person.orgId);
 
   const stored = await store.get(id).catch(() => undefined);
   if (!stored) return Response.json({ error: 'No such deck.' }, { status: 404 });
@@ -270,7 +270,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
   // Renders first. A deck record with no images is a broken session; orphaned
   // images with no record are invisible, so that is the better order to fail in.
-  await assetStore().removeAll(id);
+  await assetStore(gate.person.orgId).removeAll(id);
   await store.remove(id);
 
   return Response.json({ removed: id });

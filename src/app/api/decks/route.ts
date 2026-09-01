@@ -97,7 +97,7 @@ export async function POST(request: Request) {
   const gate = await checkAdmin();
   if (!gate.ok) return gate.response;
 
-  const store = deckStore();
+  const store = deckStore(gate.person.orgId);
   if (!store.writable) {
     return Response.json(
       {

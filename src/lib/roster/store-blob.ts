@@ -47,26 +47,51 @@ import {
 import type { Assignment, Attempt, Person, Role } from './types';
 import type { BlobClient } from '../decks/store-blob';
 
-const ROOT = 'roster';
-const PEOPLE = `${ROOT}/people.json`;
-const ASSIGNMENTS = `${ROOT}/assignments.json`;
+/**
+ * Where the roster lived before there were customers.
+ *
+ * Exported for the migration only; the running app always supplies an organisation.
+ */
+export const LEGACY_ROSTER_ROOT = 'roster';
 
-/** Deck ids and person ids are both constrained, so this cannot escape the prefix. */
+const PEOPLE = 'people.json';
+const ASSIGNMENTS = 'assignments.json';
+
+/**
+ * The part of an attempt's path below the base.
+ *
+ * Deck ids and person ids are both constrained, so this cannot escape the prefix it is
+ * joined onto — which matters more now that the prefix is what separates one customer
+ * from another rather than one kind of file from another.
+ */
 function attemptKey(personId: string, deckId: string): string {
   assertUsablePersonId(personId);
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(deckId)) {
     throw new RosterStoreError(`"${deckId}" is not a usable deck id.`);
   }
-  return `${ROOT}/attempts/${personId}/${deckId}.json`;
+  return `attempts/${personId}/${deckId}.json`;
 }
 
 export class BlobRosterStore implements RosterStore {
   readonly kind = 'blob' as const;
   readonly writable = true;
 
-  constructor(private readonly client: BlobClient) {}
+  /** @param base every path this store touches sits under it, e.g. `orgs/acme/roster`. */
+  constructor(
+    private readonly client: BlobClient,
+    private readonly base: string,
+  ) {}
 
-  private async readList<T>(pathname: string): Promise<T[]> {
+  /**
+   * Everything this store touches goes through here, so the customer prefix is applied
+   * in one place rather than at each of a dozen call sites.
+   */
+  private within(name: string): string {
+    return `${this.base}/${name}`;
+  }
+
+  private async readList<T>(name: string): Promise<T[]> {
+    const pathname = this.within(name);
     const text = await this.client.read(pathname);
     if (text === null) return [];
     try {
@@ -79,14 +104,14 @@ export class BlobRosterStore implements RosterStore {
     }
   }
 
-  private async writeList<T>(pathname: string, rows: T[]): Promise<void> {
-    await this.client.put(pathname, JSON.stringify(rows, null, 2));
+  private async writeList<T>(name: string, rows: T[]): Promise<void> {
+    await this.client.put(this.within(name), JSON.stringify(rows, null, 2));
   }
 
-  private async updateList<T, R>(pathname: string, change: (rows: T[]) => R): Promise<R> {
-    const rows = await this.readList<T>(pathname);
+  private async updateList<T, R>(name: string, change: (rows: T[]) => R): Promise<R> {
+    const rows = await this.readList<T>(name);
     const result = change(rows);
-    await this.writeList(pathname, rows);
+    await this.writeList(name, rows);
     return result;
   }
 
@@ -164,7 +189,7 @@ export class BlobRosterStore implements RosterStore {
         const attempt = await this.readAttempt(move.from, move.deckId);
         if (!attempt) continue;
         await this.client.put(
-          attemptKey(move.to, move.deckId),
+          this.within(attemptKey(move.to, move.deckId)),
           JSON.stringify({ ...attempt, personId: move.to }, null, 2),
         );
       }
@@ -205,7 +230,7 @@ export class BlobRosterStore implements RosterStore {
     );
 
     // Their attempts go too, one object each.
-    const urls = await this.client.list(`${ROOT}/attempts/${id}/`);
+    const urls = await this.client.list(this.within(`attempts/${id}/`));
     if (urls.length > 0) await this.client.remove(urls.map((entry) => entry.url));
     void theirs;
   }
@@ -264,7 +289,7 @@ export class BlobRosterStore implements RosterStore {
   // ----------------------------------------------------------------- attempts
 
   private async readAttempt(personId: string, deckId: string): Promise<Attempt | undefined> {
-    const text = await this.client.read(attemptKey(personId, deckId));
+    const text = await this.client.read(this.within(attemptKey(personId, deckId)));
     if (text === null) return undefined;
     try {
       return JSON.parse(text) as Attempt;
@@ -275,7 +300,7 @@ export class BlobRosterStore implements RosterStore {
 
   private async writeAttempt(attempt: Attempt): Promise<void> {
     await this.client.put(
-      attemptKey(attempt.personId, attempt.deckId),
+      this.within(attemptKey(attempt.personId, attempt.deckId)),
       JSON.stringify(attempt, null, 2),
     );
   }

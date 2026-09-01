@@ -34,6 +34,7 @@ import {
   setRoleClaim,
   verifySessionCookie,
 } from '@/lib/firebase/admin';
+import { orgStore } from '@/lib/orgs/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 
@@ -85,7 +86,33 @@ export async function POST(request: Request) {
   }
 
   try {
-    const store = rosterStore();
+    const orgs = orgStore();
+
+    // Which customer, before a single row is read. Two ways to know, in this order:
+    // somebody who has signed in before is remembered in the directory, and anybody
+    // else is placed by the domain of the address they are signing in with.
+    //
+    // The directory comes first so that moving somebody between customers sticks: if
+    // the domain won, an administrator's move would be undone by the next sign-in.
+    const orgId =
+      (await orgs.orgIdForUid(decoded.uid).catch(() => undefined)) ??
+      (await orgs.orgIdForEmail(email).catch(() => undefined));
+
+    if (!orgId) {
+      // No customer holds this address's domain and nobody has placed them. Said the
+      // same way as an unknown account, because from outside they are the same thing
+      // and the difference is not something a stranger should be able to probe for.
+      return refuse(
+        'There is no training account for that address. Ask whoever runs your training to add you.',
+      );
+    }
+
+    const organisation = await orgs.get(orgId).catch(() => undefined);
+    if (organisation?.status === 'suspended') {
+      return refuse('Training for this organisation is currently suspended.');
+    }
+
+    const store = rosterStore(orgId);
 
     // Known here already, named as an administrator by the deployment, or on a company
     // domain that admits its own people. Anything else is a Firebase account nobody
@@ -105,12 +132,22 @@ export async function POST(request: Request) {
     // Refreshes the name and the last-seen stamp, and adopts the Firebase uid for
     // somebody an administrator added by hand before they had ever signed in. The
     // role is never taken from here, so signing in cannot restore access an
-    // administrator has just removed.
+    // administrator has just removed. Neither is the organisation, for the same
+    // reason and a sharper one: an organisation signing in could write is a way to
+    // walk into another customer's data by claiming to belong there.
     const person = await store.upsertPerson({
       id: decoded.uid,
       email,
       name: typeof decoded.name === 'string' ? decoded.name : undefined,
+      orgId,
     });
+
+    // Remembered so the next sign-in knows the answer without asking the domain, and
+    // so a person whose address is not on any claimed domain -- an administrator on a
+    // personal address, say -- is still found.
+    await orgs
+      .remember({ uid: decoded.uid, orgId, emailKey: person.emailKey })
+      .catch(() => undefined);
 
     // The role that actually applies, which is not always the stored one: an address
     // named in AUTH_ADMIN_EMAILS is an administrator whatever the row says. Reported
@@ -120,8 +157,9 @@ export async function POST(request: Request) {
     const role = effectiveRole(person);
 
     // Mirrored onto the token so a later authorisation check needs no round trip.
-    // Best effort: a failure here costs a database read, not access.
-    await setRoleClaim(decoded.uid, role).catch(() => undefined);
+    // Best effort: a failure here costs a database read, not access -- `currentPerson`
+    // falls back to the directory when the claim is missing.
+    await setRoleClaim(decoded.uid, role, orgId).catch(() => undefined);
 
     const jar = await cookies();
     jar.set(SESSION_COOKIE, cookie, {

@@ -14,6 +14,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { currentPerson } from '@/lib/auth/session';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { progressForDeck } from '@/lib/roster/report';
 
@@ -25,7 +26,13 @@ interface ProgressPageProps {
 
 export async function generateMetadata({ params }: ProgressPageProps): Promise<Metadata> {
   const { id } = await params;
-  const stored = await loadStoredDeck(id).catch(() => undefined);
+  // Asks who is signed in rather than reading blind. `generateMetadata` runs before
+  // the page body and so outside its guard, so without this it would read a deck by
+  // id for somebody with no right to it -- and now, with no customer to read it from.
+  const viewer = await currentPerson();
+  if (!viewer) return {};
+
+  const stored = await loadStoredDeck(viewer.orgId, id).catch(() => undefined);
   return { title: stored ? `Progress: ${stored.record.meta.title}` : 'Technavious' };
 }
 
@@ -37,13 +44,13 @@ function formatDate(iso: string | null): string {
 }
 
 export default async function DeckProgressPage({ params }: ProgressPageProps) {
-  await requireAdminPage();
+  const admin = await requireAdminPage();
   const { id } = await params;
 
-  const stored = await loadStoredDeck(id).catch(() => undefined);
+  const stored = await loadStoredDeck(admin.orgId, id).catch(() => undefined);
   if (!stored) notFound();
 
-  const rows = await progressForDeck(id);
+  const rows = await progressForDeck(admin.orgId, id);
   const complete = rows.filter((row) => row.completedAt !== null).length;
   const started = rows.filter((row) => row.percent > 0 && row.completedAt === null).length;
   const notStarted = rows.length - complete - started;

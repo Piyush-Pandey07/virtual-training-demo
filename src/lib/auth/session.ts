@@ -18,9 +18,10 @@ import 'server-only';
 import { cookies } from 'next/headers';
 
 import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
+import { orgStore } from '../orgs/registry';
 import { rosterStore } from '../roster/registry';
 import { effectiveRole } from './roles';
-import type { Person } from '../roster/types';
+import type { SignedInPerson } from '../roster/types';
 
 /** The cookie the real sign-in will set. Read here so the swap is one function. */
 export const SESSION_COOKIE = 'session';
@@ -55,7 +56,7 @@ export function firebaseConfigured(): boolean {
  * Never throws. A page that wants a refusal asks the guard for one; a page that
  * merely wants to know reads this.
  */
-export async function currentPerson(): Promise<Person | null> {
+export async function currentPerson(): Promise<SignedInPerson | null> {
   const jar = await cookies();
 
   // The real one. Verified against Firebase on every request, including its
@@ -66,7 +67,26 @@ export async function currentPerson(): Promise<Person | null> {
     const decoded = await verifySessionCookie(session);
     if (!decoded) return null;
 
-    const person = await rosterStore()
+    // Which customer, before anything is read. The roster is scoped to one, so this
+    // has to be answered without it — the claim carries the answer, minted at sign-in.
+    //
+    // A cookie issued before organisations existed has no claim. Rather than refusing
+    // it, the directory is asked: one unscoped read, on a path that is otherwise
+    // scoped, for a cookie that will be re-minted on its owner's next sign-in anyway.
+    // The alternative was signing every existing session out at deploy.
+    const claimed = typeof decoded.orgId === 'string' ? decoded.orgId : undefined;
+    const orgId =
+      claimed ??
+      (await orgStore()
+        .orgIdForUid(decoded.uid)
+        .catch(() => undefined));
+
+    // Signed in with Firebase and in no customer at all. That is a row written before
+    // organisations existed and never migrated, or a customer that has been deleted
+    // underneath a live cookie. Either way there is nothing this person may see.
+    if (!orgId) return null;
+
+    const person = await rosterStore(orgId)
       .getPerson(decoded.uid)
       .catch(() => undefined);
 
@@ -75,7 +95,7 @@ export async function currentPerson(): Promise<Person | null> {
     // live cookie. Treating it as nobody is the safe reading.
     if (!person) return null;
 
-    return { ...person, role: effectiveRole(person) };
+    return { ...person, orgId, role: effectiveRole(person) };
   }
 
   if (!devAuthEnabled()) return null;
@@ -83,10 +103,18 @@ export async function currentPerson(): Promise<Person | null> {
   const id = jar.get(DEV_SESSION_COOKIE)?.value;
   if (!id) return null;
 
-  const person = await rosterStore()
+  // The development sign-in names a person, not a customer, so it asks the directory
+  // the same way an unclaimed cookie does. It only exists where Firebase is not
+  // configured, so this is the local-development path and not a second way in.
+  const orgId = await orgStore()
+    .orgIdForUid(id)
+    .catch(() => undefined);
+  if (!orgId) return null;
+
+  const person = await rosterStore(orgId)
     .getPerson(id)
     .catch(() => undefined);
   if (!person) return null;
 
-  return { ...person, role: effectiveRole(person) };
+  return { ...person, orgId, role: effectiveRole(person) };
 }

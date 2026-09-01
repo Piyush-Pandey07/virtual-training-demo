@@ -46,7 +46,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       );
     }
 
-    const store = rosterStore();
+    const store = rosterStore(admin.orgId);
     const person = await store.getPerson(id);
     if (!person) return Response.json({ error: 'No such person.' }, { status: 404 });
 
@@ -82,7 +82,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       return Response.json({ error: 'You cannot remove yourself.' }, { status: 409 });
     }
 
-    await rosterStore().removePerson(id);
+    await rosterStore(admin.orgId).removePerson(id);
 
     // Their session ends at Firebase as well. Losing the roster row is already enough
     // — every request re-reads it, so they are refused on the next one — but leaving a

@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     const deck = await loadDeck(deckId);
     if (!deck) throw new NotAuthorised(404, 'Not found.');
 
-    const store = rosterStore();
+    const store = rosterStore(person.orgId);
     const weight = deckWeight(deck);
     const kind: Kind = body.kind ?? 'covered';
 

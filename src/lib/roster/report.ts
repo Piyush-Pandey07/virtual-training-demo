@@ -17,7 +17,7 @@ import { listDecks } from '../decks/registry';
 import type { DeckSummary } from '../decks/store';
 import { coverageOf, emptyCoverage, percentComplete } from './completion';
 import { rosterStore } from './registry';
-import type { Attempt, Person, ProgressRow } from './types';
+import type { Attempt, Person, ProgressRow, SignedInPerson } from './types';
 
 /**
  * What a deck is worth, for the denominator of a percentage.
@@ -80,12 +80,12 @@ function rowFor(
 }
 
 /** What one trainee has been asked to do, and how far they have got. */
-export async function trainingFor(person: Person): Promise<ProgressRow[]> {
-  const store = rosterStore();
+export async function trainingFor(person: SignedInPerson): Promise<ProgressRow[]> {
+  const store = rosterStore(person.orgId);
   const [assignments, attempts, decks] = await Promise.all([
     store.listAssignmentsForPerson(person.id),
     store.listAttemptsForPerson(person.id),
-    listDecks(),
+    listDecks(person.orgId),
   ]);
 
   const byDeck = new Map(decks.map((deck) => [deck.id, deck]));
@@ -106,13 +106,13 @@ export async function trainingFor(person: Person): Promise<ProgressRow[]> {
 }
 
 /** Everyone who was given one deck, and where each of them is. */
-export async function progressForDeck(deckId: string): Promise<ProgressRow[]> {
-  const store = rosterStore();
+export async function progressForDeck(orgId: string, deckId: string): Promise<ProgressRow[]> {
+  const store = rosterStore(orgId);
   const [assignments, attempts, people, decks] = await Promise.all([
     store.listAssignmentsForDeck(deckId),
     store.listAttemptsForDeck(deckId),
     store.listPeople(),
-    listDecks(),
+    listDecks(orgId),
   ]);
 
   const summary = decks.find((deck) => deck.id === deckId);
@@ -145,8 +145,8 @@ export interface PersonOverview {
   lastActiveAt: string | null;
 }
 
-export async function peopleOverview(): Promise<PersonOverview[]> {
-  const store = rosterStore();
+export async function peopleOverview(orgId: string): Promise<PersonOverview[]> {
+  const store = rosterStore(orgId);
   const people = await store.listPeople();
 
   const rows = await Promise.all(

@@ -16,6 +16,7 @@
 import { analyseTopics } from '../src/lib/analysis/topics';
 import { loadDeck } from '../src/lib/decks/registry';
 import type { GeneratedTopic } from '../src/lib/analysis/topics';
+import { HOME_ORG_ID } from '../src/lib/orgs/types';
 
 function report(label: string, topics: GeneratedTopic[], pageId: number, seconds: string) {
   const mine = topics.filter((topic) => topic.slideIds?.includes(pageId));
@@ -28,7 +29,9 @@ function report(label: string, topics: GeneratedTopic[], pageId: number, seconds
   console.log(`${label}  (${seconds}s)`);
   console.log(`  topics for page ${pageId}   ${mine.length}`);
   console.log(`  words of explanation  ${words}`);
-  console.log(`  misconceptions        ${mine.reduce((t, x) => t + (x.misconceptions?.length ?? 0), 0)}`);
+  console.log(
+    `  misconceptions        ${mine.reduce((t, x) => t + (x.misconceptions?.length ?? 0), 0)}`,
+  );
   console.log(`  questions             ${mine.reduce((t, x) => t + (x.faqs?.length ?? 0), 0)}`);
   console.log(`  triggers              ${mine.reduce((t, x) => t + (x.triggers?.length ?? 0), 0)}`);
   console.log(`  titles                ${mine.map((topic) => topic.title).join(' | ')}`);
@@ -54,11 +57,16 @@ async function main() {
   console.log(`${deck.meta.title} — measuring page ${alone}\n`);
 
   let started = Date.now();
-  const batched = await analyseTopics(deck, deck.meta, batch);
-  report(`in a batch of ${batch.length}`, batched, alone, ((Date.now() - started) / 1000).toFixed(1));
+  const batched = await analyseTopics(HOME_ORG_ID, deck, deck.meta, batch);
+  report(
+    `in a batch of ${batch.length}`,
+    batched,
+    alone,
+    ((Date.now() - started) / 1000).toFixed(1),
+  );
 
   started = Date.now();
-  const solo = await analyseTopics(deck, deck.meta, [alone]);
+  const solo = await analyseTopics(HOME_ORG_ID, deck, deck.meta, [alone]);
   report('on its own', solo, alone, ((Date.now() - started) / 1000).toFixed(1));
 }
 

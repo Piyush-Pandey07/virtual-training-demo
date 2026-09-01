@@ -16,6 +16,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { currentPerson } from '@/lib/auth/session';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
@@ -39,17 +40,23 @@ interface ReviewPageProps {
 
 export async function generateMetadata({ params }: ReviewPageProps): Promise<Metadata> {
   const { id } = await params;
-  const stored = await loadStoredDeck(id).catch(() => undefined);
+  // Asks who is signed in rather than reading blind. `generateMetadata` runs before
+  // the page body and so outside its guard, so without this it would read a deck by
+  // id for somebody with no right to it -- and now, with no customer to read it from.
+  const viewer = await currentPerson();
+  if (!viewer) return {};
+
+  const stored = await loadStoredDeck(viewer.orgId, id).catch(() => undefined);
   return stored ? { title: `Review ${stored.record.meta.title}` } : {};
 }
 
 export default async function DeckReviewPage({ params }: ReviewPageProps) {
-  await requireAdminPage();
+  const admin = await requireAdminPage();
   const { id } = await params;
 
   // A bad id throws from the store rather than returning nothing, and a bad link
   // should be a 404 rather than a stack trace.
-  const stored = await loadStoredDeck(id).catch(() => undefined);
+  const stored = await loadStoredDeck(admin.orgId, id).catch(() => undefined);
   if (!stored) notFound();
 
   const { record } = stored;
@@ -101,7 +108,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   let candidates: Candidate[] = [];
   let rosterAvailable = false;
 
-  const store = rosterStore();
+  const store = rosterStore(admin.orgId);
   if (store.writable) {
     try {
       const [people, assignments] = await Promise.all([

@@ -57,8 +57,12 @@ function assetName(slideId: number): string {
  * Each is labelled with its page number, because a model handed several pictures and
  * several page numbers will otherwise pair them up by guessing.
  */
-export async function slideImageParts(deck: DeckRecord, pages: DeckSlide[]): Promise<Part[]> {
-  const store = assetStore();
+export async function slideImageParts(
+  orgId: string,
+  deck: DeckRecord,
+  pages: DeckSlide[],
+): Promise<Part[]> {
+  const store = assetStore(orgId);
   const parts: Part[] = [];
   const all = everyPage();
 

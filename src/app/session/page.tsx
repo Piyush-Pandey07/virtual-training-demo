@@ -11,6 +11,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 import { requireAssignedDeckPage } from '@/lib/auth/guard';
+import { currentPerson } from '@/lib/auth/session';
 import { toClientView } from '@/lib/deck';
 import { DeckProvider } from '@/lib/deck-context';
 import { DEFAULT_DECK_ID, loadStoredDeck } from '@/lib/decks/registry';
@@ -28,7 +29,15 @@ interface SessionPageProps {
 
 export async function generateMetadata({ searchParams }: SessionPageProps): Promise<Metadata> {
   const { deck: requested } = await searchParams;
-  const stored = await loadStoredDeck(requested?.trim() || DEFAULT_DECK_ID).catch(() => undefined);
+  // Asks who is signed in rather than reading blind. `generateMetadata` runs before
+  // the page body and so outside its guard, so without this it would read a deck by
+  // id for somebody with no right to it -- and now, with no customer to read it from.
+  const viewer = await currentPerson();
+  if (!viewer) return {};
+
+  const stored = await loadStoredDeck(viewer.orgId, requested?.trim() || DEFAULT_DECK_ID).catch(
+    () => undefined,
+  );
   if (!stored) return {};
   const { meta } = stored.record;
   // A draft says so in the tab as well as on the page, since a tab is often all
@@ -58,12 +67,12 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
 
   // A deck id out of a URL is untrusted, and the store rejects an unusable one by
   // throwing. A bad link should be a 404, not a 500.
-  const stored = await loadStoredDeck(deckId).catch(() => undefined);
+  const stored = await loadStoredDeck(person.orgId, deckId).catch(() => undefined);
   if (!stored) notFound();
 
   // What an earlier sitting left behind. Slide ids and one percentage: the weighting
   // that produced it stays on this side of the wire.
-  const attempt = await rosterStore()
+  const attempt = await rosterStore(person.orgId)
     .getAttempt(person.id, deckId)
     .catch(() => undefined);
 

@@ -18,7 +18,7 @@ import 'server-only';
 import { notFound, redirect } from 'next/navigation';
 
 import { rosterStore } from '../roster/registry';
-import type { Person } from '../roster/types';
+import type { SignedInPerson } from '../roster/types';
 import { currentPerson } from './session';
 
 /** Thrown by the route guards, caught by the route, turned into a response. */
@@ -38,13 +38,13 @@ export function unauthorisedResponse(error: unknown): Response | null {
 
 // ------------------------------------------------------------------ for routes
 
-export async function requireUser(): Promise<Person> {
+export async function requireUser(): Promise<SignedInPerson> {
   const person = await currentPerson();
   if (!person) throw new NotAuthorised(401, 'Sign in to do that.');
   return person;
 }
 
-export async function requireAdmin(): Promise<Person> {
+export async function requireAdmin(): Promise<SignedInPerson> {
   const person = await requireUser();
   if (person.role !== 'admin') {
     // 404 rather than 403: an administrator's tools are not something a trainee needs
@@ -62,11 +62,15 @@ export async function requireAdmin(): Promise<Person> {
  * nothing: the browser can post another id and have the trainer read out a deck the
  * trainee was never assigned.
  */
-export async function requireAssignedDeck(deckId: string): Promise<Person> {
+export async function requireAssignedDeck(deckId: string): Promise<SignedInPerson> {
   const person = await requireUser();
+  // An administrator may attend anything in their own customer without being assigned
+  // it, and nothing outside it: every route that loads a deck now does so through a
+  // store built for this person's organisation, so a deck id from elsewhere resolves
+  // to nothing whatever this returns.
   if (person.role === 'admin') return person;
 
-  const assigned = await rosterStore().isAssigned(person.id, deckId);
+  const assigned = await rosterStore(person.orgId).isAssigned(person.id, deckId);
   if (!assigned) throw new NotAuthorised(404, 'Not found.');
   return person;
 }
@@ -80,9 +84,9 @@ export async function requireAssignedDeck(deckId: string): Promise<Person> {
  *   const gate = await checkAdmin();
  *   if (!gate.ok) return gate.response;
  */
-export type Gate = { ok: true; person: Person } | { ok: false; response: Response };
+export type Gate = { ok: true; person: SignedInPerson } | { ok: false; response: Response };
 
-async function gate(get: () => Promise<Person>): Promise<Gate> {
+async function gate(get: () => Promise<SignedInPerson>): Promise<Gate> {
   try {
     return { ok: true, person: await get() };
   } catch (error) {
@@ -107,21 +111,24 @@ export function checkAssignedDeck(deckId: string): Promise<Gate> {
 // ------------------------------------------------------------------- for pages
 
 /** Sends a signed-out visitor to sign in, remembering where they were going. */
-export async function requireUserPage(next?: string): Promise<Person> {
+export async function requireUserPage(next?: string): Promise<SignedInPerson> {
   const person = await currentPerson();
   if (person) return person;
   redirect(next ? `/signin?next=${encodeURIComponent(next)}` : '/signin');
 }
 
-export async function requireAdminPage(next?: string): Promise<Person> {
+export async function requireAdminPage(next?: string): Promise<SignedInPerson> {
   const person = await requireUserPage(next);
   if (person.role !== 'admin') notFound();
   return person;
 }
 
-export async function requireAssignedDeckPage(deckId: string, next?: string): Promise<Person> {
+export async function requireAssignedDeckPage(
+  deckId: string,
+  next?: string,
+): Promise<SignedInPerson> {
   const person = await requireUserPage(next);
   if (person.role === 'admin') return person;
-  if (!(await rosterStore().isAssigned(person.id, deckId))) notFound();
+  if (!(await rosterStore(person.orgId).isAssigned(person.id, deckId))) notFound();
   return person;
 }

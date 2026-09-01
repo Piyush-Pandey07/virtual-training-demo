@@ -349,6 +349,7 @@ const SILENT_ROLES = new Set<SlideRole>(['title']);
 
 /** Runs the slide-level pass for one batch of pages. */
 export async function analyseSlideBatch(
+  orgId: string,
   deck: DeckRecord,
   meta: DeckMeta,
   pageNumbers: number[],
@@ -360,7 +361,7 @@ export async function analyseSlideBatch(
 
   const parts: Part[] = [{ text: slideBatchPrompt(deck, meta, pages) }];
 
-  parts.push(...(await slideImageParts(deck, pages)));
+  parts.push(...(await slideImageParts(orgId, deck, pages)));
 
   const contents: Content[] = [{ role: 'user', parts }];
 

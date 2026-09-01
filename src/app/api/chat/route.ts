@@ -92,7 +92,7 @@ export async function POST(request: Request) {
   const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
   if (!gate.ok) return gate.response;
 
-  const deck = await loadDeck(body.deckId);
+  const deck = await loadDeck(gate.person.orgId, body.deckId);
   if (!deck) return badRequest('No such deck.');
 
   const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';

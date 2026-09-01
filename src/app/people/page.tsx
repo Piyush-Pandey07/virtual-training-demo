@@ -22,9 +22,9 @@ export const metadata: Metadata = { title: 'People | Technavious' };
 
 export default async function PeoplePage() {
   const me = await requireAdminPage('/people');
-  const store = rosterStore();
+  const store = rosterStore(me.orgId);
 
-  const rows = store.writable ? await peopleOverview() : [];
+  const rows = store.writable ? await peopleOverview(me.orgId) : [];
 
   const people: PersonLine[] = rows.map((row) => ({
     id: row.person.id,

@@ -49,7 +49,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 
   let asset;
   try {
-    asset = await assetStore().get(id, assetName);
+    asset = await assetStore(gate.person.orgId).get(id, assetName);
   } catch (error) {
     if (error instanceof DeckStoreError) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -99,7 +99,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const { id, name } = await params;
   const assetName = name.join('/');
 
-  const store = assetStore();
+  const store = assetStore(gate.person.orgId);
   if (!store.writable) {
     return Response.json(
       {
@@ -112,7 +112,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
 
   // The deck has to exist first. Otherwise a stray request could scatter images
   // under an id nobody owns, and nothing would ever clean them up.
-  const deck = await deckStore()
+  const deck = await deckStore(gate.person.orgId)
     .get(id)
     .catch(() => undefined);
   if (!deck) return Response.json({ error: 'No such deck.' }, { status: 404 });
