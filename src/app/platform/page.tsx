@@ -16,6 +16,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { requireUserPage } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { orgStore, orgsConfigured } from '@/lib/orgs/registry';
+import { usageFor } from '@/lib/usage/store';
 import { CustomerList, type CustomerRow } from './CustomerList';
 
 export const dynamic = 'force-dynamic';
@@ -26,14 +27,30 @@ export default async function PlatformPage() {
   const person = await requireUserPage('/platform');
   if (!isPlatformAdmin(person.email)) notFound();
 
+  // This month's spend beside each customer.
+  //
+  // One read per customer, which is fine at the scale a hand-provisioned customer list
+  // reaches and would not be at a thousand. If it ever is, the fix is a rollup written
+  // as usage is recorded rather than a fan-out read here.
   const customers: CustomerRow[] = orgsConfigured()
-    ? (await orgStore().list()).map((organisation) => ({
-        id: organisation.id,
-        name: organisation.name,
-        domains: organisation.domains,
-        status: organisation.status,
-        sessionsPerMonth: organisation.limits.sessionsPerMonth,
-      }))
+    ? await Promise.all(
+        (await orgStore().list()).map(async (organisation) => {
+          const usage = await usageFor(organisation.id).catch(() => undefined);
+          return {
+            id: organisation.id,
+            name: organisation.name,
+            domains: organisation.domains,
+            status: organisation.status,
+            sessionsPerMonth: organisation.limits.sessionsPerMonth,
+            usage: {
+              sessions: usage?.sessions ?? 0,
+              ttsCharacters: usage?.ttsCharacters ?? 0,
+              sttSeconds: usage?.sttSeconds ?? 0,
+              geminiTokens: (usage?.geminiInputTokens ?? 0) + (usage?.geminiOutputTokens ?? 0),
+            },
+          };
+        }),
+      )
     : [];
 
   return (

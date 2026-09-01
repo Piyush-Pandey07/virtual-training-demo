@@ -30,6 +30,7 @@ import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
 import { checkAdmin } from '@/lib/auth/guard';
+import { recordQuietly } from '@/lib/usage/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,10 @@ export async function POST(request: Request, { params }: RouteContext) {
   const { id } = await params;
 
   const store = deckStore(gate.person.orgId);
+
+  // A one-off per deck, and small next to a single session. Counted separately so a
+  // month with an unusual bill can be told apart from a month with unusual analysis.
+  recordQuietly(gate.person.orgId, { decksAnalysed: 1 });
   if (!store.writable) {
     return Response.json(
       { error: 'This deployment has no deck storage configured, so analysis cannot be saved.' },

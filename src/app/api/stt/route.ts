@@ -14,6 +14,7 @@
 import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/config';
 
 import { checkUser } from '@/lib/auth/guard';
+import { recordQuietly } from '@/lib/usage/store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,6 +65,12 @@ export async function POST(request: Request) {
   if (audio.byteLength < MIN_BYTES) {
     return Response.json({ transcript: '', confidence: 0 });
   }
+
+  // Deepgram bills this by duration, and the body is raw 16-bit mono at a known
+  // rate, so the seconds are arithmetic rather than a guess.
+  recordQuietly(gate.person.orgId, {
+    sttSeconds: audio.byteLength / 2 / CAPTURE_SAMPLE_RATE,
+  });
 
   const url = new URL('https://api.deepgram.com/v1/listen');
   url.searchParams.set('model', DEEPGRAM_STT_MODEL());

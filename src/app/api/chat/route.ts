@@ -19,6 +19,8 @@ import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/li
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
+import { mayStartSession } from '@/lib/usage/limits';
+import { recordQuietly } from '@/lib/usage/store';
 
 export const runtime = 'nodejs';
 /** Streaming only makes sense uncached. */
@@ -113,6 +115,22 @@ export async function POST(request: Request) {
         (a, b) => a - b,
       )
     : [];
+
+  // The start of a session: a narration with nothing covered yet. Checked here and
+  // only here, because a cap that read two documents before every sentence would tax
+  // the thing it protects -- and because stopping somebody halfway through a deck
+  // costs them the session they were in and refuses spend that already happened.
+  //
+  // Somebody who abandons a session and starts again counts twice. That is right: it
+  // is twice the spend.
+  const startingASession = kind === 'narrate' && coveredSlideIds.length === 0;
+  if (startingASession) {
+    const verdict = await mayStartSession(gate.person.orgId);
+    if (!verdict.allowed) {
+      return Response.json({ error: verdict.reason }, { status: 429 });
+    }
+    recordQuietly(gate.person.orgId, { sessions: 1 });
+  }
 
   let apiKey: string;
   try {
@@ -257,15 +275,37 @@ export async function POST(request: Request) {
           config,
         });
 
+        // Reported on the last chunk of the stream rather than up front, so it is read
+        // as the stream is consumed and kept for after it finishes.
+        let inputTokens = 0;
+        let outputTokens = 0;
+
         for await (const chunk of result) {
           const delta = chunk.text;
           if (delta) {
             spoken += delta;
             send({ type: 'text', delta });
           }
+          if (chunk.usageMetadata) {
+            inputTokens = chunk.usageMetadata.promptTokenCount ?? inputTokens;
+            outputTokens = chunk.usageMetadata.candidatesTokenCount ?? outputTokens;
+          }
         }
 
         const finalText = sanitiseForSpeech(spoken);
+
+        // Counted here rather than in /api/tts, which is the other obvious place and
+        // the wrong one. That route is called once per sentence, so metering there
+        // would put a database write in front of every utterance in an app whose whole
+        // design is to start speaking before generation finishes. This text is exactly
+        // what will be spoken, and counting it costs one write per turn instead of
+        // thirty. The trade is that a direct call to /api/tts goes uncounted, and
+        // nothing in the app makes one.
+        recordQuietly(gate.person.orgId, {
+          geminiInputTokens: inputTokens,
+          geminiOutputTokens: outputTokens,
+          ttsCharacters: finalText.length,
+        });
         if (!finalText) {
           send({
             type: 'error',

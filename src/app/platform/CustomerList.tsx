@@ -17,6 +17,24 @@ export interface CustomerRow {
   domains: string[];
   status: 'active' | 'suspended';
   sessionsPerMonth: number | null;
+  /** This calendar month, in the quantities the bill is made of. */
+  usage: {
+    sessions: number;
+    ttsCharacters: number;
+    sttSeconds: number;
+    geminiTokens: number;
+  };
+}
+
+/** Compact enough to sit on one line beside a name. */
+function compact(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+  return String(Math.round(value));
+}
+
+function minutes(seconds: number): string {
+  return seconds >= 60 ? `${Math.round(seconds / 60)} min` : `${Math.round(seconds)}s`;
 }
 
 interface CustomerListProps {
@@ -86,6 +104,9 @@ export function CustomerList({ customers, viewing, home }: CustomerListProps) {
       <ul className="space-y-2">
         {customers.map((customer) => {
           const here = customer.id === viewing;
+          const atLimit =
+            customer.sessionsPerMonth !== null &&
+            customer.usage.sessions >= customer.sessionsPerMonth;
           return (
             <li
               key={customer.id}
@@ -103,8 +124,22 @@ export function CustomerList({ customers, viewing, home }: CustomerListProps) {
                 <p className="text-muted mt-0.5 truncate text-xs">
                   {customer.id}
                   {customer.domains.length > 0 && ` · ${customer.domains.join(', ')}`}
-                  {customer.sessionsPerMonth !== null &&
-                    ` · capped at ${customer.sessionsPerMonth} sessions a month`}
+                </p>
+                {/* This month. Quantities, never a price: rates change and differ per
+                    contract, and a figure with a price baked in cannot be re-derived
+                    when the rate moves. */}
+                <p className="text-muted mt-1 text-xs">
+                  <span className={atLimit ? 'text-logo-red font-semibold' : ''}>
+                    {customer.usage.sessions} session
+                    {customer.usage.sessions === 1 ? '' : 's'}
+                    {customer.sessionsPerMonth !== null && ` of ${customer.sessionsPerMonth}`}
+                  </span>
+                  {' · '}
+                  {compact(customer.usage.ttsCharacters)} spoken
+                  {' · '}
+                  {minutes(customer.usage.sttSeconds)} heard
+                  {' · '}
+                  {compact(customer.usage.geminiTokens)} tokens
                 </p>
               </div>
 
