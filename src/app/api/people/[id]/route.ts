@@ -10,7 +10,7 @@
  */
 
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
-import { isBootstrapAdmin } from '@/lib/auth/roles';
+import { isPlatformAdmin } from '@/lib/auth/roles';
 import { revokeSessions } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
@@ -50,7 +50,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const person = await store.getPerson(id);
     if (!person) return Response.json({ error: 'No such person.' }, { status: 404 });
 
-    if (body.role === 'trainee' && isBootstrapAdmin(person.email)) {
+    if (body.role === 'trainee' && isPlatformAdmin(person.email)) {
       // Their address is in AUTH_ADMIN_EMAILS, so the stored role is not what decides
       // it. Saying so beats a click that appears to work and changes nothing.
       return Response.json(

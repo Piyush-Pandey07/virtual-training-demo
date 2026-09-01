@@ -14,7 +14,7 @@
  */
 
 import { passwordProblem } from '@/lib/auth/password';
-import { emailAllowed, isBootstrapAdmin, selfEnrolmentAllowed } from '@/lib/auth/roles';
+import { isPlatformAdmin } from '@/lib/auth/roles';
 import { orgStore } from '@/lib/orgs/registry';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
@@ -43,12 +43,6 @@ export async function POST(request: Request) {
     return Response.json({ error: 'An email address is required.' }, { status: 400 });
   }
 
-  if (!emailAllowed(email)) {
-    return Response.json(
-      { error: 'That address is not part of this organisation.' },
-      { status: 403 },
-    );
-  }
 
   try {
     // Which customer this address belongs to, before any roster is read. A domain no
@@ -78,20 +72,11 @@ export async function POST(request: Request) {
     const store = rosterStore(orgId);
     const known = await store.getPersonByEmail(email);
 
-    // Somebody has vouched for this address: an administrator put it on the roster, or
-    // the deployment names it as an administrator. Anybody else is enrolling themselves,
-    // which is allowed on a configured company domain and nowhere else.
-    const vouched = Boolean(known) || isBootstrapAdmin(email);
-
-    if (!vouched && !selfEnrolmentAllowed(email)) {
-      return Response.json(
-        {
-          error:
-            'There is no training account for that address. Ask whoever runs your training to add you.',
-        },
-        { status: 403 },
-      );
-    }
+    // Somebody has vouched for this address if an administrator put it on this
+    // customer's roster. Anybody else is enrolling themselves, which is allowed
+    // because the customer claimed their domain -- the check that reaching this line
+    // already passed -- and which is why the account below is created unverified.
+    const vouched = Boolean(known) || isPlatformAdmin(email);
 
     // Already has a password, so it is never touched here. Resetting it silently
     // would make this form a way of taking over somebody else's account by typing
@@ -119,7 +104,9 @@ export async function POST(request: Request) {
     // Links the new account to the row an administrator already made, carrying across
     // any training assigned before this person had ever signed in.
     const person = await store.upsertPerson({ id: uid, email, name: body.name?.trim() });
-    if (!known && isBootstrapAdmin(email)) await store.setRole(person.id, 'admin');
+    // Technavious staff are administrators wherever they are; the row is set to match
+    // so the customer's own screens describe them the same way everything else does.
+    if (!known && isPlatformAdmin(email)) await store.setRole(person.id, 'admin');
 
     // No cookie here. The browser signs in with the password it has just chosen,
     // through the one route that decides who somebody is -- unless it has to prove the

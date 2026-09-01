@@ -20,12 +20,7 @@
 
 import { cookies } from 'next/headers';
 
-import {
-  effectiveRole,
-  emailAllowed,
-  isBootstrapAdmin,
-  selfEnrolmentAllowed,
-} from '@/lib/auth/roles';
+import { effectiveRole } from '@/lib/auth/roles';
 import { SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
@@ -81,9 +76,6 @@ export async function POST(request: Request) {
     return refuse('That account has an unverified email address.');
   }
 
-  if (!emailAllowed(email)) {
-    return refuse('That account is not part of this organisation.');
-  }
 
   try {
     const orgs = orgStore();
@@ -114,20 +106,16 @@ export async function POST(request: Request) {
 
     const store = rosterStore(orgId);
 
-    // Known here already, named as an administrator by the deployment, or on a company
-    // domain that admits its own people. Anything else is a Firebase account nobody
-    // added here, and it gets no session.
+    // Reaching this line means a customer holds this address's domain, or somebody has
+    // placed this person in one by hand. Both are answers from the database rather than
+    // from a deployment-wide environment variable, which is what lets them differ per
+    // customer -- Acme admitting acme.com says nothing about Globex.
     //
-    // The self-enrolled case is safe here and only here: the verified-address check
-    // above has already run, so reaching this line means Firebase saw them follow a
-    // link sent to that mailbox. Moving this check above that one would turn it into
-    // open registration for anybody who can spell the domain.
-    const known = await store.getPersonByEmail(email);
-    if (!known && !isBootstrapAdmin(email) && !selfEnrolmentAllowed(email)) {
-      return refuse(
-        'There is no training account for that address. Ask whoever runs your training to add you.',
-      );
-    }
+    // The self-enrolment that allows is safe here and only here, because the
+    // verified-address check above has already run: reaching this line means Firebase
+    // saw somebody follow a link sent to that mailbox. Resolving the organisation
+    // before that check would turn this into open registration for anybody who can
+    // spell a customer's domain.
 
     // Refreshes the name and the last-seen stamp, and adopts the Firebase uid for
     // somebody an administrator added by hand before they had ever signed in. The

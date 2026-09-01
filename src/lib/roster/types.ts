@@ -47,7 +47,24 @@ export interface Person {
  * where it is actually established.
  */
 export interface SignedInPerson extends Person {
+  /**
+   * The customer whose data this request may see.
+   *
+   * The same as `homeOrgId` for everybody except Technavious staff looking inside a
+   * customer for support. Everything downstream reads this one -- stores are built
+   * from it -- so support works without a second code path, and a bug in the choosing
+   * cannot become a bug in the enforcing.
+   */
   orgId: string;
+  /**
+   * The customer this person actually belongs to.
+   *
+   * Kept beside `orgId` so a screen can say "you are looking at somebody else's
+   * company", which is the difference between a support tool and an accident.
+   */
+  homeOrgId: string;
+  /** Technavious rather than a customer. The only identity that may cross a customer. */
+  platform: boolean;
 }
 
 /** A deck somebody has been asked to attend. */

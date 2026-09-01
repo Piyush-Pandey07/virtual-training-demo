@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
-import { isBootstrapAdmin } from '@/lib/auth/roles';
+import { isPlatformAdmin } from '@/lib/auth/roles';
 import { rosterStore } from '@/lib/roster/registry';
 import { peopleOverview } from '@/lib/roster/report';
 import { PeopleList, type PersonLine } from './PeopleList';
@@ -30,11 +30,11 @@ export default async function PeoplePage() {
     id: row.person.id,
     name: row.person.name,
     email: row.person.email,
-    role: isBootstrapAdmin(row.person.email) ? 'admin' : row.person.role,
+    role: isPlatformAdmin(row.person.email) ? 'admin' : row.person.role,
     assigned: row.assigned,
     completed: row.completed,
     lastActiveAt: row.lastActiveAt,
-    pinnedAdmin: isBootstrapAdmin(row.person.email),
+    pinnedAdmin: isPlatformAdmin(row.person.email),
   }));
 
   return (

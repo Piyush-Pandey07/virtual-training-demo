@@ -19,8 +19,9 @@ import { cookies } from 'next/headers';
 
 import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
 import { orgStore } from '../orgs/registry';
+import { actingOrgId } from './acting-org';
 import { rosterStore } from '../roster/registry';
-import { effectiveRole } from './roles';
+import { effectiveRole, isPlatformAdmin } from './roles';
 import type { SignedInPerson } from '../roster/types';
 
 /** The cookie the real sign-in will set. Read here so the swap is one function. */
@@ -86,16 +87,43 @@ export async function currentPerson(): Promise<SignedInPerson | null> {
     // underneath a live cookie. Either way there is nothing this person may see.
     if (!orgId) return null;
 
-    const person = await rosterStore(orgId)
+    // Where Technavious staff have chosen to look, or this person's own customer,
+    // which is what it always is for everybody else. Taken from the verified token
+    // rather than from a roster row, because for staff acting inside a customer there
+    // may not be a row in that customer to read it from.
+    const email = typeof decoded.email === 'string' ? decoded.email : '';
+    const acting = await actingOrgId(email, orgId).catch(() => orgId);
+
+    const person = await rosterStore(acting)
       .getPerson(decoded.uid)
       .catch(() => undefined);
 
     // Signed in with Firebase but absent from the roster: the sign-in route creates
     // that row, so this is a deployment whose roster storage went away underneath a
     // live cookie. Treating it as nobody is the safe reading.
-    if (!person) return null;
+    //
+    // Except for Technavious staff looking inside a customer, who are legitimately not
+    // on that customer's roster. They are described from their own row instead, and
+    // pointed at the customer they are viewing.
+    const platform = isPlatformAdmin(email);
+    if (!person) {
+      if (!platform || acting === orgId) return null;
 
-    return { ...person, orgId, role: effectiveRole(person) };
+      const own = await rosterStore(orgId)
+        .getPerson(decoded.uid)
+        .catch(() => undefined);
+      if (!own) return null;
+
+      return { ...own, orgId: acting, homeOrgId: orgId, platform, role: 'admin' };
+    }
+
+    return {
+      ...person,
+      orgId: acting,
+      homeOrgId: orgId,
+      platform,
+      role: effectiveRole({ ...person, email }),
+    };
   }
 
   if (!devAuthEnabled()) return null;
@@ -116,5 +144,11 @@ export async function currentPerson(): Promise<SignedInPerson | null> {
     .catch(() => undefined);
   if (!person) return null;
 
-  return { ...person, orgId, role: effectiveRole(person) };
+  return {
+    ...person,
+    orgId,
+    homeOrgId: orgId,
+    platform: isPlatformAdmin(person.email),
+    role: effectiveRole(person),
+  };
 }

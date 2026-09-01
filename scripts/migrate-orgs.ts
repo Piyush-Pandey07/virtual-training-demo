@@ -17,7 +17,9 @@
  * twice is not different from running it once.
  */
 
+import { firestoreDocuments } from '../src/lib/firebase/firestore';
 import { orgStore, orgsConfigured } from '../src/lib/orgs/registry';
+import { scopedDocuments } from '../src/lib/orgs/scope';
 import { HOME_ORG_ID } from '../src/lib/orgs/types';
 import { rosterStore } from '../src/lib/roster/registry';
 
@@ -38,6 +40,55 @@ function homeDomains(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Firestore collections written before customers existed.
+ *
+ * Stage one put an organisation *on* each row; stage two changed where the store
+ * *looks* for rows at all. Those are different things, and doing only the first leaves
+ * every person sitting in `people` while the app reads `orgs/{orgId}/people` -- nobody
+ * can sign in, and nothing reports an error, because an empty collection is a
+ * perfectly ordinary answer.
+ */
+const COLLECTIONS = ['people', 'assignments', 'attempts'] as const;
+
+/** Copies the unscoped collections into the home organisation. */
+async function moveCollections(apply: boolean): Promise<void> {
+  const flat = firestoreDocuments();
+  const scoped = scopedDocuments(flat, HOME_ORG_ID);
+
+  for (const collection of COLLECTIONS) {
+    const rows = await flat.all<Record<string, unknown>>(collection);
+    const already = await scoped.all<Record<string, unknown>>(collection);
+
+    console.log(
+      `    ${collection.padEnd(12)} ${rows.length} unscoped, ${already.length} already in "${HOME_ORG_ID}"`,
+    );
+    if (!apply || rows.length === 0) continue;
+
+    for (const row of rows) {
+      // Documents here are keyed by their own id, or by a person and deck pair in the
+      // same shape `pairId` builds. Both are on the row, so the key can be rebuilt
+      // rather than needing the store to hand it back.
+      const id =
+        typeof row.id === 'string'
+          ? row.id
+          : typeof row.personId === 'string' && typeof row.deckId === 'string'
+            ? `${row.personId}__${row.deckId}`
+            : undefined;
+
+      if (!id) {
+        console.log(`      a ${collection} row has no id this can rebuild -- left alone`);
+        continue;
+      }
+
+      // Copied, not moved. The originals stay until somebody has seen this work, and a
+      // second run overwrites with the same content rather than duplicating.
+      await scoped.set(collection, id, { ...row, orgId: HOME_ORG_ID });
+      console.log(`      ${collection}/${id}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
 
@@ -48,10 +99,13 @@ async function main(): Promise<void> {
   }
 
   const orgs = orgStore();
-  // Reads the home organisation, which is where stage 1 placed everybody. A row with
-  // no organisation is invisible to a scoped store, so anything still homeless after
-  // that first run has to be found and placed by hand -- which is what the read-back
-  // at the end of this script reports.
+
+  // The rows move first. Everything below reads through a store scoped to the home
+  // organisation, which sees nothing at all until they have.
+  console.log('');
+  console.log('  Firestore collections:');
+  await moveCollections(apply);
+
   const roster = rosterStore(HOME_ORG_ID);
 
   const people = await roster.listPeople();

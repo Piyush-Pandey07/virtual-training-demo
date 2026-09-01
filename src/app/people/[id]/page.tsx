@@ -47,7 +47,7 @@ export default async function PersonPage({ params }: PersonPageProps) {
   if (!person) notFound();
 
   const [rows, decks] = await Promise.all([
-    trainingFor({ ...person, orgId: admin.orgId }),
+    trainingFor(admin.orgId, person),
     listDecks(admin.orgId),
   ]);
   const already = new Set(rows.map((row) => row.deckId));

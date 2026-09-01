@@ -1,22 +1,37 @@
 /**
- * Who is an administrator, as a matter of configuration.
+ * Two kinds of administrator, which must not become one field.
  *
- * Separate from `session.ts`, which answers who is making a request. These are
- * different questions and conflating them is how a route ends up resolving identity
- * for itself instead of asking the guard: everything here is a pure function of an
- * address and the environment, and none of it knows or cares who is signed in.
+ * A **customer administrator** runs training inside one company. They upload decks,
+ * assign them, and see who attended — all of it confined to their own organisation by
+ * the store they are handed. This is a role on a roster row, and a customer's own
+ * administrators can grant it to each other.
  *
- * The bootstrap this exists for: the first administrator cannot be promoted by an
- * administrator who does not exist yet. Kept as a floor rather than a one-time seed,
- * so an empty roster, a database that has moved, or an administrator who demoted
- * themselves is recoverable by an environment variable rather than by a console.
+ * **Platform staff** are Technavious. They may look inside any customer, for support,
+ * and that is the only deliberate cross-customer access in the system. It is not a
+ * role on a row: it is an environment variable, so nobody can grant it from inside the
+ * app — not a customer administrator, and not a compromised session.
+ *
+ * Keeping them apart is the whole point of this file. One `admin` flag covering both
+ * would mean every customer's HR lead could read every other customer, and the only
+ * thing standing between those two readings would be that nobody had thought about it.
  */
 
 import { emailKeyOf } from '../roster/store';
 import type { Person, Role } from '../roster/types';
 
-export function bootstrapAdminEmails(): ReadonlySet<string> {
-  const raw = process.env.AUTH_ADMIN_EMAILS ?? '';
+/**
+ * Technavious staff, by exact address.
+ *
+ * An environment variable rather than a database row on purpose. A row can be written
+ * by anything that can write rows; this can only be changed by whoever deploys, which
+ * is the property that makes it worth trusting for cross-customer access.
+ *
+ * Was `AUTH_ADMIN_EMAILS`, when there was one company and the two ideas were the same
+ * thing. Both names are read so a deployment does not lose its administrators between
+ * a config change and a deploy, and the old one should be removed once it has been.
+ */
+export function platformAdminEmails(): ReadonlySet<string> {
+  const raw = process.env.PLATFORM_ADMIN_EMAILS ?? process.env.AUTH_ADMIN_EMAILS ?? '';
   return new Set(
     raw
       .split(',')
@@ -25,75 +40,24 @@ export function bootstrapAdminEmails(): ReadonlySet<string> {
   );
 }
 
-export function isBootstrapAdmin(email: string): boolean {
-  return bootstrapAdminEmails().has(emailKeyOf(email));
-}
-
-/**
- * The domains an address may sign in from, if the deployment restricts them at all.
- *
- * Empty means unrestricted, which is the right default for a deployment that has not
- * said otherwise -- the roster is the gate in that case, and it is a real one.
- */
-export function allowedEmailDomains(): ReadonlySet<string> {
-  const raw = process.env.ALLOWED_EMAIL_DOMAINS ?? '';
-  return new Set(
-    raw
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => entry.length > 0),
-  );
-}
-
-/**
- * Whether an address may sign in at all, before anything is known about the person.
- *
- * An address named in AUTH_ADMIN_EMAILS passes whatever its domain. That reads like a
- * hole and is not one: the same list already makes that exact address an administrator
- * with access to everything, so refusing it here would deny nothing it cannot reach by
- * being on the list at all. What it fixes is a real trap -- naming an outside address
- * as the bootstrap administrator appeared to work, and then failed at sign-in with
- * "not part of this organisation", which is the wrong explanation for the wrong reason
- * and leaves the deployment with no administrator and no obvious way to get one.
- *
- * The exemption is per exact address and never per domain. Adding a whole public
- * domain to ALLOWED_EMAIL_DOMAINS to let one person in would let in everybody holding
- * an address there, and that is the mistake this exists to make unnecessary.
- */
-export function emailAllowed(email: string): boolean {
-  const domains = allowedEmailDomains();
-  if (domains.size === 0) return true;
-  if (bootstrapAdminEmails().has(emailKeyOf(email))) return true;
-
-  return domains.has(emailKeyOf(email).split('@')[1] ?? '');
-}
-
-/**
- * Whether somebody may add themselves, rather than waiting for an administrator.
- *
- * Requires a configured domain that the address matches. That the domain list is
- * non-empty is the whole safety argument: a deployment that has not named its domain
- * would otherwise let any address on the internet enrol, so silence means closed.
- *
- * This does not make the address trustworthy on its own -- anybody can type a
- * colleague's address into a form. What makes it safe is that a self-enrolled account
- * has to prove it receives mail there before a session is issued; see the register
- * route, which is the other half of this.
- */
-export function selfEnrolmentAllowed(email: string): boolean {
-  const domains = allowedEmailDomains();
-  if (domains.size === 0) return false;
-
-  return domains.has(emailKeyOf(email).split('@')[1] ?? '');
+/** Whether this address is Technavious rather than a customer. */
+export function isPlatformAdmin(email: string): boolean {
+  return platformAdminEmails().has(emailKeyOf(email));
 }
 
 /**
  * The role that actually applies.
  *
- * Not always the stored one: an address named in the deployment configuration is an
- * administrator whatever the row says. Everything that reports or checks a role goes
- * through here, so a page and an API response cannot disagree about somebody.
+ * Not always the stored one: platform staff are administrators wherever they are
+ * looking, whatever the row in that customer's roster says. Everything that reports or
+ * checks a role goes through here, so a page and an API response cannot disagree.
+ *
+ * Note what this does *not* do. It does not decide which customer somebody may look
+ * at — that is `actingOrgId`, and it is a separate question with a separate answer.
+ * Being an administrator and being inside a customer are different facts, and the bug
+ * this shape avoids is an administrator of one company quietly being treated as an
+ * administrator of another.
  */
 export function effectiveRole(person: Person): Role {
-  return isBootstrapAdmin(person.email) ? 'admin' : person.role;
+  return isPlatformAdmin(person.email) ? 'admin' : person.role;
 }

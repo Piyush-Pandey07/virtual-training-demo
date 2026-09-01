@@ -30,7 +30,7 @@ export default async function HomePage() {
   const person = await requireUserPage('/');
 
   if (person.role !== 'admin') {
-    return <HomeForTrainee person={person} rows={await trainingFor(person)} />;
+    return <HomeForTrainee person={person} rows={await trainingFor(person.orgId, person)} />;
   }
 
   const store = deckStore(person.orgId);

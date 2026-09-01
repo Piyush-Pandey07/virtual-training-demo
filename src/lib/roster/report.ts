@@ -17,7 +17,7 @@ import { listDecks } from '../decks/registry';
 import type { DeckSummary } from '../decks/store';
 import { coverageOf, emptyCoverage, percentComplete } from './completion';
 import { rosterStore } from './registry';
-import type { Attempt, Person, ProgressRow, SignedInPerson } from './types';
+import type { Attempt, Person, ProgressRow } from './types';
 
 /**
  * What a deck is worth, for the denominator of a percentage.
@@ -80,12 +80,12 @@ function rowFor(
 }
 
 /** What one trainee has been asked to do, and how far they have got. */
-export async function trainingFor(person: SignedInPerson): Promise<ProgressRow[]> {
-  const store = rosterStore(person.orgId);
+export async function trainingFor(orgId: string, person: Person): Promise<ProgressRow[]> {
+  const store = rosterStore(orgId);
   const [assignments, attempts, decks] = await Promise.all([
     store.listAssignmentsForPerson(person.id),
     store.listAttemptsForPerson(person.id),
-    listDecks(person.orgId),
+    listDecks(orgId),
   ]);
 
   const byDeck = new Map(decks.map((deck) => [deck.id, deck]));

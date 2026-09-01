@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 
 import './globals.css';
 
+import { ActingBanner } from '@/components/ActingBanner';
+
 /**
  * The fallback title, used where no particular deck is being shown.
  *
@@ -24,7 +26,17 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-GB">
-      <body className="bg-charcoal text-mist min-h-screen antialiased">{children}</body>
+      <body className="bg-charcoal text-mist min-h-screen antialiased">
+        {/* Above every page rather than inside the header.
+            
+            The header is rendered from a client component on the session screen, and a
+            banner that reads a cookie cannot be. Putting it here is not a workaround
+            for that: the layout is where something that belongs above every page and
+            below none of them actually belongs, and it renders nothing at all for
+            everybody who is in their own organisation. */}
+        <ActingBanner />
+        {children}
+      </body>
     </html>
   );
 }
