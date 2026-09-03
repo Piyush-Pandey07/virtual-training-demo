@@ -17,6 +17,8 @@ import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { deckStore } from '@/lib/decks/registry';
 import { assetStore } from '@/lib/decks/registry';
 import { DeckInvalidError, DeckStoreError, type DeckStatus } from '@/lib/decks/store';
+import { removeDeckEverywhere } from '@/lib/decks/removal';
+import { rosterStore } from '@/lib/roster/registry';
 import type { DeckMeta, DeckRecord, SlideRole } from '@/lib/deck-types';
 
 import { checkAdmin } from '@/lib/auth/guard';
@@ -268,10 +270,15 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: 'The built-in deck cannot be removed.' }, { status: 409 });
   }
 
-  // Renders first. A deck record with no images is a broken session; orphaned
-  // images with no record are invisible, so that is the better order to fail in.
-  await assetStore(gate.person.orgId).removeAll(id);
-  await store.remove(id);
+  const { unassigned } = await removeDeckEverywhere(
+    store,
+    assetStore(gate.person.orgId),
+    rosterStore(gate.person.orgId),
+    id,
+  );
 
-  return Response.json({ removed: id });
+  // Said back rather than done silently. Removing a deck quietly takes it off other
+  // people's lists, and the administrator doing it is usually not the one who assigned
+  // it in the first place.
+  return Response.json({ removed: id, unassigned });
 }
