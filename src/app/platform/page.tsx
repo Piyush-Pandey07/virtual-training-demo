@@ -18,6 +18,7 @@ import { isPlatformAdmin } from '@/lib/auth/roles';
 import { orgStore, orgsConfigured } from '@/lib/orgs/registry';
 import { usageFor } from '@/lib/usage/store';
 import { CustomerList, type CustomerRow } from './CustomerList';
+import { MovePerson } from './MovePerson';
 
 export const dynamic = 'force-dynamic';
 
@@ -76,6 +77,12 @@ export default async function PlatformPage() {
         <div className="mt-8">
           <CustomerList customers={customers} viewing={person.orgId} home={person.homeOrgId} />
         </div>
+
+        {customers.length > 1 && (
+          <MovePerson
+            customers={customers.map((customer) => ({ id: customer.id, name: customer.name }))}
+          />
+        )}
       </main>
     </div>
   );

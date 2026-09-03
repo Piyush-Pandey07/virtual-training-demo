@@ -1,6 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+
+import { ManageCustomer } from './ManageCustomer';
 import { useState } from 'react';
 
 /**
@@ -142,6 +144,13 @@ export function CustomerList({ customers, viewing, home }: CustomerListProps) {
                   {compact(customer.usage.geminiTokens)} tokens
                 </p>
               </div>
+
+              <ManageCustomer
+                id={customer.id}
+                name={customer.name}
+                status={customer.status}
+                sessionsPerMonth={customer.sessionsPerMonth}
+              />
 
               {here ? (
                 <span className="text-teal shrink-0 text-xs font-semibold">viewing</span>

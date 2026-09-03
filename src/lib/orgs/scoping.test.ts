@@ -134,17 +134,39 @@ describe('every store call', () => {
   });
 });
 
+/**
+ * Who may ask which customer holds an address, and why.
+ *
+ * `orgIdHolding` is the only lookup in the app that spans customers. It exists to
+ * enforce that somebody belongs to exactly one, so the places that need it are the
+ * places that put people into customers or move them between them. Anything else
+ * calling it is either a second cross-customer read or a mistake, and both want
+ * noticing rather than allowing.
+ */
+const MAY_LOOK_ACROSS_CUSTOMERS: Record<string, string> = {
+  'src/lib/orgs/store.ts': 'Defines it.',
+  'src/app/api/platform/move/route.ts':
+    'Moving somebody between customers has to find which one currently holds them, and that is the question this answers. Platform staff only.',
+};
+
 describe('the one lookup that spans customers', () => {
-  it('lives only in the organisation store', () => {
-    // `orgIdHolding` answers "which customer has this address" across all of them. It
-    // exists to enforce that somebody belongs to exactly one, and it is the only
-    // deliberate cross-customer read in the app. Anything else calling it is either a
-    // second such read or a mistake, and both want noticing.
+  it('is called only where moving people between customers requires it', () => {
     const callers = FILES.filter(
       (path) =>
-        path !== 'src/lib/orgs/store.ts' && readFileSync(path, 'utf8').includes('orgIdHolding'),
+        !(path in MAY_LOOK_ACROSS_CUSTOMERS) && readFileSync(path, 'utf8').includes('orgIdHolding'),
     );
 
     assert.deepEqual(callers, [], `unexpected cross-customer lookups in: ${callers.join(', ')}`);
+  });
+
+  it('has a reason written down for each place that does', () => {
+    for (const [path, reason] of Object.entries(MAY_LOOK_ACROSS_CUSTOMERS)) {
+      assert.ok(FILES.includes(path), `${path} is allowed to look across customers but is gone`);
+      assert.ok(
+        readFileSync(path, 'utf8').includes('orgIdHolding'),
+        `${path} no longer looks across customers. Remove it from the list.`,
+      );
+      assert.ok(reason.length > 8, `${path} is on the list without a reason`);
+    }
   });
 });
