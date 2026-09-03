@@ -9,7 +9,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { SignOutButton } from '@/components/SignOutButton';
+import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { rosterStore } from '@/lib/roster/registry';
@@ -33,6 +33,9 @@ export default async function PeoplePage() {
     role: isPlatformAdmin(row.person.email) ? 'admin' : row.person.role,
     assigned: row.assigned,
     completed: row.completed,
+    inProgress: row.inProgress,
+    notStarted: row.notStarted,
+    secondsSpent: row.secondsSpent,
     lastActiveAt: row.lastActiveAt,
     pinnedAdmin: isPlatformAdmin(row.person.email),
   }));
@@ -40,12 +43,7 @@ export default async function PeoplePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
-            Home
-          </Link>
-          <SignOutButton />
-        </div>
+        <MainNav person={me} current="/people" />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">

@@ -12,10 +12,10 @@
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { ProgressBar } from '@/components/ProgressBar';
-import { SignOutButton } from '@/components/SignOutButton';
 import { COMPLETION_THRESHOLD } from '@/lib/roster/completion';
-import type { Person, ProgressRow } from '@/lib/roster/types';
+import type { ProgressRow, SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 
 function formatDate(iso: string): string {
@@ -116,16 +116,16 @@ function TrainingCard({ row }: { row: ProgressRow }) {
   );
 }
 
-export function HomeForTrainee({ person, rows }: { person: Person; rows: ProgressRow[] }) {
+export function HomeForTrainee({ person, rows }: { person: SignedInPerson; rows: ProgressRow[] }) {
   const outstanding = rows.filter((row) => row.completedAt === null);
   const done = rows.filter((row) => row.completedAt !== null);
 
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span className="text-muted hidden text-sm sm:inline">{person.name || person.email}</span>
-          <SignOutButton />
+          <MainNav person={person} current="/" />
         </div>
       </BrandHeader>
 

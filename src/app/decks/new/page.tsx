@@ -10,6 +10,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { UploadDeck } from './UploadDeck';
@@ -28,9 +29,7 @@ export default async function NewDeckPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-          Deck library
-        </Link>
+        <MainNav person={admin} />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-5 py-12 sm:px-8">

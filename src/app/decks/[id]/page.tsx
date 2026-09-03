@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
@@ -168,9 +169,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
           >
             Who has attended
           </Link>
-          <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-            Deck library
-          </Link>
+          <MainNav person={admin} />
         </div>
       </BrandHeader>
 

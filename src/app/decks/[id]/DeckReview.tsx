@@ -15,6 +15,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 
 import { pageAssetName } from '@/lib/decks/asset-paths';
@@ -103,6 +104,7 @@ interface Progress {
 }
 
 export function DeckReview({ initial }: { initial: ReviewDeck }) {
+  const router = useRouter();
   const [meta, setMeta] = useState(initial.meta);
   const [slides, setSlides] = useState(initial.slides);
   const [status, setStatus] = useState(initial.status);
@@ -174,13 +176,21 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
         if (nextStatus) setStatus(nextStatus);
         setDirty(false);
         setMessage(nextStatus === 'published' ? 'Published.' : 'Saved.');
+
+        // The badge above this component, the page title and the tab all come from
+        // the server, which does not know anything just changed. Without this the
+        // button says "Unpublish" beside a heading still reading "Draft deck", and
+        // the only way to find out which one is telling the truth is to reload.
+        // `refresh` rather than a full reload: the edits are saved, so re-rendering
+        // the server half is enough and the page does not jump back to the top.
+        router.refresh();
       } catch (caught) {
         setError((caught as Error).message);
       } finally {
         setSaving(false);
       }
     },
-    [initial.id, meta, slides],
+    [initial.id, meta, slides, router],
   );
 
   /**

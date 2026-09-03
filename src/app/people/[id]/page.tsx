@@ -10,12 +10,15 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { SignOutButton } from '@/components/SignOutButton';
+import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { roleLabel } from '@/lib/auth/labels';
+import { isPlatformAdmin } from '@/lib/auth/roles';
 import { currentPerson } from '@/lib/auth/session';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { trainingFor } from '@/lib/roster/report';
+import { EmployeeStats } from './EmployeeStats';
 import { PersonDetail, type AssignableDeck } from './PersonDetail';
 
 export const dynamic = 'force-dynamic';
@@ -69,12 +72,7 @@ export default async function PersonPage({ params }: PersonPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
-          <Link href="/people" className="text-muted hover:text-teal text-sm transition-colors">
-            People
-          </Link>
-          <SignOutButton />
-        </div>
+        <MainNav person={admin} />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">
@@ -86,7 +84,7 @@ export default async function PersonPage({ params }: PersonPageProps) {
         </Link>
 
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">
-          {person.role === 'admin' ? 'HR' : 'Trainee'}
+          {roleLabel(person.role, isPlatformAdmin(person.email))}
         </p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{person.name || person.email}</h1>
         <p className="text-muted mt-2 text-base">
@@ -95,7 +93,12 @@ export default async function PersonPage({ params }: PersonPageProps) {
           {person.lastSeenAt === null ? ' · has never signed in' : ''}
         </p>
 
-        <div className="mt-10">
+        <div className="mt-10 space-y-8">
+          <EmployeeStats
+            rows={rows}
+            joinedAt={person.createdAt}
+            lastSignedInAt={person.lastSeenAt}
+          />
           <PersonDetail personId={person.id} rows={rows} assignable={assignable} />
         </div>
       </main>

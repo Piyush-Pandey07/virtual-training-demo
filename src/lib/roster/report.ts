@@ -142,6 +142,12 @@ export interface PersonOverview {
   assigned: number;
   completed: number;
   inProgress: number;
+  /** Assigned and never opened, as distinct from opened and unfinished. The two mean
+      different things to whoever has to chase it. */
+  notStarted: number;
+  /** Seconds of material actually taught to them, across every deck they were given.
+      What they have really sat through, rather than what was scheduled. */
+  secondsSpent: number;
   lastActiveAt: string | null;
 }
 
@@ -159,6 +165,10 @@ export async function peopleOverview(orgId: string): Promise<PersonOverview[]> {
       const assignedIds = new Set(assignments.map((row) => row.deckId));
       const relevant = attempts.filter((attempt) => assignedIds.has(attempt.deckId));
       const completed = relevant.filter((attempt) => attempt.completedAt !== null).length;
+      const secondsSpent = relevant.reduce(
+        (total, attempt) => total + coverageOf(attempt).coveredSeconds,
+        0,
+      );
 
       const lastActiveAt = attempts.reduce<string | null>(
         (latest, attempt) =>
@@ -171,6 +181,8 @@ export async function peopleOverview(orgId: string): Promise<PersonOverview[]> {
         assigned: assignedIds.size,
         completed,
         inProgress: relevant.length - completed,
+        notStarted: assignedIds.size - relevant.length,
+        secondsSpent,
         lastActiveAt,
       };
     }),

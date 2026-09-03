@@ -9,6 +9,7 @@
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { deckStore, listDecks } from '@/lib/decks/registry';
 
@@ -40,9 +41,7 @@ export default async function DeckLibraryPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <Link href="/" className="text-muted hover:text-teal text-sm transition-colors">
-          Home
-        </Link>
+        <MainNav person={admin} current="/decks" />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">

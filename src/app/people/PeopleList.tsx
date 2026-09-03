@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
+import { otherRoleLabel, roleLabel } from '@/lib/auth/labels';
+import { duration } from '@/lib/roster/stats';
 
 export interface PersonLine {
   id: string;
@@ -13,6 +15,12 @@ export interface PersonLine {
   role: Role;
   assigned: number;
   completed: number;
+  /** Opened and unfinished. */
+  inProgress: number;
+  /** Assigned and never opened. */
+  notStarted: number;
+  /** Seconds actually taught to them. */
+  secondsSpent: number;
   lastActiveAt: string | null;
   /** True when the address is an administrator by deployment configuration. */
   pinnedAdmin: boolean;
@@ -133,9 +141,19 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
                     {person.name || person.email}
                   </Link>
                   <p className="text-muted mt-0.5 text-sm">
-                    {person.email} · {person.completed} of {person.assigned} complete · last active{' '}
-                    {formatDate(person.lastActiveAt)}
+                    {person.email}
+                    {person.assigned === 0
+                      ? ' · nothing assigned'
+                      : ` · ${person.completed} of ${person.assigned} complete`}
                   </p>
+                  {person.assigned > 0 && (
+                    <p className="text-muted mt-0.5 text-xs">
+                      {person.inProgress > 0 && `${person.inProgress} part-way · `}
+                      {person.notStarted > 0 && `${person.notStarted} not started · `}
+                      {person.secondsSpent > 0 && `${duration(person.secondsSpent)} in sessions · `}
+                      last active {formatDate(person.lastActiveAt)}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -146,7 +164,7 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
                         : 'bg-charcoal-line text-muted'
                     }`}
                   >
-                    {person.role === 'admin' ? 'HR' : 'Trainee'}
+                    {roleLabel(person.role, person.pinnedAdmin)}
                   </span>
 
                   {person.id === meId ? (
@@ -172,7 +190,7 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
                       }
                       className="border-charcoal-line text-muted hover:text-mist rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
                     >
-                      {person.role === 'admin' ? 'Make trainee' : 'Make HR'}
+                      Make {otherRoleLabel(person.role)}
                     </button>
                   )}
 

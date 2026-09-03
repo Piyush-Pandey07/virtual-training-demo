@@ -9,9 +9,9 @@
 import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { SignOutButton } from '@/components/SignOutButton';
+import { MainNav } from '@/components/MainNav';
 import type { DeckSummary } from '@/lib/decks/store';
-import type { Person } from '@/lib/roster/types';
+import type { SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 
 const STEPS = [
@@ -30,7 +30,7 @@ const STEPS = [
 ];
 
 export interface AdminHomeData {
-  person: Person;
+  person: SignedInPerson;
   uploaded: DeckSummary[];
   demo: DeckSummary | undefined;
   canUpload: boolean;
@@ -51,15 +51,7 @@ export function HomeForAdmin({
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
-          <Link href="/people" className="text-muted hover:text-teal text-sm transition-colors">
-            People
-          </Link>
-          <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-            Deck library
-          </Link>
-          <SignOutButton />
-        </div>
+        <MainNav person={person} current="/" />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-12 sm:px-8 sm:py-16">

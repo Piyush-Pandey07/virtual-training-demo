@@ -1,6 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+
+import { roleLabel } from '@/lib/auth/labels';
 import { useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
@@ -74,7 +76,7 @@ export function SignInForm({ people, next }: { people: Candidate[]; next: string
                         : 'bg-charcoal-line text-muted'
                     }`}
                   >
-                    {person.role === 'admin' ? 'HR' : 'Trainee'}
+                    {roleLabel(person.role)}
                   </span>
                 </button>
               </li>

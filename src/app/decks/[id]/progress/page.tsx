@@ -11,8 +11,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { ProgressBar } from '@/components/ProgressBar';
-import { SignOutButton } from '@/components/SignOutButton';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { currentPerson } from '@/lib/auth/session';
 import { loadStoredDeck } from '@/lib/decks/registry';
@@ -58,12 +58,7 @@ export default async function DeckProgressPage({ params }: ProgressPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
-          <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-            Deck library
-          </Link>
-          <SignOutButton />
-        </div>
+        <MainNav person={admin} />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">
