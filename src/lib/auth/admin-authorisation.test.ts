@@ -115,6 +115,30 @@ describe('the sign-in routes', () => {
 });
 
 describe('the sign-in page role picker', () => {
+  it('offers three ways in, and decides none of them', () => {
+    // Three now: trainee, a customer's administrator, and Technavious. The third is the
+    // one worth guarding, because it is the only one that can see across customers and
+    // it sits on a page anybody can open. What it does is set expectations; what it
+    // must never do is influence the answer.
+    const source = readFileSync('src/app/signin/PasswordSignIn.tsx', 'utf8');
+
+    for (const kind of ['trainee', 'admin', 'platform']) {
+      assert.match(source, new RegExp(`kind: '${kind}'`), `the picker lost its ${kind} option`);
+    }
+
+    // The note is driven by what the server sent back, never by what was picked.
+    assert.match(
+      source,
+      /result\.platform/,
+      'the page decides for itself whether somebody is Technavious',
+    );
+    assert.doesNotMatch(
+      source,
+      /expecting === 'platform'\s*\?/,
+      'the page branches on the picked option where it should branch on the answer',
+    );
+  });
+
   it('does not send the chosen role anywhere', () => {
     // The Trainee / HR buttons set expectations and where somebody lands. If the choice
     // were ever posted, whoever holds the page could pick administrator.

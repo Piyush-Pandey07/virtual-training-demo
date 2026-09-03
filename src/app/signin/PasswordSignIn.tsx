@@ -15,6 +15,17 @@ import type { Role } from '@/lib/roster/types';
 type Mode = 'signin' | 'first';
 
 /**
+ * What somebody says they are, which is not what they are.
+ *
+ * Three now rather than two, because being an administrator of one customer and being
+ * Technavious are different things and the page had no way to say so. None of the three
+ * grants anything: the role comes from the roster and the platform list, both decided
+ * on the server, and this choice is never sent anywhere. Whoever holds the page could
+ * otherwise elect themselves.
+ */
+type Expecting = 'trainee' | 'admin' | 'platform';
+
+/**
  * Signing in, and setting a password the first time.
  *
  * The two buttons at the top choose which kind of person is signing in. They do not
@@ -31,9 +42,16 @@ type Mode = 'signin' | 'first';
  * One form under both, because from the person's side it is one question — let me in —
  * and which case applies is not something they should work out before typing anything.
  */
+const NOTES: Record<Expecting, string> = {
+  trainee:
+    'You are signed in as a trainee. If you should have administrator access, ask whoever runs your training.',
+  admin: 'You are signed in as an administrator of your organisation.',
+  platform: 'You are signed in as Technavious, with access to every customer.',
+};
+
 export function PasswordSignIn({ next }: { next: string }) {
   const router = useRouter();
-  const [expecting, setExpecting] = useState<Role>('trainee');
+  const [expecting, setExpecting] = useState<Expecting>('trainee');
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -54,7 +72,11 @@ export function PasswordSignIn({ next }: { next: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
     });
-    const result = (await response.json()) as { error?: string; role?: Role };
+    const result = (await response.json()) as {
+      error?: string;
+      role?: Role;
+      platform?: boolean;
+    };
 
     if (!response.ok) {
       // Refused by us rather than by Firebase. Drop the browser-side session too, or
@@ -64,13 +86,18 @@ export function PasswordSignIn({ next }: { next: string }) {
       throw new Error(result.error ?? 'That sign-in was refused.');
     }
 
-    // The role the server decided, which is the only one that counts.
-    if (result.role && result.role !== expecting) {
-      setNote(
-        result.role === 'trainee'
-          ? 'You are signed in as a trainee. If you should have administrator access, ask whoever runs your training.'
-          : 'You are signed in as an administrator.',
-      );
+    // What the server decided, which is the only thing that counts. Said out loud only
+    // when it differs from what they picked: somebody who chose Technavious and is in
+    // fact a trainee should be told, rather than left wondering where the customer
+    // list went.
+    const actual: Expecting = result.platform
+      ? 'platform'
+      : result.role === 'admin'
+        ? 'admin'
+        : 'trainee';
+
+    if (result.role && actual !== expecting) {
+      setNote(NOTES[actual]);
     }
 
     router.push(next);
@@ -148,16 +175,21 @@ export function PasswordSignIn({ next }: { next: string }) {
   const field =
     'bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset';
 
-  const CHOICES: Array<{ role: Role; label: string; blurb: string }> = [
+  const CHOICES: Array<{ kind: Expecting; label: string; blurb: string }> = [
     {
-      role: 'trainee',
+      kind: 'trainee',
       label: 'Trainee',
       blurb: 'Attend the training you have been given.',
     },
     {
-      role: 'admin',
+      kind: 'admin',
       label: 'HR or manager',
-      blurb: 'Upload decks, assign them, and see who has attended.',
+      blurb: 'Upload decks, assign them, and see who has attended at your company.',
+    },
+    {
+      kind: 'platform',
+      label: 'Technavious',
+      blurb: 'Look after every customer on this deployment.',
     },
   ];
 
@@ -173,18 +205,18 @@ export function PasswordSignIn({ next }: { next: string }) {
         <div
           role="radiogroup"
           aria-label="What are you signing in as?"
-          className="border-charcoal-line grid grid-cols-2 gap-1 rounded-lg border p-1"
+          className="border-charcoal-line grid grid-cols-3 gap-1 rounded-lg border p-1"
         >
           {CHOICES.map((choice) => {
-            const on = expecting === choice.role;
+            const on = expecting === choice.kind;
             return (
               <button
-                key={choice.role}
+                key={choice.kind}
                 type="button"
                 role="radio"
                 aria-checked={on}
                 onClick={() => {
-                  setExpecting(choice.role);
+                  setExpecting(choice.kind);
                   setNote(null);
                 }}
                 className={`rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
@@ -197,7 +229,7 @@ export function PasswordSignIn({ next }: { next: string }) {
           })}
         </div>
         <p className="text-muted mt-2 text-xs leading-relaxed">
-          {CHOICES.find((choice) => choice.role === expecting)?.blurb}
+          {CHOICES.find((choice) => choice.kind === expecting)?.blurb}
         </p>
       </div>
 

@@ -20,7 +20,7 @@
 
 import { cookies } from 'next/headers';
 
-import { effectiveRole } from '@/lib/auth/roles';
+import { effectiveRole, isPlatformAdmin } from '@/lib/auth/roles';
 import { SESSION_COOKIE } from '@/lib/auth/session';
 import {
   createSessionCookie,
@@ -75,7 +75,6 @@ export async function POST(request: Request) {
   if (decoded.email_verified === false) {
     return refuse('That account has an unverified email address.');
   }
-
 
   try {
     const orgs = orgStore();
@@ -158,7 +157,16 @@ export async function POST(request: Request) {
       maxAge: SESSION_TTL_MS / 1000,
     });
 
-    return Response.json({ id: person.id, email: person.email, role });
+    // `platform` beside `role` because they are different facts and the sign-in page
+    // offers all three as separate choices. Without it the page cannot tell an
+    // administrator of one customer from Technavious, and would tell somebody who
+    // picked the wrong one nothing useful.
+    return Response.json({
+      id: person.id,
+      email: person.email,
+      role,
+      platform: isPlatformAdmin(email),
+    });
   } catch (error) {
     if (error instanceof RosterStoreError) {
       return Response.json({ error: error.message }, { status: 503 });
