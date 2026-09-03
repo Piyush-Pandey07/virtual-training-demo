@@ -15,7 +15,31 @@ import { describe, it } from 'node:test';
  * So they are read out of the source, the same way the authorisation boundary is.
  */
 
-const STORES = ['rosterStore', 'deckStore', 'assetStore'] as const;
+/**
+ * Everything that takes a customer and then reads their data.
+ *
+ * The three registries were the original list, on the reasoning that a store is the
+ * only way to reach a customer's rows. That was true and is no longer sufficient: a
+ * page reaches most of its data through a helper that takes the organisation and
+ * builds the store itself, so `peopleOverview('technavious')` reads somebody else's
+ * roster while never naming a store at all. It compiles, and it passed this file.
+ *
+ * So the list is every function whose first argument decides whose data comes back.
+ * Anything new of that shape belongs here on the day it is written.
+ */
+const STORES = [
+  // The registries.
+  'rosterStore',
+  'deckStore',
+  'assetStore',
+  // The helpers that take an organisation and build one.
+  'listDecks',
+  'peopleOverview',
+  'trainingFor',
+  'progressForDeck',
+  'customerOverview',
+  'usageFor',
+] as const;
 
 /**
  * A store call whose customer is written into the code: a quoted string, or the home
