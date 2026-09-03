@@ -7,7 +7,13 @@ import { after, before, describe, it } from 'node:test';
 import type { DeckRecord } from '../deck-types';
 import { ISMS_DECK } from './isms';
 import { checkReadyToPublish, DECK_FORMAT_VERSION, parseDeck, serialiseDeck } from './serialise';
-import { assertUsableDeckId, DeckInvalidError, DeckStoreError, type DeckStore } from './store';
+import {
+  DeckInvalidError,
+  DeckStoreError,
+  assertUsableDeckId,
+  summarise,
+  type DeckStore,
+} from './store';
 import { BlobDeckStore, type BlobClient, type BlobEntry } from './store-blob';
 import { FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
@@ -331,6 +337,25 @@ for (const harness of harnesses) {
       await store.remove('isms');
       assert.deepEqual(await store.list(), []);
       assert.equal(await store.get('isms'), undefined);
+    });
+
+    it('lists a deck exactly as summarising it would', async () => {
+      // Two code paths to one shape. A store that builds a summary by hand in `list`
+      // rather than calling `summarise` will agree today and drift the first time
+      // DeckSummary gains a field: listings quietly lose it while every other screen
+      // has it. Nothing fails, and the missing field is a blank in a library.
+      const store = await harness.make();
+      await store.save(otherDeck(), 'draft');
+
+      for (const summary of await store.list()) {
+        const stored = await store.get(summary.id);
+        assert.ok(stored, `${summary.id} was listed but cannot be read`);
+        assert.deepEqual(
+          summary,
+          summarise(stored),
+          `${summary.id} is listed differently from how it summarises`,
+        );
+      }
     });
 
     it('refuses an unusable deck id', async () => {

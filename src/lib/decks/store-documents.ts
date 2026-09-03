@@ -46,8 +46,18 @@ const DECKS = 'decks';
  * Not a document inside `decks`, which would then have to be filtered out of every
  * listing and would be one forgotten filter away from appearing as a deck.
  */
-const SEED = 'deck-seed';
+export const SEED = 'deck-seed';
 const SEED_MARKER = 'marker';
+
+/**
+ * The collections this store owns, for whoever has to delete a customer.
+ *
+ * Exported rather than remembered. Deleting a customer has to name every collection
+ * under their prefix, because Firestore keeps a subcollection when its parent goes,
+ * and a list kept somewhere else drifts the moment a store gains a collection. Slides
+ * and topics are not here: they hang off a deck and go when `remove` takes it.
+ */
+export const DECK_COLLECTIONS = [DECKS, SEED] as const;
 
 /** The deck document, which is everything except the parts that are split out. */
 interface DeckDocument {
@@ -110,7 +120,10 @@ export class DocumentDeckStore implements DeckStore {
       return;
     }
 
-    await this.docs.set(SEED, SEED_MARKER, { at: new Date().toISOString() });
+    // Carries its own id so anything sweeping the collection can address it. Without
+    // that the marker outlived the customer it belonged to: a purge could read it and
+    // not name it, and a reused organisation id would then never be seeded.
+    await this.docs.set(SEED, SEED_MARKER, { id: SEED_MARKER, at: new Date().toISOString() });
     this.seeding = true;
     try {
       await this.save(ISMS_DECK, 'published');

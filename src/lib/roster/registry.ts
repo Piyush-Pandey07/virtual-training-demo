@@ -76,6 +76,11 @@ function buildRosterStore(orgId: string): RosterStore {
   return new NoRosterStore();
 }
 
+/** Drops a customer's cached store. See `forgetDeckStores`. */
+export function forgetRosterStore(orgId: string): void {
+  cached.delete(orgId);
+}
+
 /** For tests, which need a fresh store per case rather than a cached one. */
 export function resetRosterStore(store?: RosterStore, orgId = 'test-org'): void {
   cached.clear();

@@ -64,8 +64,10 @@ describe('the authorisation boundary', () => {
   it('finds the routes and pages, so a broken scan cannot pass silently', () => {
     // The assertion everybody forgets. Without it, a glob that stops matching turns
     // this whole file into a test that proves nothing while still going green.
-    assert.ok(routes.length >= 16, `only found ${routes.length} routes`);
-    assert.ok(pages.length >= 9, `only found ${pages.length} pages`);
+    // Raised as routes were added. A floor left behind is a floor that passes while
+    // three of them have gone missing, which is the failure this line exists to catch.
+    assert.ok(routes.length >= 19, `only found ${routes.length} routes`);
+    assert.ok(pages.length >= 10, `only found ${pages.length} pages`);
   });
 
   it('has every API route either guarded or deliberately public', () => {

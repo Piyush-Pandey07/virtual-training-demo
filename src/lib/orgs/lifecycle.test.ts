@@ -28,12 +28,21 @@ describe('what a purge is told to delete', () => {
     for (const [path, pattern] of [
       ['src/lib/roster/store-documents.ts', /^const (?:PEOPLE|ASSIGNMENTS|ATTEMPTS) = '([^']+)'/gm],
       ['src/lib/usage/store.ts', /^const USAGE = '([^']+)'/gm],
+      ['src/lib/decks/store-documents.ts', /^(?:export )?const (?:DECKS|SEED) = '([^']+)'/gm],
     ] as const) {
       const source = readFileSync(path, 'utf8');
       for (const match of source.matchAll(pattern)) written.add(match[1]!);
     }
 
-    assert.ok(written.size >= 4, `only found ${written.size} customer collections`);
+    // Six, not four. Deck records moved into the document database after this test was
+    // written, and it went on passing because its idea of "every collection" was a
+    // list of two files. The seed marker survived a purge for exactly that long: a
+    // document belonging to a deleted customer, which a reused organisation id would
+    // then have read and skipped seeding on.
+    assert.ok(
+      written.size >= 6,
+      `only found ${written.size} customer collections: ${[...written]}`,
+    );
 
     for (const collection of written) {
       assert.match(
@@ -42,6 +51,16 @@ describe('what a purge is told to delete', () => {
         `purge does not delete the "${collection}" collection, which a customer owns`,
       );
     }
+  });
+
+  it('takes the deck collections from the store that owns them', () => {
+    // Copied here instead, this list drifts the first time the deck store gains a
+    // collection, and nothing fails: the purge simply stops deleting something.
+    assert.match(
+      SOURCE,
+      /\.\.\.DECK_COLLECTIONS/,
+      'the purge lists the deck collections itself rather than importing them',
+    );
   });
 
   it('removes the customer record last', () => {

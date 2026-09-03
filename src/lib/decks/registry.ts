@@ -128,6 +128,19 @@ function buildAssetStore(orgId: string): AssetStore {
   return new NoAssetStore();
 }
 
+/**
+ * Drops a customer's cached stores.
+ *
+ * Called when a customer is deleted. The cache is per organisation and each store
+ * remembers whether it has seeded, so without this a re-provisioned id reuses a store
+ * that believes it already seeded a library that no longer exists -- and the new
+ * customer opens an empty one.
+ */
+export function forgetDeckStores(orgId: string): void {
+  cached.delete(orgId);
+  cachedAssets.delete(orgId);
+}
+
 /** Only for tests, which need a fresh store per case. */
 export function resetDeckStore(store?: DeckStore, orgId = 'test-org'): void {
   cached.clear();

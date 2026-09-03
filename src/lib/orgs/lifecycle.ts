@@ -1,9 +1,10 @@
 import 'server-only';
 
-import { assetStore, deckStore } from '../decks/registry';
+import { assetStore, deckStore, forgetDeckStores } from '../decks/registry';
+import { DECK_COLLECTIONS } from '../decks/store-documents';
 import { firestoreDocuments } from '../firebase/firestore';
 import { revokeSessions } from '../firebase/admin';
-import { rosterStore } from '../roster/registry';
+import { forgetRosterStore, rosterStore } from '../roster/registry';
 import { orgStore, orgsConfigured } from './registry';
 import { scopedDocuments } from './scope';
 import { OrgStoreError } from './store';
@@ -28,7 +29,15 @@ import { OrgStoreError } from './store';
  * name them. A collection missing from this list survives the customer it belonged to
  * and sits in storage as data nobody can reach and nobody remembers agreeing to keep.
  */
-const OWNED_COLLECTIONS = ['people', 'assignments', 'attempts', 'usage'] as const;
+const OWNED_COLLECTIONS = [
+  'people',
+  'assignments',
+  'attempts',
+  'usage',
+  // The deck store's own, taken from it rather than copied here. Slides and topics are
+  // not listed: they hang off a deck and go when the deck store removes it, above.
+  ...DECK_COLLECTIONS,
+] as const;
 
 export interface PurgeReport {
   orgId: string;
@@ -193,6 +202,12 @@ export async function purge(orgId: string): Promise<PurgeReport> {
   // 5. The customer itself, last.
   await firestoreDocuments().remove('organisations', orgId);
 
+  // 6. And the stores this process was holding for them. Each remembers whether it has
+  //    seeded, so a re-provisioned id would otherwise reuse one that believes it
+  //    already seeded a library that no longer exists.
+  forgetDeckStores(orgId);
+  forgetRosterStore(orgId);
+
   return report;
 }
 
@@ -210,7 +225,8 @@ function documentIdOf(
   if (collection === 'usage') {
     return typeof row.month === 'string' ? row.month : undefined;
   }
-  if (collection === 'people') {
+  // people, decks and the seed marker all carry their own id.
+  if (collection === 'people' || collection === 'decks' || collection === 'deck-seed') {
     return typeof row.id === 'string' ? row.id : undefined;
   }
   // assignments and attempts are both keyed on the pair.
