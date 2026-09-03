@@ -122,8 +122,15 @@ describe('the sign-in page role picker', () => {
     // must never do is influence the answer.
     const source = readFileSync('src/app/signin/PasswordSignIn.tsx', 'utf8');
 
-    for (const kind of ['trainee', 'admin', 'platform']) {
+    for (const kind of ['platform', 'company', 'employee']) {
       assert.match(source, new RegExp(`kind: '${kind}'`), `the picker lost its ${kind} option`);
+    }
+
+    // Shown as Admin, Company and Employee. The internal names stay accurate --
+    // "platform" is what that identity actually is -- and the labels are what the
+    // people signing in were told to look for.
+    for (const label of ["label: 'Admin'", "label: 'Company'", "label: 'Employee'"]) {
+      assert.ok(source.includes(label), `the picker no longer offers ${label}`);
     }
 
     // The note is driven by what the server sent back, never by what was picked.

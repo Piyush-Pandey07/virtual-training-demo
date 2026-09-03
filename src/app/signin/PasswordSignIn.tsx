@@ -23,35 +23,39 @@ type Mode = 'signin' | 'first';
  * on the server, and this choice is never sent anywhere. Whoever holds the page could
  * otherwise elect themselves.
  */
-type Expecting = 'trainee' | 'admin' | 'platform';
+type Expecting = 'platform' | 'company' | 'employee';
 
 /**
  * Signing in, and setting a password the first time.
  *
- * The two buttons at the top choose which kind of person is signing in. They do not
- * choose the role, and cannot: whoever holds the page could otherwise pick
- * administrator. The role comes from the roster, decided on the server, exactly as it
- * did before this control existed.
+ * The three buttons at the top choose which kind of person is signing in. They do not
+ * choose the role, and cannot: whoever holds the page could otherwise pick Admin. The
+ * role comes from the roster and the platform list, both decided on the server,
+ * exactly as it did before this control existed.
  *
- * What they do is set expectations and where somebody lands, and — more usefully —
- * they make a mismatch something the person is told about rather than something they
- * puzzle over. Somebody who picks HR and turns out to be a trainee is shown their own
- * training with a line saying so, instead of an administrator's page they cannot see
- * quietly not appearing.
+ * What they do is set expectations, and make a mismatch something the person is told
+ * about rather than something they puzzle over. Somebody who picks Company and turns
+ * out to be an employee is shown their own training with a line saying so, instead of
+ * an administrator's page they cannot see quietly not appearing.
  *
- * One form under both, because from the person's side it is one question — let me in —
- * and which case applies is not something they should work out before typing anything.
+ * Employee is selected by default because almost every sign-in is one. Admin is listed
+ * first because that is the order these were asked for, and being first is not the
+ * same as being the common case.
+ *
+ * One form under all three, because from the person's side it is one question -- let
+ * me in -- and which case applies is not something they should work out before typing
+ * anything.
  */
 const NOTES: Record<Expecting, string> = {
-  trainee:
-    'You are signed in as a trainee. If you should have administrator access, ask whoever runs your training.',
-  admin: 'You are signed in as an administrator of your organisation.',
+  employee:
+    'You are signed in as an employee. If you should have administrator access, ask whoever runs your training.',
+  company: 'You are signed in as an administrator of your company.',
   platform: 'You are signed in as Technavious, with access to every customer.',
 };
 
 export function PasswordSignIn({ next }: { next: string }) {
   const router = useRouter();
-  const [expecting, setExpecting] = useState<Expecting>('trainee');
+  const [expecting, setExpecting] = useState<Expecting>('employee');
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -93,8 +97,8 @@ export function PasswordSignIn({ next }: { next: string }) {
     const actual: Expecting = result.platform
       ? 'platform'
       : result.role === 'admin'
-        ? 'admin'
-        : 'trainee';
+        ? 'company'
+        : 'employee';
 
     if (result.role && actual !== expecting) {
       setNote(NOTES[actual]);
@@ -177,19 +181,19 @@ export function PasswordSignIn({ next }: { next: string }) {
 
   const CHOICES: Array<{ kind: Expecting; label: string; blurb: string }> = [
     {
-      kind: 'trainee',
-      label: 'Trainee',
-      blurb: 'Attend the training you have been given.',
+      kind: 'platform',
+      label: 'Admin',
+      blurb: 'Technavious. Look after every company using this platform.',
     },
     {
-      kind: 'admin',
-      label: 'HR or manager',
+      kind: 'company',
+      label: 'Company',
       blurb: 'Upload decks, assign them, and see who has attended at your company.',
     },
     {
-      kind: 'platform',
-      label: 'Technavious',
-      blurb: 'Look after every customer on this deployment.',
+      kind: 'employee',
+      label: 'Employee',
+      blurb: 'Attend the training you have been given.',
     },
   ];
 
