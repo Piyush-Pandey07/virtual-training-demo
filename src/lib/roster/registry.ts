@@ -24,7 +24,8 @@ import { firebaseAdminConfigured } from '../firebase/admin';
 import { firestoreDocuments } from '../firebase/firestore';
 import { BlobRosterStore } from './store-blob';
 import { DocumentRosterStore } from './store-documents';
-import { FilesystemRosterStore, defaultRosterRoot } from './store-fs';
+import { defaultDataRoot } from '../decks/store-fs';
+import { FilesystemRosterStore } from './store-fs';
 import { NoRosterStore } from './store-none';
 import type { RosterStore } from './store';
 
@@ -64,7 +65,9 @@ function buildRosterStore(orgId: string): RosterStore {
   if (token) return new BlobRosterStore(vercelBlobClient(token), rosterPrefix(orgId));
 
   if (!process.env.VERCEL) {
-    const base = process.env.ROSTER_STORE_DIR ?? defaultRosterRoot();
+    // The data root, for the same reason the deck registry uses one: defaultRosterRoot
+    // already ends in `roster`, and scoping it would nest a second one inside.
+    const base = process.env.ROSTER_STORE_DIR ?? defaultDataRoot();
     return new FilesystemRosterStore(filesystemRoot(base, orgId, 'roster'));
   }
 

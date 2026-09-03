@@ -180,8 +180,26 @@ export class FilesystemDeckStore implements DeckStore {
 }
 
 /** Where decks go when no blob token is set. Outside the build output on purpose. */
+/**
+ * Where decks lived before customers existed.
+ *
+ * Kept for the migration, which has to read the old location. Not for the app: this
+ * already ends in `decks`, and scoping it produced `.data/decks/orgs/{id}/decks` --
+ * a path the migration never wrote to and nothing ever looked at twice, because the
+ * store seeded itself a fresh copy of the worked example there and the library showed
+ * exactly one deck rather than an error.
+ */
 export function defaultFilesystemRoot(): string {
   return join(process.cwd(), '.data', 'decks');
+}
+
+/**
+ * Where this deployment keeps its files, per customer underneath.
+ *
+ * The root that gets scoped. `.data/orgs/{id}/decks`, not `.data/decks/orgs/{id}/decks`.
+ */
+export function defaultDataRoot(): string {
+  return join(process.cwd(), '.data');
 }
 
 export { dirname };

@@ -23,7 +23,7 @@
 import { readdir, mkdir, cp, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { defaultFilesystemRoot } from '../src/lib/decks/store-fs';
+import { defaultDataRoot, defaultFilesystemRoot } from '../src/lib/decks/store-fs';
 import { LEGACY_DECK_ROOT, vercelBinaryBlobClient } from '../src/lib/decks/store-blob';
 import { deckPrefix, filesystemRoot } from '../src/lib/orgs/scope';
 import { HOME_ORG_ID } from '../src/lib/orgs/types';
@@ -37,9 +37,14 @@ function contentTypeFor(name: string): string {
 }
 
 async function migrateFilesystem(): Promise<boolean> {
-  const base = process.env.DECK_STORE_DIR ?? defaultFilesystemRoot();
-  const from = base;
-  const to = filesystemRoot(base.replace(/[\\/]decks$/, ''), HOME_ORG_ID, 'decks');
+  // Read from where decks used to live, write to where the app now looks. Both come
+  // from the same functions the app itself uses, so the two cannot drift apart. They
+  // did once: this script stripped a trailing "decks" from the base and the registry
+  // did not, so the migration wrote to `.data/orgs/{id}/decks` while the app read
+  // `.data/decks/orgs/{id}/decks`. Nothing failed. The store seeded itself a fresh
+  // copy of the worked example at its own location, and the library showed one deck.
+  const from = defaultFilesystemRoot();
+  const to = filesystemRoot(defaultDataRoot(), HOME_ORG_ID, 'decks');
 
   let entries: string[];
   try {

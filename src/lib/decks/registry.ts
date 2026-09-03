@@ -18,7 +18,7 @@ import { deckPrefix, filesystemRoot } from '../orgs/scope';
 import { BlobAssetStore, FilesystemAssetStore, NoAssetStore, type AssetStore } from './assets';
 import type { DeckStore, DeckSummary, StoredDeck } from './store';
 import { BlobDeckStore, vercelBinaryBlobClient, vercelBlobClient } from './store-blob';
-import { defaultFilesystemRoot, FilesystemDeckStore } from './store-fs';
+import { defaultDataRoot, FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
 
 /** Used when a request does not name a deck. */
@@ -73,7 +73,9 @@ function buildDeckStore(orgId: string): DeckStore {
   // outlive a request, so writing decks there would appear to work and then lose
   // them. Falling through to the built-in deck is the honest behaviour.
   if (!process.env.VERCEL) {
-    const base = process.env.DECK_STORE_DIR ?? defaultFilesystemRoot();
+    // The data root, not the deck root. DECK_STORE_DIR names the directory customers
+    // sit under, so a customer's decks land in `{root}/orgs/{id}/decks`.
+    const base = process.env.DECK_STORE_DIR ?? defaultDataRoot();
     return new FilesystemDeckStore(filesystemRoot(base, orgId, 'decks'));
   }
 
@@ -101,7 +103,7 @@ function buildAssetStore(orgId: string): AssetStore {
   if (token) return new BlobAssetStore(vercelBinaryBlobClient(token), deckPrefix(orgId));
 
   if (!process.env.VERCEL) {
-    const base = process.env.DECK_STORE_DIR ?? defaultFilesystemRoot();
+    const base = process.env.DECK_STORE_DIR ?? defaultDataRoot();
     return new FilesystemAssetStore(filesystemRoot(base, orgId, 'decks'));
   }
 
