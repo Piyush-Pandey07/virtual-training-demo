@@ -128,7 +128,7 @@ export class DeckInvalidError extends DeckStoreError {
 
 export interface DeckStore {
   /** Human-readable, for diagnostics and the health endpoint. */
-  readonly kind: 'blob' | 'filesystem' | 'seeded';
+  readonly kind: 'documents' | 'blob' | 'filesystem' | 'seeded';
   /** False for the seeded store, which is compiled in. */
   readonly writable: boolean;
 

@@ -11,6 +11,9 @@ import { assertUsableDeckId, DeckInvalidError, DeckStoreError, type DeckStore } 
 import { BlobDeckStore, type BlobClient, type BlobEntry } from './store-blob';
 import { FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
+import { InMemoryDocumentStore } from '../roster/documents';
+import { scopedDocuments } from '../orgs/scope';
+import { DocumentDeckStore } from './store-documents';
 
 /** One customer's prefix. The stores are scoped at construction, so tests are too. */
 const TEST_DECK_BASE = 'orgs/test-org/decks';
@@ -244,6 +247,16 @@ const harnesses: Harness[] = [
       tempRoots.push(root);
       return new FilesystemDeckStore(root);
     },
+    cleanup: async () => {},
+  },
+  {
+    // The document store keeps a deck as one document per slide rather than one per
+    // deck, so it is the implementation most able to drift from the contract: every
+    // read reassembles a record from pieces that were written separately. Holding it
+    // to the same tests as the other two is the point of them being shared.
+    name: 'document',
+    make: async () =>
+      new DocumentDeckStore(scopedDocuments(new InMemoryDocumentStore(), 'test-org')),
     cleanup: async () => {},
   },
 ];

@@ -53,7 +53,7 @@ export interface HealthResponse {
    * organisation to count on behalf of here: this endpoint has no session.
    */
   decks: {
-    store: 'blob' | 'filesystem' | 'seeded';
+    store: 'documents' | 'blob' | 'filesystem' | 'seeded';
     writable: boolean;
   };
   /**

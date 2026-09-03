@@ -14,10 +14,13 @@
 import 'server-only';
 
 import type { DeckRecord } from '../deck-types';
-import { deckPrefix, filesystemRoot } from '../orgs/scope';
+import { firebaseAdminConfigured } from '../firebase/admin';
+import { firestoreDocuments } from '../firebase/firestore';
+import { deckPrefix, filesystemRoot, scopedDocuments } from '../orgs/scope';
 import { BlobAssetStore, FilesystemAssetStore, NoAssetStore, type AssetStore } from './assets';
 import type { DeckStore, DeckSummary, StoredDeck } from './store';
 import { BlobDeckStore, vercelBinaryBlobClient, vercelBlobClient } from './store-blob';
+import { DocumentDeckStore } from './store-documents';
 import { defaultDataRoot, FilesystemDeckStore } from './store-fs';
 import { SeededDeckStore } from './store-seeded';
 
@@ -66,6 +69,21 @@ export function deckStorage(): { kind: DeckStore['kind']; writable: boolean } {
 }
 
 function buildDeckStore(orgId: string): DeckStore {
+  // Firestore first, for the same reason the roster prefers it: it is the one tier
+  // that can change a document atomically, and it keeps the structured half of a deck
+  // beside everything else known about a customer.
+  //
+  // The slide images do not follow. They are large, binary, fetched by name and served
+  // rather than queried, and a Firestore document is capped at a mebibyte. Nothing
+  // about a picture benefits from being in a database, so `assetStore` still resolves
+  // to blob storage independently of this.
+  //
+  // DECK_STORE=blob forces the older tier, which is what the migration uses to read
+  // the decks it is moving.
+  if (firebaseAdminConfigured() && process.env.DECK_STORE !== 'blob') {
+    return new DocumentDeckStore(scopedDocuments(firestoreDocuments(), orgId));
+  }
+
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (token) return new BlobDeckStore(vercelBlobClient(token), deckPrefix(orgId));
 
