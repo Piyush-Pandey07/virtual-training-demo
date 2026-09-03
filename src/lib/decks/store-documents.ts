@@ -70,6 +70,35 @@ interface DeckDocument {
   /** Counted on write so a listing needs no subcollection reads. */
   slideCount: number;
   totalSeconds: number;
+  /**
+   * Which set of slides and topics belongs to this deck right now.
+   *
+   * Absent on a deck written before generations existed, whose parts carry no
+   * generation either. Both are read as one implicit generation, so an old deck keeps
+   * working and gains a real one the next time it is saved.
+   */
+  generation?: string;
+}
+
+/**
+ * One slide or topic, stamped with the generation that wrote it.
+ *
+ * `slide` and `topic` are the shape used before generations existed, when each part
+ * held its content under the field's own name. Both are read: a store that cannot read
+ * what it wrote last week is worse than one carrying a field it no longer writes, and
+ * every deck already in the database was written that way. A save upgrades them.
+ */
+interface Part<T> {
+  id: number;
+  generation?: string;
+  value?: T;
+  slide?: T;
+  topic?: T;
+}
+
+/** What a part holds, whichever shape wrote it. */
+function valueOf<T>(part: Part<T>): T | undefined {
+  return part.value ?? part.slide ?? part.topic;
 }
 
 function slidesOf(deckId: string): string {
@@ -88,6 +117,31 @@ function topicsOf(deckId: string): string {
  */
 function ordinal(index: number): string {
   return String(index).padStart(4, '0');
+}
+
+/**
+ * A name for one write of a deck's parts.
+ *
+ * Time first so the ids sort by age, which is what makes an interrupted save's leftover
+ * parts recognisable later. The random tail is what stops two saves in the same
+ * millisecond sharing one.
+ */
+function newGeneration(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function partId(generation: string, index: number): string {
+  return `${generation}-${ordinal(index)}`;
+}
+
+/**
+ * The document id a part was stored under.
+ *
+ * A part written before generations existed has none, and was stored under its bare
+ * ordinal. Both shapes have to be addressable or the old ones cannot be cleaned up.
+ */
+function idOf(part: { id: number; generation?: string }): string {
+  return part.generation ? partId(part.generation, part.id) : ordinal(part.id);
 }
 
 export class DocumentDeckStore implements DeckStore {
@@ -162,14 +216,27 @@ export class DocumentDeckStore implements DeckStore {
     if (!document) return undefined;
 
     const [slides, topics] = await Promise.all([
-      this.docs.all<{ slide: DeckSlide }>(slidesOf(id)),
-      this.docs.all<{ topic: KnowledgeTopic }>(topicsOf(id)),
+      this.docs.all<Part<DeckSlide>>(slidesOf(id)),
+      this.docs.all<Part<KnowledgeTopic>>(topicsOf(id)),
     ]);
+
+    // Only the generation this deck currently points at. Anything else is either a save
+    // that lost a race or one that was interrupted, and in both cases it is a complete
+    // set of somebody else's slides sitting in the same collection. Reading them would
+    // produce a deck that is a blend of two.
+    const current = (part: Part<unknown>) =>
+      (part.generation ?? '') === (document.generation ?? '');
+
+    const present = <T>(value: T | undefined): value is T => value !== undefined;
 
     const record: DeckRecord = {
       meta: document.meta,
-      slides: slides.map((row) => row.slide).sort((a, b) => a.id - b.id),
-      topics: topics.map((row) => row.topic),
+      slides: slides
+        .filter(current)
+        .map(valueOf)
+        .filter(present)
+        .sort((a, b) => a.id - b.id),
+      topics: topics.filter(current).map(valueOf).filter(present),
     };
 
     // Round-tripped through the same validation a stored file gets. The pieces were
@@ -196,17 +263,30 @@ export class DocumentDeckStore implements DeckStore {
     const now = new Date().toISOString();
     const existing = await this.docs.get<DeckDocument>(DECKS, id);
 
-    // Slides and topics are replaced rather than merged. A re-analysis produces a
-    // different number of both, and leaving the old ones would give a deck slides its
-    // record does not list and topics nothing points at.
-    await this.clearParts(id);
+    // A new generation, written alongside whatever is already there rather than over
+    // it. Clearing first and writing after is the obvious shape and the wrong one: two
+    // saves of the same deck interleave into a single set holding some slides from each,
+    // and the deck document then disagrees with the slides it counts.
+    //
+    // Firestore's batched write would fix the race and not the size -- a batch holds
+    // five hundred operations, and a five-hundred-slide deck needs more than that for
+    // its slides alone. Generations have no such ceiling.
+    const generation = newGeneration();
 
     await Promise.all([
       ...record.slides.map((slide) =>
-        this.docs.set(slidesOf(id), ordinal(slide.id), { id: slide.id, slide }),
+        this.docs.set<Part<DeckSlide>>(slidesOf(id), partId(generation, slide.id), {
+          id: slide.id,
+          generation,
+          value: slide,
+        }),
       ),
       ...record.topics.map((topic, index) =>
-        this.docs.set(topicsOf(id), ordinal(index), { id: index, topic }),
+        this.docs.set<Part<KnowledgeTopic>>(topicsOf(id), partId(generation, index), {
+          id: index,
+          generation,
+          value: topic,
+        }),
       ),
     ]);
 
@@ -218,11 +298,18 @@ export class DocumentDeckStore implements DeckStore {
       meta: record.meta,
       slideCount: record.slides.length,
       totalSeconds: record.slides.reduce((total, slide) => total + slide.targetSeconds, 0),
+      generation,
     };
 
-    // The deck document last. While it is absent the deck does not exist, so a failure
-    // part-way leaves parts nobody can reach rather than a deck missing its slides.
+    // One write, and the deck is this generation's. Every reader either sees the old
+    // set complete or the new set complete, never a mixture, because nothing points at
+    // a half-written generation until this line runs.
     await this.docs.set(DECKS, id, document);
+
+    // Everything older than what the deck now points at. Best effort and deliberately
+    // after the switchover: a failure here leaves parts nobody reads, which costs
+    // storage, where a failure before it would have left a deck with no slides at all.
+    await this.sweep(id).catch(() => undefined);
 
     return summarise({
       record,
@@ -245,11 +332,47 @@ export class DocumentDeckStore implements DeckStore {
     await this.clearParts(id);
   }
 
+  /**
+   * Removes parts, keeping one generation when asked to.
+   *
+   * `keep` is the generation the deck now points at. Without it everything goes, which
+   * is what removing a deck wants.
+   */
+  /**
+   * Removes every generation older than the one the deck currently points at.
+   *
+   * Reads the deck document again rather than trusting the generation this save just
+   * wrote. Two saves racing both sweep, and a sweep that kept only its own generation
+   * deleted the winner's slides out from under it: the loser switched nothing, then
+   * tidied away everything that was not its own, including the set the deck had just
+   * started pointing at. The deck was left with no slides and no error until somebody
+   * opened it.
+   *
+   * Anything newer is left alone too. It can only be a save still in flight, and when
+   * it switches over its own sweep removes what this one kept. Generations begin with a
+   * base-36 millisecond stamp, so comparing them as strings compares their age.
+   */
+  private async sweep(id: string): Promise<void> {
+    const document = await this.docs.get<DeckDocument>(DECKS, id);
+    const current = document?.generation;
+    if (!current) return;
+
+    for (const collection of [slidesOf(id), topicsOf(id)]) {
+      const rows = await this.docs.all<Part<unknown>>(collection).catch(() => []);
+      await Promise.all(
+        rows
+          .filter((row) => !row.generation || row.generation < current)
+          .map((row) => this.docs.remove(collection, idOf(row)).catch(() => undefined)),
+      );
+    }
+  }
+
+  /** Removes every part of a deck, whatever generation wrote it. For `remove`. */
   private async clearParts(id: string): Promise<void> {
     for (const collection of [slidesOf(id), topicsOf(id)]) {
-      const rows = await this.docs.all<{ id: number }>(collection).catch(() => []);
+      const rows = await this.docs.all<Part<unknown>>(collection).catch(() => []);
       await Promise.all(
-        rows.map((row) => this.docs.remove(collection, ordinal(row.id)).catch(() => undefined)),
+        rows.map((row) => this.docs.remove(collection, idOf(row)).catch(() => undefined)),
       );
     }
   }
