@@ -13,11 +13,14 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { orgStore, orgsConfigured } from '@/lib/orgs/registry';
+import { customerOverview } from '@/lib/platform/overview';
 import { usageFor } from '@/lib/usage/store';
 import { CustomerList, type CustomerRow } from './CustomerList';
+import { HappeningNow } from './HappeningNow';
 import { MovePerson } from './MovePerson';
 
 export const dynamic = 'force-dynamic';
@@ -28,15 +31,18 @@ export default async function PlatformPage() {
   const person = await requireUserPage('/platform');
   if (!isPlatformAdmin(person.email)) notFound();
 
-  // This month's spend beside each customer.
+  // This month's spend beside each customer, and who and what is behind it.
   //
-  // One read per customer, which is fine at the scale a hand-provisioned customer list
-  // reaches and would not be at a thousand. If it ever is, the fix is a rollup written
-  // as usage is recorded rather than a fan-out read here.
+  // A handful of reads per customer, which is fine at the scale a hand-provisioned
+  // customer list reaches and would not be at a thousand. If it ever is, the fix is a
+  // rollup written as usage is recorded rather than a fan-out read here.
   const customers: CustomerRow[] = orgsConfigured()
     ? await Promise.all(
         (await orgStore().list()).map(async (organisation) => {
-          const usage = await usageFor(organisation.id).catch(() => undefined);
+          const [usage, overview] = await Promise.all([
+            usageFor(organisation.id).catch(() => undefined),
+            customerOverview(organisation.id),
+          ]);
           return {
             id: organisation.id,
             name: organisation.name,
@@ -49,14 +55,26 @@ export default async function PlatformPage() {
               sttSeconds: usage?.sttSeconds ?? 0,
               geminiTokens: (usage?.geminiInputTokens ?? 0) + (usage?.geminiOutputTokens ?? 0),
             },
+            overview,
           };
         }),
       )
     : [];
 
+  // Every session open anywhere, newest first. Lifted out of the per-customer rows
+  // because "is anybody in a session right now" is the question this screen is opened
+  // for, and answering it should not mean reading five rows and adding them up.
+  const happeningNow = customers
+    .flatMap((customer) =>
+      customer.overview.sessions.open.map((session) => ({ ...session, customer: customer.name })),
+    )
+    .sort((a, b) => (a.lastSeenAt > b.lastSeenAt ? -1 : 1));
+
   return (
     <div className="flex min-h-screen flex-col">
-      <BrandHeader />
+      <BrandHeader>
+        <MainNav person={person} current="/platform" />
+      </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">Technavious</p>
@@ -73,6 +91,8 @@ export default async function PlatformPage() {
             kept and this list cannot mean anything.
           </p>
         )}
+
+        {orgsConfigured() && <HappeningNow sessions={happeningNow} />}
 
         <div className="mt-8">
           <CustomerList customers={customers} viewing={person.orgId} home={person.homeOrgId} />
