@@ -20,6 +20,7 @@ import {
   GEMINI_ANSWER_MODEL,
   GEMINI_MODEL,
 } from '@/lib/config';
+import { platformAdminEmails } from '@/lib/auth/roles';
 import { deckStorage } from '@/lib/decks/registry';
 import { rosterStorage } from '@/lib/roster/registry';
 
@@ -32,6 +33,24 @@ export interface HealthResponse {
   ready: boolean;
   /** Names of the variables that are missing, for whoever deployed it. */
   missing: string[];
+  /**
+   * Which variable the platform administrator list came from, and how many entries
+   * parsed out of it.
+   *
+   * Names and a count, never an address. This exists because a mis-scoped or unsaved
+   * environment variable looks exactly like a working one from the outside: the list
+   * still resolves through the legacy fallback, the site still works, and the only
+   * visible symptom is one person quietly not having access they were promised.
+   * Diagnosing that from the outside took several deploys and a lot of guessing.
+   *
+   * `source` says which of the two names was actually read. `count` says how many
+   * addresses survived splitting on commas, which is what catches a value pasted
+   * across two lines: two addresses that parse as one entry report a count of 1.
+   */
+  admins: {
+    source: 'PLATFORM_ADMIN_EMAILS' | 'AUTH_ADMIN_EMAILS' | 'none';
+    count: number;
+  };
   /** Non-secret configuration, useful for confirming what is actually deployed. */
   models: {
     narration: string;
@@ -90,9 +109,18 @@ export async function GET() {
   const store = deckStorage();
   const roster = rosterStorage();
 
+  // Which name is in play, decided the same way `platformAdminEmails` decides it, so
+  // this cannot drift into reporting one thing while the app reads another.
+  const adminSource = process.env.PLATFORM_ADMIN_EMAILS
+    ? 'PLATFORM_ADMIN_EMAILS'
+    : process.env.AUTH_ADMIN_EMAILS
+      ? 'AUTH_ADMIN_EMAILS'
+      : 'none';
+
   const body: HealthResponse = {
     ready: missing.length === 0,
     missing,
+    admins: { source: adminSource, count: platformAdminEmails().size },
     models: {
       narration: GEMINI_MODEL(),
       answering: GEMINI_ANSWER_MODEL(),
