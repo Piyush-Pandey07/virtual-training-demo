@@ -21,7 +21,7 @@ import {
   GEMINI_MODEL,
 } from '@/lib/config';
 import { platformAdminEmails } from '@/lib/auth/roles';
-import { deckStorage } from '@/lib/decks/registry';
+import { assetStorage, deckStorage } from '@/lib/decks/registry';
 import { rosterStorage } from '@/lib/roster/registry';
 
 export const runtime = 'nodejs';
@@ -90,6 +90,24 @@ export interface HealthResponse {
     store: 'blob' | 'filesystem' | 'firestore' | 'none';
     writable: boolean;
   };
+  /**
+   * Where the rendered slide images go, and whether that agrees with the deck store.
+   *
+   * These are two different tiers holding two halves of the same deck, and they can
+   * disagree without anything failing. A machine with Firestore but no blob token
+   * writes records to the shared database and images to its own disk; production then
+   * lists every deck, opens every review screen, and serves no picture at all.
+   *
+   * That is not hypothetical. Every slide of every uploaded deck 404'd in production
+   * while this endpoint said ready, because it reported the record store and not this
+   * one. `sharedRecordsLocalImages` is the specific trap: records somewhere everyone
+   * can see, images somewhere only this machine can.
+   */
+  assets: {
+    store: 'blob' | 'filesystem' | 'none';
+    writable: boolean;
+    sharedRecordsLocalImages: boolean;
+  };
 }
 
 function isSet(name: string): boolean {
@@ -108,6 +126,11 @@ export async function GET() {
   // organisation to count on behalf of here, this endpoint having no session.
   const store = deckStorage();
   const roster = rosterStorage();
+  const assets = assetStorage();
+
+  // Records in a store every environment shares, images in one only this machine has.
+  // The combination that produces a deck listing with nothing to look at.
+  const sharedRecordsLocalImages = store.kind === 'documents' && assets.kind === 'filesystem';
 
   // Which name is in play, decided the same way `platformAdminEmails` decides it, so
   // this cannot drift into reporting one thing while the app reads another.
@@ -121,6 +144,7 @@ export async function GET() {
     ready: missing.length === 0,
     missing,
     admins: { source: adminSource, count: platformAdminEmails().size },
+    assets: { store: assets.kind, writable: assets.writable, sharedRecordsLocalImages },
     models: {
       narration: GEMINI_MODEL(),
       answering: GEMINI_ANSWER_MODEL(),

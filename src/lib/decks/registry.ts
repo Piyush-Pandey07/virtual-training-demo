@@ -68,6 +68,24 @@ export function deckStorage(): { kind: DeckStore['kind']; writable: boolean } {
   return { kind: probe.kind, writable: probe.writable };
 }
 
+/**
+ * Which tier holds the rendered pages, for the health endpoint.
+ *
+ * Reported separately from the deck store because the two can disagree, and the
+ * disagreement is silent and destructive. A deck's record and its images live in
+ * different places, so a machine with Firestore configured but no blob token writes
+ * records to the shared database and images to its own disk. Production then lists
+ * every deck, opens every review screen, and serves no picture at all: the records
+ * are there because they are shared, and the images are on somebody's laptop.
+ *
+ * That happened. Every slide of every uploaded deck 404'd in production while health
+ * said ready, because nothing reported this half.
+ */
+export function assetStorage(): { kind: AssetStore['kind']; writable: boolean } {
+  const probe = buildAssetStore('health');
+  return { kind: probe.kind, writable: probe.writable };
+}
+
 function buildDeckStore(orgId: string): DeckStore {
   // Firestore first, for the same reason the roster prefers it: it is the one tier
   // that can change a document atomically, and it keeps the structured half of a deck
