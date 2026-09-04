@@ -130,6 +130,54 @@ describe('removing a deck', () => {
     assert.deepEqual(store.removed, [], 'the renders were removed despite the failure');
   });
 
+  it('clears assignments in parallel batches rather than one at a time', async () => {
+    // Not a style preference. The route calling this runs with maxDuration = 30, and a
+    // mandatory deck is assigned to everybody, so a serial loop over a few hundred
+    // people runs out of clock. A timeout is worse than an error here: nothing throws,
+    // the function is killed mid-loop, and it leaves some people unassigned and some
+    // not, with the deck still present and nothing raised to say so.
+    const { decks, roster, store } = await world();
+
+    const people = await Promise.all(
+      Array.from({ length: 60 }, (_, i) =>
+        roster.upsertPerson({ email: `p${i}@example.com`, name: `P${i}` }),
+      ),
+    );
+    for (const person of people) {
+      await roster.assign({ personId: person.id, deckId: 'doomed', assignedBy: 'admin' });
+    }
+
+    let inFlight = 0;
+    let peakConcurrency = 0;
+    const watched: RosterStore = Object.assign(Object.create(roster) as RosterStore, {
+      unassign: async (personId: string, deckId: string) => {
+        inFlight += 1;
+        peakConcurrency = Math.max(peakConcurrency, inFlight);
+        await Promise.resolve();
+        await roster.unassign(personId, deckId);
+        inFlight -= 1;
+      },
+    });
+
+    const report = await removeDeckEverywhere(decks, store, watched, 'doomed');
+
+    assert.equal(report.unassigned, 62, 'the two from the fixture plus the sixty added');
+    assert.ok(
+      peakConcurrency > 1,
+      `unassign ran one at a time (peak concurrency ${peakConcurrency}), which is the ` +
+        'shape that runs out of the route budget on a widely assigned deck',
+    );
+    assert.ok(
+      peakConcurrency <= 25,
+      `unassign opened ${peakConcurrency} at once; unbounded parallelism replaces a slow ` +
+        'delete with a thundering herd on a deck given to a thousand people',
+    );
+
+    for (const person of people.slice(0, 5)) {
+      assert.deepEqual(await roster.listAssignmentsForPerson(person.id), []);
+    }
+  });
+
   it('removes the renders and the record itself', async () => {
     const { decks, roster, store } = await world();
 

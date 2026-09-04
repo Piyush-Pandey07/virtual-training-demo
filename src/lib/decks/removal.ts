@@ -27,6 +27,35 @@ export interface DeckRemoval {
   unassigned: number;
 }
 
+/**
+ * How many assignments to clear at once.
+ *
+ * One at a time was the first version, on the reasoning that a slower delete is a
+ * correct delete. That reasoning missed the clock. The route that calls this runs
+ * with `maxDuration = 30`, and a mandatory deck is assigned to everybody: at roughly
+ * fifty to a hundred milliseconds per round trip, a few hundred people exhausts the
+ * budget. A timeout is worse than the failure this function was written to handle,
+ * because nothing throws. The function is killed mid-loop, so some people are
+ * unassigned and some are not, the deck is still there, and no code path runs to say
+ * so.
+ *
+ * Bounded rather than unbounded for the opposite reason: `Promise.all` over every
+ * assignment would open one connection per person, and a deck given to a thousand
+ * people would replace a slow delete with a thundering herd.
+ */
+const UNASSIGN_BATCH = 25;
+
+async function unassignAll(
+  roster: RosterStore,
+  assignments: { personId: string }[],
+  deckId: string,
+): Promise<void> {
+  for (let from = 0; from < assignments.length; from += UNASSIGN_BATCH) {
+    const batch = assignments.slice(from, from + UNASSIGN_BATCH);
+    await Promise.all(batch.map((row) => roster.unassign(row.personId, deckId)));
+  }
+}
+
 export async function removeDeckEverywhere(
   decks: DeckStore,
   assets: AssetStore,
@@ -42,9 +71,7 @@ export async function removeDeckEverywhere(
   // state this function exists to prevent -- and it would report `unassigned: 0` while
   // doing it, so nothing would look wrong. Failing here leaves the deck intact.
   const assignments = await roster.listAssignmentsForDeck(deckId);
-  for (const row of assignments) {
-    await roster.unassign(row.personId, deckId);
-  }
+  await unassignAll(roster, assignments, deckId);
 
   // Renders before the record. A deck record with no images is a broken session;
   // orphaned images with no record are invisible, so that is the better order to

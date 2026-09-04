@@ -33,9 +33,21 @@ export default async function PlatformPage() {
 
   // This month's spend beside each customer, and who and what is behind it.
   //
-  // A handful of reads per customer, which is fine at the scale a hand-provisioned
-  // customer list reaches and would not be at a thousand. If it ever is, the fix is a
-  // rollup written as usage is recorded rather than a fan-out read here.
+  // Read cost, stated properly because the first version of this comment said "a handful
+  // per customer" and was wrong. One page load is 1 + C x (3 + D) round trips: the
+  // organisation list, then per customer the usage record, the roster, the deck list, and
+  // one attempts query per deck. Twenty customers with thirty decks each is about 660.
+  //
+  // The multiplication is by decks, not customers, so a few customers with large
+  // libraries reach that long before the customer count does. Nothing bounds either: no
+  // pagination on the organisation list, the roster or the deck list, and no cap on how
+  // many decks a customer may upload.
+  //
+  // Acceptable while customers are hand-provisioned and this screen is opened a few times
+  // a day. The fix when it stops being acceptable is a rollup counter written as
+  // assignments and attempts are recorded, which turns the per-customer cost into O(1)
+  // reads. Not built yet because a counter maintained on every write is a second source
+  // of truth, and a wrong one is worse than a slow page.
   const customers: CustomerRow[] = orgsConfigured()
     ? await Promise.all(
         (await orgStore().list()).map(async (organisation) => {

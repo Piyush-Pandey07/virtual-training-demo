@@ -208,18 +208,46 @@ The admins sort on `overview.ts:112` is correct and needs no change.
 `src/lib/auth/labels.ts:34`. Exported, never imported anywhere. Added speculatively.
 Either wire it into the sign-in or profile screen, or delete it.
 
-### 8. `unassign` runs serially — STILL OPEN, deliberately
+### 8. `unassign` runs serially — RESOLVED, the acceptance was wrong
 
 `src/lib/decks/removal.ts:42-44`. One awaited round trip per person. A deck assigned to
 500 people is 500 sequential Firestore deletes. The codebase uses `Promise.all` for
 equivalent fan-out. Correctness is fine either way, and partial failure converges on
 retry.
 
-### 9. Unbounded concurrency reading attempts — STILL OPEN, deliberately
+**RESOLVED.** The Performance pass showed the acceptance above missed the clock. The
+DELETE route runs with `maxDuration = 30`, and a mandatory deck is assigned to everybody,
+so at fifty to a hundred milliseconds per round trip a few hundred people exhausts the
+budget. "Partial failure converges on retry" only holds for a failure that throws. A
+timeout does not: the function is killed mid-loop, leaving some people unassigned and some
+not, the deck still present, and no code path reached to report it.
+
+Now cleared in bounded batches of 25. Bounded rather than a plain `Promise.all` because a
+deck given to a thousand people would otherwise open a thousand connections at once, which
+trades a slow delete for a thundering herd. A test asserts peak concurrency is above one
+and no higher than 25, and both wrong shapes fail it.
+
+### 9. Unbounded concurrency reading attempts — STILL OPEN, now measured
 
 `src/lib/platform/overview.ts:57`. `Promise.all` over every deck, run once per customer
 on the platform page. Fine at hand-provisioned scale, which the doc comment says, but
 there is no ceiling.
+
+**Measured by the Performance pass.** One `/platform` load costs `1 + C x (3 + D)` round
+trips: the organisation list, then per customer the usage record, the roster, the deck
+list, and one attempts query per deck. Twenty customers with thirty decks each is about
+660, fired as nested `Promise.all`s from one serverless invocation. Nothing bounds either
+dimension: no pagination on the organisation list, the roster or the deck list, and no cap
+on decks per customer.
+
+The multiplication is by decks rather than customers, so a few customers with large
+libraries reach that well before customer count does. The comment on `page.tsx` said "a
+handful of reads per customer", which was wrong; it now states the real cost.
+
+**Left open on purpose.** The fix is a rollup counter written as assignments and attempts
+are recorded, making the per-customer cost O(1) reads. That is a second source of truth
+maintained on every write, and a wrong counter is worse than a slow page, so it wants
+building deliberately rather than as a review follow-up.
 
 ---
 
