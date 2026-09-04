@@ -91,11 +91,14 @@ export async function POST(request: Request) {
   // whatever deck id its body names. A check on the page alone would protect
   // nothing: the browser could post another id and have the trainer read out a deck
   // the trainee was never assigned.
+  const T0 = Date.now();
   const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
   if (!gate.ok) return gate.response;
+  const T_AUTH = Date.now() - T0;
 
   const deck = await loadDeck(gate.person.orgId, body.deckId);
   if (!deck) return badRequest('No such deck.');
+  const T_DECK = Date.now() - T0;
 
   const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';
   const slideId = clampSlideId(deck, Number(body.slideId));
@@ -209,6 +212,8 @@ export async function POST(request: Request) {
   ];
 
   const contents = turnFor(effectiveKind, effectiveSlide);
+  const T_PROMPT = Date.now() - T0;
+  const PROMPT_CHARS = JSON.stringify(contents).length;
 
   const encoder = new TextEncoder();
 
@@ -268,12 +273,23 @@ export async function POST(request: Request) {
         abortSignal: request.signal,
       };
 
+      send({
+        type: 'timing',
+        auth: T_AUTH,
+        deck: T_DECK,
+        prompt: T_PROMPT,
+        promptChars: PROMPT_CHARS,
+        systemChars: JSON.stringify(config.systemInstruction).length,
+      } as unknown as ChatEvent);
+
       try {
+        const openedAt = Date.now();
         const result = await ai.models.generateContentStream({
           model,
           contents,
           config,
         });
+        send({ type: 'timing', modelOpened: Date.now() - openedAt } as unknown as ChatEvent);
 
         // Reported on the last chunk of the stream rather than up front, so it is read
         // as the stream is consumed and kept for after it finishes.
