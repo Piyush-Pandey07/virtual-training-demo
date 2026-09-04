@@ -19,6 +19,7 @@ import { listDecks } from '../decks/registry';
 import { coverageOf, percentComplete } from '../roster/completion';
 import { rosterStore } from '../roster/registry';
 import { isPlatformAdmin } from '../auth/roles';
+import type { DeckSummary } from '../decks/store';
 import type { Attempt, Person } from '../roster/types';
 import { OPEN_SESSION_MINUTES } from './overview-types';
 import type { CustomerOverview, OpenSession } from './overview-types';
@@ -61,8 +62,35 @@ export async function customerOverview(orgId: string): Promise<CustomerOverview>
     })),
   );
 
+  return summariseCustomer(people, attemptsByDeck);
+}
+
+/** One deck and the attempts against it, as the reads above produce them. */
+export interface DeckAttempts {
+  deck: DeckSummary;
+  attempts: Attempt[];
+}
+
+/**
+ * The counting, separated from the reading.
+ *
+ * Everything above this line is I/O against two stores; everything below is arithmetic
+ * over what came back. Split so the arithmetic can be tested by calling it, rather than
+ * by reading the source and asserting on its text -- which is what the first version of
+ * `overview.test.ts` did, and which meant the cutoff, the sort and the counts had no
+ * behavioural coverage at all.
+ *
+ * `now` is a parameter for the same reason: a ten-minute window tested against the real
+ * clock is a test that passes until it is run at the wrong moment.
+ */
+export function summariseCustomer(
+  people: Person[],
+  attemptsByDeck: DeckAttempts[],
+  now = new Date(),
+): CustomerOverview {
+  const decks = attemptsByDeck.map((entry) => entry.deck);
   const byId = new Map(people.map((person) => [person.id, person]));
-  const cutoff = new Date(Date.now() - OPEN_SESSION_MINUTES * 60_000).toISOString();
+  const cutoff = new Date(now.getTime() - OPEN_SESSION_MINUTES * 60_000).toISOString();
 
   const open: OpenSession[] = [];
   let unfinished = 0;
@@ -98,7 +126,10 @@ export async function customerOverview(orgId: string): Promise<CustomerOverview>
     }
   }
 
-  open.sort((a, b) => (a.lastSeenAt > b.lastSeenAt ? -1 : 1));
+  // localeCompare rather than a ternary: `a > b ? -1 : 1` never returns 0, so two
+  // sessions touched in the same millisecond compare as both-greater-than-each-other
+  // and their order is undefined.
+  open.sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 
   const admins = people
     .filter((person) => person.role === 'admin')

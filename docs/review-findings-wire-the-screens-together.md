@@ -5,7 +5,12 @@ Run 3 September 2026 against `origin/main` (merge-base `76a7427`), 4 commits, 29
 findings below are complete for the passes that ran and the remaining passes are listed
 at the bottom.
 
-Nothing has been fixed. Every item below is still open.
+**Resolved 3 September 2026.** Findings 1 to 6 are fixed, verified by planting each
+regression and watching the new test fail. Findings 7 to 9 are deliberately left open,
+with reasons under each. Test count 692 to 704.
+
+The record below is kept as written, with a RESOLVED note on each item, because what the
+review found is more useful than a list of what is left.
 
 ---
 
@@ -39,8 +44,10 @@ The stated design is right. The code does not implement it.
 The route already maps `DeckStoreError` to a 400 and anything else to a 500, so the
 administrator gets a failure and can retry, with the deck intact.
 
-**Test to add:** a roster whose `listAssignmentsForDeck` rejects, asserting the deck
-still exists afterwards. `removal.test.ts` currently has no case for it.
+**RESOLVED.** The `.catch` is gone and the DELETE route now maps a `RosterStoreError`
+or `DeckStoreError` to a 503 saying the deck has not been removed, rather than letting it
+surface as a bare 500 that reads like a half-finished deletion. `removal.test.ts` has the
+failing-store case; restoring the `.catch` fails it.
 
 ---
 
@@ -84,6 +91,10 @@ percent:
       : 0,
 ```
 
+**RESOLVED**, taking the recommended answer to Q1: all-complete reads 100%. Three tests
+now cover it, including the one that was missing (completed with a real budget) and one
+that proves the guard does not swallow the ordinary half-finished case.
+
 ---
 
 ### 3. The stats test passes with the logic inverted
@@ -100,6 +111,8 @@ assertions hold if the two branches are swapped. The Testing specialist swapped 
 locally and all 9 tests still passed.
 
 **Fix:** make the counts differ, for example two untouched and one begun.
+
+**RESOLVED.** Two untouched and one begun. Swapping the counters now fails the test.
 
 ---
 
@@ -118,8 +131,12 @@ orphaned-attempt guard have zero behavioural coverage.
 The source-scan tests are still worth keeping (they pin the isolation and the
 no-transcripts rule, and I verified both bite). They are just not a substitute.
 
-**Fix:** add a behavioural test using `InMemoryDocumentStore` + `scopedDocuments`, the
-way `removal.test.ts` already does, and call `customerOverview` directly.
+**RESOLVED**, though not the way this suggested. `customerOverview` reaches for its own
+stores, so the counting is now split out as a pure `summariseCustomer(people, decks, now)`
+and `customerOverview` is the thin I/O wrapper above it. Seven behavioural tests cover the
+cutoff, the sort, the counts and the orphaned-attempt guard. `now` is a parameter, because
+a ten-minute window tested against the real clock passes until it is run at the wrong
+moment. The source scans stay.
 
 ---
 
@@ -147,9 +164,21 @@ of them would pass undetected:
 **Fix:** add all six to `STORES`. Then re-verify the guard still passes on the real code,
 and plant a violation in one of them to confirm it bites.
 
-Worth considering a stronger version: derive the list by grepping for exported functions
-whose first parameter is `orgId: string`, so it cannot drift again. That is what let it
-drift twice.
+**RESOLVED**, including the stronger version. The list gained the six above plus
+`loadDeck`, `slideImageParts`, the three `analyse*` passes and the three lifecycle
+operations, and a new test derives the same set by shape and fails when the two disagree.
+Functions that take an organisation first without reading anything (`orgPrefix`,
+`emptyUsage`, the cache-eviction pair) are listed separately with a reason each, so a new
+function of either shape has to be classified rather than forgotten.
+
+That new test found a third instance of this file's own documented trap: a lone backslash-b inside
+a template literal is the backspace character, not a word boundary, so the staleness
+check matched nothing and reported all 23 guarded names as missing. Fixed by building
+the pattern with string concatenation instead.
+
+Writing this note up hit the same trap a fourth time: the heredoc that wrote this file
+turned the escape into a real backspace byte, which is why this sentence spells it out
+in words.
 
 ---
 
@@ -166,25 +195,27 @@ is an inconsistent comparator. Ties order unpredictably.
 
 **Fix:** `b.lastSeenAt.localeCompare(a.lastSeenAt)`.
 
+**RESOLVED** in both places.
+
 The admins sort on `overview.ts:112` is correct and needs no change.
 
 ---
 
 ## P3 — informational
 
-### 7. `ROLE_BLURB` is dead
+### 7. `ROLE_BLURB` is dead — STILL OPEN
 
 `src/lib/auth/labels.ts:34`. Exported, never imported anywhere. Added speculatively.
 Either wire it into the sign-in or profile screen, or delete it.
 
-### 8. `unassign` runs serially
+### 8. `unassign` runs serially — STILL OPEN, deliberately
 
 `src/lib/decks/removal.ts:42-44`. One awaited round trip per person. A deck assigned to
 500 people is 500 sequential Firestore deletes. The codebase uses `Promise.all` for
 equivalent fan-out. Correctness is fine either way, and partial failure converges on
 retry.
 
-### 9. Unbounded concurrency reading attempts
+### 9. Unbounded concurrency reading attempts — STILL OPEN, deliberately
 
 `src/lib/platform/overview.ts:57`. `Promise.all` over every deck, run once per customer
 on the platform page. Fine at hand-provisioned scale, which the doc comment says, but

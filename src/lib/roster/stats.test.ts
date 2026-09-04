@@ -36,9 +36,13 @@ const NOW = new Date('2026-06-15T12:00:00.000Z');
 
 describe('what an employee has done', () => {
   it('tells never-opened apart from opened-and-unfinished', () => {
+    // Two untouched and one begun, deliberately unequal. An earlier version of this
+    // test used one of each, which passes just as happily with the two counters
+    // swapped -- the assertions could not tell the branches apart at all.
     const stats = employeeStats(
       [
         row({ deckId: 'untouched' }),
+        row({ deckId: 'also-untouched' }),
         row({ deckId: 'begun', startedAt: '2026-06-01T00:00:00.000Z' }),
         row({
           deckId: 'finished',
@@ -49,10 +53,10 @@ describe('what an employee has done', () => {
       NOW,
     );
 
-    assert.equal(stats.assigned, 3);
+    assert.equal(stats.assigned, 4);
     assert.equal(stats.completed, 1);
     assert.equal(stats.inProgress, 1, 'a started deck was not counted as part-way');
-    assert.equal(stats.notStarted, 1, 'an unopened deck was not counted as not started');
+    assert.equal(stats.notStarted, 2, 'an unopened deck was not counted as not started');
   });
 
   it('weights progress by how long each deck runs', () => {
@@ -114,10 +118,32 @@ describe('what an employee has done', () => {
     assert.ok(Number.isFinite(stats.percent));
   });
 
-  it('reads 100% once everything is finished, whatever the seconds say', () => {
-    // Coverage is recorded per slide against a budget, so a fast session can total
-    // fewer seconds than the deck was scheduled for. Somebody who finished everything
-    // should not be shown as 94% done.
+  it('reads 100% once everything is finished, on a deck with a real budget', () => {
+    // The case that matters, and the one the first version of this test missed by
+    // using a zero budget: with seconds present the old guard never ran, and a
+    // trainee who had completed everything read 56%.
+    //
+    // A deck is complete at COMPLETION_THRESHOLD (90), not 100, because the last
+    // slide is usually a closing card. So coverage is legitimately short of the full
+    // budget on a finished deck, and dividing seconds would contradict the "1 of 1
+    // complete" sitting right next to it.
+    const stats = employeeStats(
+      [
+        row({
+          deckId: 'a',
+          completedAt: '2026-06-02T00:00:00.000Z',
+          coverage: { coveredSeconds: 500, totalSeconds: 900, coveredCount: 9, slideCount: 10 },
+        }),
+      ],
+      NOW,
+    );
+
+    assert.equal(stats.percent, 100, 'a finished deck was reported as part-way');
+  });
+
+  it('reads 100% when a finished deck carries no budget at all', () => {
+    // A deck uploaded and never analysed has no seconds. Dividing by that total would
+    // print NaN%, so the zero branch stays underneath the finished check.
     const stats = employeeStats(
       [
         row({
@@ -130,6 +156,27 @@ describe('what an employee has done', () => {
     );
 
     assert.equal(stats.percent, 100);
+  });
+
+  it('still shows real coverage while anything is unfinished', () => {
+    // The finished check must not swallow the ordinary case: one deck done and one
+    // untouched is not 100%.
+    const stats = employeeStats(
+      [
+        row({
+          deckId: 'done',
+          completedAt: '2026-06-02T00:00:00.000Z',
+          coverage: { coveredSeconds: 900, totalSeconds: 900, coveredCount: 10, slideCount: 10 },
+        }),
+        row({
+          deckId: 'untouched',
+          coverage: { coveredSeconds: 0, totalSeconds: 900, coveredCount: 0, slideCount: 10 },
+        }),
+      ],
+      NOW,
+    );
+
+    assert.equal(stats.percent, 50, 'a half-finished programme was reported as complete');
   });
 
   it('reports nothing at all for somebody with nothing assigned', () => {

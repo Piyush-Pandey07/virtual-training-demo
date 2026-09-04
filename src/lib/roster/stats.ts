@@ -87,13 +87,25 @@ export function employeeStats(rows: ProgressRow[], now = new Date()): EmployeeSt
     inProgress,
     notStarted,
     overdue,
-    // Guarded rather than assumed: a deck whose slides all have a zero budget would
-    // otherwise divide by zero and show NaN% on somebody's profile.
+    /**
+     * Finished first, seconds second.
+     *
+     * A deck is marked complete at `COMPLETION_THRESHOLD`, which is 90 rather than 100:
+     * the last slide of a deck is usually a closing card, and somebody who heard
+     * everything that teaches anything has finished. So a trainee who has completed
+     * every deck they were given still has coverage short of the full budget, and
+     * dividing seconds would put "94%" directly above a list reading "1 of 1 complete".
+     * Two numbers disagreeing on one screen is worse than either alone, and the app's
+     * own definition of done is the one that should win.
+     *
+     * The zero-seconds branch stays underneath: a deck uploaded and never analysed has
+     * no budget at all, and dividing by it would print NaN% on somebody's profile.
+     */
     percent:
-      secondsAssigned > 0
-        ? Math.min(100, Math.round((secondsSpent / secondsAssigned) * 100))
-        : rows.length > 0 && completed === rows.length
-          ? 100
+      rows.length > 0 && completed === rows.length
+        ? 100
+        : secondsAssigned > 0
+          ? Math.min(100, Math.round((secondsSpent / secondsAssigned) * 100))
           : 0,
     secondsSpent,
     secondsAssigned,

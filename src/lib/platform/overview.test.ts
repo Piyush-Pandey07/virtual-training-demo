@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { OPEN_SESSION_MINUTES } from './overview-types';
+import { summariseCustomer } from './overview';
+import type { DeckSummary } from '../decks/store';
+import type { Attempt, Person } from '../roster/types';
 
 /**
  * The one screen that reads across customers.
@@ -82,5 +85,188 @@ describe('what the client half is allowed to import', () => {
       !/from '@\/lib\/platform\/overview'/.test(list),
       'the client list imports the server-only reader again',
     );
+  });
+});
+
+/**
+ * The counting itself, by calling it.
+ *
+ * The scans above pin the rules that must not change. They cannot tell you whether the
+ * arithmetic is right, because they never run it: the first version of this file read
+ * `overview.ts` as text and asserted on the text, so the cutoff, the sort and every
+ * count shipped with no behavioural coverage at all.
+ */
+
+const NOW = new Date('2026-06-15T12:00:00.000Z');
+const minutesAgo = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
+
+function person(over: Partial<Person> & { id: string }): Person {
+  return {
+    email: `${over.id}@example.com`,
+    emailKey: `${over.id}@example.com`,
+    name: over.id,
+    role: 'trainee',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastSeenAt: null,
+    ...over,
+  };
+}
+
+function deck(id: string, status: 'draft' | 'published' = 'published'): DeckSummary {
+  return {
+    id,
+    title: `Deck ${id}`,
+    subtitle: '',
+    status,
+    slideCount: 10,
+    estimatedMinutes: 15,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    readOnly: false,
+    origin: 'uploaded',
+  } as DeckSummary;
+}
+
+function attempt(personId: string, deckId: string, over: Partial<Attempt> = {}): Attempt {
+  return {
+    personId,
+    deckId,
+    covered: [],
+    lastSlideId: null,
+    slideCount: 10,
+    totalSeconds: 900,
+    startedAt: minutesAgo(30),
+    lastSeenAt: minutesAgo(30),
+    completedAt: null,
+    ...over,
+  };
+}
+
+describe('counting what a customer is doing', () => {
+  it('separates finished sittings from unfinished ones', () => {
+    const out = summariseCustomer(
+      [person({ id: 'a' }), person({ id: 'b' })],
+      [
+        {
+          deck: deck('d1'),
+          attempts: [
+            attempt('a', 'd1', { completedAt: minutesAgo(60) }),
+            attempt('b', 'd1'),
+          ],
+        },
+      ],
+      NOW,
+    );
+
+    assert.equal(out.sessions.completed, 1);
+    assert.equal(out.sessions.unfinished, 1);
+  });
+
+  it('calls a session open only while it is inside the window', () => {
+    // The whole point of the ten minutes. One attempt touched a moment ago and one
+    // abandoned half an hour ago are both unfinished; only the first is open.
+    const out = summariseCustomer(
+      [person({ id: 'recent' }), person({ id: 'stale' })],
+      [
+        {
+          deck: deck('d1'),
+          attempts: [
+            attempt('recent', 'd1', { lastSeenAt: minutesAgo(OPEN_SESSION_MINUTES - 1) }),
+            attempt('stale', 'd1', { lastSeenAt: minutesAgo(OPEN_SESSION_MINUTES + 1) }),
+          ],
+        },
+      ],
+      NOW,
+    );
+
+    assert.equal(out.sessions.unfinished, 2, 'both are unfinished whatever their age');
+    assert.deepEqual(
+      out.sessions.open.map((s) => s.personEmail),
+      ['recent@example.com'],
+      'the stale attempt was reported as open',
+    );
+  });
+
+  it('puts the most recently touched session first', () => {
+    const out = summariseCustomer(
+      [person({ id: 'older' }), person({ id: 'newer' })],
+      [
+        {
+          deck: deck('d1'),
+          attempts: [
+            attempt('older', 'd1', { lastSeenAt: minutesAgo(8) }),
+            attempt('newer', 'd1', { lastSeenAt: minutesAgo(2) }),
+          ],
+        },
+      ],
+      NOW,
+    );
+
+    assert.deepEqual(
+      out.sessions.open.map((s) => s.personName),
+      ['newer', 'older'],
+    );
+  });
+
+  it('skips an attempt whose person is gone rather than showing an id', () => {
+    // A row removed while a session was open leaves the attempt behind. Showing
+    // "local-abc123 is in a session" would be worse than showing nothing.
+    const out = summariseCustomer(
+      [],
+      [{ deck: deck('d1'), attempts: [attempt('vanished', 'd1', { lastSeenAt: minutesAgo(1) })] }],
+      NOW,
+    );
+
+    assert.equal(out.sessions.unfinished, 1, 'it still counts towards unfinished');
+    assert.deepEqual(out.sessions.open, [], 'but it cannot be named, so it is not listed');
+  });
+
+  it('takes the latest activity across every deck', () => {
+    const out = summariseCustomer(
+      [person({ id: 'a' })],
+      [
+        { deck: deck('d1'), attempts: [attempt('a', 'd1', { lastSeenAt: minutesAgo(90) })] },
+        { deck: deck('d2'), attempts: [attempt('a', 'd2', { lastSeenAt: minutesAgo(20) })] },
+      ],
+      NOW,
+    );
+
+    assert.equal(out.sessions.lastActivityAt, minutesAgo(20));
+  });
+
+  it('counts people and decks the way the row reads them', () => {
+    const out = summariseCustomer(
+      [
+        person({ id: 'boss', role: 'admin', lastSeenAt: minutesAgo(5) }),
+        person({ id: 'staff1' }),
+        person({ id: 'staff2', lastSeenAt: minutesAgo(5) }),
+      ],
+      [
+        { deck: deck('published-1'), attempts: [] },
+        { deck: deck('draft-1', 'draft'), attempts: [] },
+      ],
+      NOW,
+    );
+
+    assert.equal(out.people.total, 3);
+    assert.equal(out.people.trainees, 2, 'an administrator was counted as a trainee');
+    assert.equal(out.people.neverSignedIn, 1);
+    assert.equal(out.decks.total, 2);
+    assert.equal(out.decks.published, 1, 'a draft was counted as published');
+    assert.deepEqual(
+      out.people.admins.map((a) => a.name),
+      ['boss'],
+    );
+  });
+
+  it('reports nothing rather than throwing for a customer with no people or decks', () => {
+    const out = summariseCustomer([], [], NOW);
+
+    assert.equal(out.people.total, 0);
+    assert.equal(out.decks.total, 0);
+    assert.equal(out.sessions.completed, 0);
+    assert.equal(out.sessions.unfinished, 0);
+    assert.equal(out.sessions.lastActivityAt, null);
+    assert.deepEqual(out.sessions.open, []);
   });
 });

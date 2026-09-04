@@ -68,7 +68,7 @@ export default async function PlatformPage() {
     .flatMap((customer) =>
       customer.overview.sessions.open.map((session) => ({ ...session, customer: customer.name })),
     )
-    .sort((a, b) => (a.lastSeenAt > b.lastSeenAt ? -1 : 1));
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 
   return (
     <div className="flex min-h-screen flex-col">

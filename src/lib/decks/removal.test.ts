@@ -8,6 +8,7 @@ import { InMemoryDocumentStore } from '../roster/documents';
 import { DocumentRosterStore } from '../roster/store-documents';
 import { scopedDocuments } from '../orgs/scope';
 import type { AssetStore } from './assets';
+import type { RosterStore } from '../roster/store';
 
 /**
  * What happens to everything else when a deck is removed.
@@ -102,6 +103,31 @@ describe('removing a deck', () => {
 
     const attempt = await roster.getAttempt(alice.id, 'doomed');
     assert.ok(attempt, 'the record of the training they did was destroyed with the deck');
+  });
+
+  it('leaves everything alone when the assignments cannot be read', async () => {
+    // The failure that used to pass silently. `listAssignmentsForDeck` was wrapped in
+    // `.catch(() => [])`, so a storage failure produced an empty worklist, the loop
+    // unassigned nobody, and the deck and its renders were deleted anyway -- reporting
+    // `unassigned: 0` while leaving every assignment pointing at a deck that no longer
+    // exists. That is the exact state this module was written to prevent.
+    const { decks, roster, store } = await world();
+
+    // Built on the real store as a prototype rather than spread over it. A spread copies
+    // own enumerable properties only, so a class instance loses every method it has and
+    // the result is a `RosterStore` in name alone.
+    const broken: RosterStore = Object.assign(Object.create(roster) as RosterStore, {
+      listAssignmentsForDeck: () => Promise.reject(new Error('storage is down')),
+    });
+
+    await assert.rejects(
+      () => removeDeckEverywhere(decks, store, broken, 'doomed'),
+      /storage is down/,
+      'the failure was swallowed instead of stopping the removal',
+    );
+
+    assert.ok(await decks.get('doomed'), 'the deck was removed despite the failure');
+    assert.deepEqual(store.removed, [], 'the renders were removed despite the failure');
   });
 
   it('removes the renders and the record itself', async () => {

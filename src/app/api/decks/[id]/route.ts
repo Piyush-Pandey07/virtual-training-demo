@@ -19,6 +19,7 @@ import { assetStore } from '@/lib/decks/registry';
 import { DeckInvalidError, DeckStoreError, type DeckStatus } from '@/lib/decks/store';
 import { removeDeckEverywhere } from '@/lib/decks/removal';
 import { rosterStore } from '@/lib/roster/registry';
+import { RosterStoreError } from '@/lib/roster/store';
 import type { DeckMeta, DeckRecord, SlideRole } from '@/lib/deck-types';
 
 import { checkAdmin } from '@/lib/auth/guard';
@@ -270,15 +271,28 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     return Response.json({ error: 'The built-in deck cannot be removed.' }, { status: 409 });
   }
 
-  const { unassigned } = await removeDeckEverywhere(
-    store,
-    assetStore(gate.person.orgId),
-    rosterStore(gate.person.orgId),
-    id,
-  );
+  try {
+    const { unassigned } = await removeDeckEverywhere(
+      store,
+      assetStore(gate.person.orgId),
+      rosterStore(gate.person.orgId),
+      id,
+    );
 
-  // Said back rather than done silently. Removing a deck quietly takes it off other
-  // people's lists, and the administrator doing it is usually not the one who assigned
-  // it in the first place.
-  return Response.json({ removed: id, unassigned });
+    // Said back rather than done silently. Removing a deck quietly takes it off other
+    // people's lists, and the administrator doing it is usually not the one who assigned
+    // it in the first place.
+    return Response.json({ removed: id, unassigned });
+  } catch (error) {
+    // A storage failure part-way leaves the deck in place, which is the state the
+    // administrator started in. Say so, rather than letting it surface as a bare 500
+    // that reads like the deck might be half-removed.
+    if (error instanceof RosterStoreError || error instanceof DeckStoreError) {
+      return Response.json(
+        { error: `${error.message} The deck has not been removed.` },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 }

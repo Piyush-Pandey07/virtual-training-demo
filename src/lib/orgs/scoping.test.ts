@@ -34,12 +34,60 @@ const STORES = [
   'assetStore',
   // The helpers that take an organisation and build one.
   'listDecks',
+  'loadStoredDeck',
+  'defaultDeck',
   'peopleOverview',
   'trainingFor',
   'progressForDeck',
   'customerOverview',
+  // Usage and limits. These decide whose meter moves and whose cap is checked, which
+  // is the same question in a different currency: metering one customer's session
+  // against another's allowance is a billing error rather than a data leak, and it
+  // would be just as invisible.
   'usageFor',
+  'usageHistory',
+  'mayStartSession',
+  'record',
+  'recordQuietly',
+  // Reads a deck's own content, including the rendered pages sent to the model.
+  'loadDeck',
+  'slideImageParts',
+  'analyseSlideBatch',
+  'analyseSlideDetail',
+  'analyseTopics',
+  // The lifecycle operations. Naming the wrong customer here does not leak data, it
+  // destroys or suspends theirs, which is the worse end of the same mistake.
+  'purge',
+  'suspend',
+  'resume',
 ] as const;
+
+/**
+ * Functions that take an organisation first and are still not store calls.
+ *
+ * They exist because the shape alone cannot tell a reader from a string builder, and
+ * guarding a string builder would be wrong: `deckPrefix('acme')` in a path test is
+ * exactly what that function is for. Each entry says why it is safe.
+ */
+const ORG_FIRST_BUT_NOT_A_READER: Record<string, string> = {
+  orgPrefix: 'Builds a storage prefix from an id. Touches no store.',
+  deckPrefix: 'Builds a storage prefix from an id. Touches no store.',
+  rosterPrefix: 'Builds a storage prefix from an id. Touches no store.',
+  assertUsableOrgId: 'Validates the id itself and reads nothing.',
+  emptyUsage: 'Constructs a zeroed counter record. Reads nothing.',
+  forgetDeckStores: 'Evicts a cache entry. Reads no rows.',
+  forgetRosterStore: 'Evicts a cache entry. Reads no rows.',
+};
+
+/**
+ * The list above is hand-written and has now been short twice.
+ *
+ * First it held three registries, and a helper that built a store internally walked
+ * straight past it. Widening it to nine still missed six more. So the guard below
+ * derives the same set mechanically and fails when the two disagree, which turns
+ * "somebody remembered" into "the compiler noticed".
+ */
+const ORG_FIRST_ARGUMENT = /export (?:async )?function (\w+)\(\s*orgId: string/g;
 
 /**
  * A store call whose customer is written into the code: a quoted string, or the home
@@ -192,5 +240,44 @@ describe('the one lookup that spans customers', () => {
       );
       assert.ok(reason.length > 8, `${path} is on the list without a reason`);
     }
+  });
+});
+
+describe('the list of org-scoped functions', () => {
+  it('holds every exported function whose first argument is an organisation', () => {
+    // The check that would have caught both misses. Rather than trusting the list to be
+    // complete, find the same set by shape: an exported function taking `orgId: string`
+    // first decides whose data comes back, whoever wrote it and whenever.
+    const found = new Set<string>();
+    for (const path of FILES) {
+      const source = readFileSync(path, 'utf8');
+      for (const [, name] of source.matchAll(ORG_FIRST_ARGUMENT)) found.add(name);
+    }
+
+    const classified = new Set<string>([...STORES, ...Object.keys(ORG_FIRST_BUT_NOT_A_READER)]);
+    const unclassified = [...found].filter((name) => !classified.has(name)).sort();
+
+    assert.deepEqual(
+      unclassified,
+      [],
+      `these take an organisation first and are neither guarded nor excused, so a ` +
+        `hardcoded customer in one of them would pass this file unnoticed: ` +
+        `${unclassified.join(', ')}. Add each to STORES, or to ` +
+        `ORG_FIRST_BUT_NOT_A_READER with a reason.`,
+    );
+  });
+
+  it('does not list a function that no longer exists', () => {
+    // The other direction. A name left behind after a rename guards nothing and reads
+    // like coverage, which is the more dangerous of the two failures.
+    const sources = FILES.map((path) => readFileSync(path, 'utf8')).join('\n');
+    // Concatenation rather than a template literal, and deliberately. `\b` inside a
+    // template literal is the backspace character, not a word boundary, so the first
+    // version of this line searched for U+0008 and reported every name as missing.
+    // That is the same trap `namesAnOrg` above carries a comment about, hit again in
+    // the same file by writing the escape a third way.
+    const stale = STORES.filter((name) => !new RegExp('\\b' + name + '\\b').test(sources));
+
+    assert.deepEqual(stale, [], `guarded names that appear nowhere in src: ${stale.join(', ')}`);
   });
 });

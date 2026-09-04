@@ -36,7 +36,12 @@ export async function removeDeckEverywhere(
   // Assignments first, because this is the half that is visible to somebody. If the
   // deck record survives a failure here the deck is merely still there, which is the
   // state the administrator started in and can retry from.
-  const assignments = await roster.listAssignmentsForDeck(deckId).catch(() => []);
+  //
+  // Deliberately not caught. Swallowing the failure and carrying on with an empty list
+  // would delete the deck and leave every assignment pointing at it, which is the exact
+  // state this function exists to prevent -- and it would report `unassigned: 0` while
+  // doing it, so nothing would look wrong. Failing here leaves the deck intact.
+  const assignments = await roster.listAssignmentsForDeck(deckId);
   for (const row of assignments) {
     await roster.unassign(row.personId, deckId);
   }
