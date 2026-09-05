@@ -44,6 +44,44 @@ export const GEMINI_MODEL = () => envOr('GEMINI_MODEL', 'gemini-2.5-flash');
  * some latency for depth.
  */
 export const GEMINI_ANSWER_MODEL = () => envOr('GEMINI_ANSWER_MODEL', GEMINI_MODEL());
+/**
+ * How much the trainer may think before it starts speaking.
+ *
+ * Gemini 2.5 Flash thinks by default and thinking produces no speech, so every
+ * thinking token is a trainee watching a silent slide. Measured on the real prompt,
+ * four slides, against the word budget each slide carries:
+ *
+ *   narration    default  10.4s, 11.4s, 10.8s, 5.7s to the first spoken word
+ *                off       1.1s,  1.2s,  1.1s, 1.0s
+ *   answering    default  5.3s and 7.9s, at 70 and 79 words
+ *                off      1.3s and 1.4s, at 50 and 59 words
+ *
+ * Roughly nine seconds a slide, and a seven slide deck opens seven times.
+ *
+ * The trade is honest rather than free. Narration runs about ten points longer
+ * against its budget without thinking, on top of an overrun that is already there at
+ * plus thirty eight per cent and has its own cause in how many topics a busy slide
+ * hands over. Silence is the worse of the two for something a person is sitting in
+ * front of, and the length has a separate lever in `maxCoreOnNarration`.
+ *
+ * Answering gains twice: faster, and shorter in the direction the answer prompt was
+ * already trying and failing to go. `ablate-answer-prompt.ts` measured it reliably
+ * producing about 81 words against a 66 word ceiling; without thinking it lands
+ * inside the ceiling.
+ *
+ * Both are variables rather than constants so the trade can be revisited on a
+ * deployment without a release. Zero disables thinking, -1 hands the decision back to
+ * the model, and any positive number is a token ceiling: 512 was measured at 3.2s and
+ * 3.7s, which is the middle of the road if narration length ever matters more than
+ * the wait.
+ *
+ * Deliberately not applied to the analysis passes. Those run once per deck, in the
+ * background, behind a progress bar nobody is listening to, and reasoning about a
+ * slide is the whole point of them.
+ */
+export const NARRATE_THINKING_BUDGET = () => envIntOr('NARRATE_THINKING_BUDGET', 0);
+export const ANSWER_THINKING_BUDGET = () => envIntOr('ANSWER_THINKING_BUDGET', 0);
+
 export const DEEPGRAM_STT_MODEL = () => envOr('DEEPGRAM_STT_MODEL', 'nova-3');
 export const DEEPGRAM_TTS_MODEL = () => envOr('DEEPGRAM_TTS_MODEL', 'aura-2-thalia-en');
 

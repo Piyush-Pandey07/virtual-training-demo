@@ -9,7 +9,13 @@
 
 import { GoogleGenAI, type Content } from '@google/genai';
 
-import { GEMINI_ANSWER_MODEL, GEMINI_MODEL, requireEnv } from '@/lib/config';
+import {
+  ANSWER_THINKING_BUDGET,
+  GEMINI_ANSWER_MODEL,
+  GEMINI_MODEL,
+  NARRATE_THINKING_BUDGET,
+  requireEnv,
+} from '@/lib/config';
 import { clampSlideId, getSlide, totalSlides } from '@/lib/deck';
 import type { DeckRecord, DeckSlide } from '@/lib/deck-types';
 import { DEFAULT_DECK_ID, loadDeck } from '@/lib/decks/registry';
@@ -265,6 +271,17 @@ export async function POST(request: Request) {
          * headroom of more than twentyfold: it can only bite something already broken.
          */
         maxOutputTokens: 4000,
+        /**
+         * Thinking is silence. See NARRATE_THINKING_BUDGET for the measurements.
+         *
+         * Set explicitly rather than left out. Omitting `thinkingConfig` is not the
+         * same as setting it: the default lets the model think as much as it likes,
+         * which measured at ten seconds before the first spoken word.
+         */
+        thinkingConfig: {
+          thinkingBudget:
+            effectiveKind === 'answer' ? ANSWER_THINKING_BUDGET() : NARRATE_THINKING_BUDGET(),
+        },
         abortSignal: request.signal,
       };
 
