@@ -41,6 +41,16 @@ export interface UseTtsPlayerResult {
   /** Unlocks audio playback. Must be called from a user gesture. */
   unlock: () => Promise<void>;
   error: string | null;
+  /**
+   * True when audio has been scheduled that the trainee cannot hear.
+   *
+   * Distinct from `error`, which means synthesis failed and there is nothing to play.
+   * This means speech arrived and the browser will not let it out, which is worse
+   * because everything else looks normal.
+   */
+  inaudible: boolean;
+  /** Retries playback from a user gesture. Resolves true if audio can now be heard. */
+  ensureAudible: () => Promise<boolean>;
 }
 
 interface Options {
@@ -50,6 +60,20 @@ interface Options {
 export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * True when audio was scheduled that nobody can hear.
+   *
+   * A suspended AudioContext accepts everything: `createBufferSource`, `start`, the
+   * whole timeline. It simply never advances, so no `onended` ever fires, and a slide
+   * is only marked taught once its narration finishes. The trainee watches slides in
+   * silence, the deck bills for speech that was synthesised, and their progress stays
+   * at zero with nothing on screen saying why.
+   *
+   * Two real sessions ended that way before this existed. The cause is usually a
+   * browser refusing playback without a gesture it recognises, which is why the fix is
+   * a button: a click is the gesture, and resuming on one works.
+   */
+  const [inaudible, setInaudible] = useState(false);
 
   const contextRef = useRef<AudioContext | null>(null);
   /** Next free moment on the audio timeline. */
@@ -78,12 +102,25 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     return contextRef.current;
   }, []);
 
-  const unlock = useCallback(async () => {
+  /**
+   * Brings the audio timeline up, and reports whether it actually came up.
+   *
+   * `resume()` rejecting is not the only failure: it can resolve while the context
+   * stays suspended, so the state is read afterwards rather than the promise trusted.
+   */
+  const ensureAudible = useCallback(async (): Promise<boolean> => {
     const context = getContext();
     if (context.state === 'suspended') {
       await context.resume().catch(() => undefined);
     }
+    const running = context.state === 'running';
+    setInaudible(!running);
+    return running;
   }, [getContext]);
+
+  const unlock = useCallback(async () => {
+    await ensureAudible();
+  }, [ensureAudible]);
 
   const settleIfIdle = useCallback(() => {
     if (pendingCountRef.current > 0 || sourcesRef.current.size > 0) return;
@@ -158,9 +195,10 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (pcm.byteLength < 2) return;
 
       const context = getContext();
-      if (context.state === 'suspended') {
-        await context.resume().catch(() => undefined);
-      }
+      // Checked before scheduling rather than after. Scheduling into a suspended
+      // context is what produces the silent session, so the warning has to be raised
+      // at the moment the audio would have been heard and was not.
+      await ensureAudible();
 
       // Convert signed 16-bit PCM into the float buffer Web Audio expects.
       const samples = new Int16Array(pcm, 0, Math.floor(pcm.byteLength / 2));
@@ -190,7 +228,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         settleIfIdle();
       };
     },
-    [getContext, settleIfIdle],
+    [ensureAudible, getContext, settleIfIdle],
   );
 
   const enqueue = useCallback(
@@ -303,5 +341,5 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     [],
   );
 
-  return { speaking, push, flush, interrupt, waitUntilDone, unlock, error };
+  return { speaking, push, flush, interrupt, waitUntilDone, unlock, error, inaudible, ensureAudible };
 }

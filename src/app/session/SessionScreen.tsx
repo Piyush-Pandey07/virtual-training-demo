@@ -182,6 +182,38 @@ export function SessionScreen({
         </div>
       )}
 
+      {/*
+        The trainer is talking and nobody can hear it.
+        
+        Not dismissible, unlike the error above, because dismissing it would leave
+        somebody watching a silent session that also records no progress: a slide
+        counts as taught only once its narration finishes playing, and in a suspended
+        audio context it never does. Two sessions ended at zero per cent that way.
+
+        The button is the fix rather than a nicety. A browser that refused playback
+        without a gesture it recognises will accept one, and resuming from the click
+        is what makes the rest of the session audible.
+      */}
+      {session.audioInaudible && (
+        <div
+          role="alert"
+          className="border-logo-red/40 bg-logo-red/10 flex flex-wrap items-center gap-3 border-b px-5 py-3 sm:px-8"
+        >
+          <p className="text-mist flex-1 text-sm">
+            <span className="text-logo-red font-semibold">You will not hear the trainer.</span>{' '}
+            Your browser is holding back the sound. Nothing you do from here will be marked as
+            completed until it plays, because a slide only counts once you have heard it.
+          </p>
+          <button
+            type="button"
+            onClick={() => void session.retryAudio()}
+            className="bg-azure text-mist hover:bg-teal hover:text-charcoal shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+          >
+            Turn the sound on
+          </button>
+        </div>
+      )}
+
       {session.error && (
         <div
           role="alert"

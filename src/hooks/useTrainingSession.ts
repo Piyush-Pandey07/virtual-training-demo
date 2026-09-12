@@ -75,6 +75,17 @@ export interface UseTrainingSessionResult {
   /** True while a batch utterance is being transcribed. */
   transcribing: boolean;
   trainerSpeaking: boolean;
+  /**
+   * The trainer is speaking and the browser will not let it be heard.
+   *
+   * Worth surfacing rather than leaving to the trainee to work out, because every
+   * other signal looks healthy: slides advance, the transcript fills, the trainer
+   * reports itself as speaking. Only the sound is missing, and a slide is not marked
+   * taught until its narration finishes, so the session also quietly records nothing.
+   */
+  audioInaudible: boolean;
+  /** Retry playback. Must be called from a user gesture to have any chance. */
+  retryAudio: () => Promise<boolean>;
 
   startSession: (traineeName?: string) => Promise<void>;
   endSession: () => void;
@@ -620,6 +631,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     sttTransport: stt.transport,
     transcribing: stt.transcribing,
     trainerSpeaking: tts.speaking,
+    audioInaudible: tts.inaudible,
+    retryAudio: tts.ensureAudible,
     startSession,
     endSession,
     nextSlide,
