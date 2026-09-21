@@ -1,0 +1,68 @@
+# Runs the checks this project actually uses, on the runtime it actually targets.
+#
+# This replaced a Deno workflow added from GitHub's starter templates, which failed
+# on every push: `deno lint` reported 162 problems across 44 files, most of them
+# Deno objecting that Node globals like `process` do not exist, and the run never
+# reached the test step. A check that is always red is worse than no check, because
+# it teaches everybody to stop reading the badge.
+#
+# `npm run format:check` is deliberately absent. It currently reports style issues in
+# 43 files, so adding it would reintroduce the same permanent failure. Reformatting
+# the tree is worth doing on its own, not smuggled into a CI change.
+
+name: CI
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['main']
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the floor declared in package.json engines, 24 is what the work is
+        # done on. Running both is what makes the engines claim true rather than
+        # aspirational.
+        node: ['22.x', '24.x']
+
+    name: check (node ${{ matrix.node }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Every route is server rendered on demand, so nothing is prerendered and the
+      # build needs no secrets. Verified by building with the environment file moved
+      # aside. It is here because a build that only breaks on Vercel breaks after
+      # review rather than during it.
+      - name: Build
+        run: npm run build
