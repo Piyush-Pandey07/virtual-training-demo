@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { safeDestination } from '@/lib/auth/destination';
 import { currentPerson, devAuthEnabled, firebaseConfigured } from '@/lib/auth/session';
 import { HOME_ORG_ID } from '@/lib/orgs/types';
 import { rosterStore } from '@/lib/roster/registry';
@@ -30,8 +31,13 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   const { next } = await searchParams;
 
   // Only ever somewhere inside this app. A `next` out of a query string is untrusted,
-  // and sending somebody to an absolute URL after they sign in is an open redirect.
-  const destination = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+  // and sending somebody to another site after they sign in is an open redirect.
+  //
+  // This was a prefix check on the raw text, one slash but not two, and a backslash or
+  // a tab walked straight through it: a signed-in visitor opening
+  // /signin?next=%2F%5Cattacker.invalid was sent to attacker.invalid in one click,
+  // confirmed in Chromium against production. A newline made the page 500 instead.
+  const destination = safeDestination(next);
 
   const person = await currentPerson();
   if (person) redirect(destination);
