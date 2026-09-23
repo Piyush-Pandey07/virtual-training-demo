@@ -44,8 +44,10 @@ function formatDate(iso: string | null): string {
 }
 
 export default async function DeckProgressPage({ params }: ProgressPageProps) {
-  const admin = await requireAdminPage();
+  // The id first, so a signed-out visitor comes back to this deck's progress after
+  // signing in rather than to the home page.
   const { id } = await params;
+  const admin = await requireAdminPage(`/decks/${encodeURIComponent(id)}/progress`);
 
   const stored = await loadStoredDeck(admin.orgId, id).catch(() => undefined);
   if (!stored) notFound();

@@ -63,8 +63,10 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
 }
 
 export default async function DeckReviewPage({ params }: ReviewPageProps) {
-  const admin = await requireAdminPage();
+  // The id first, so a signed-out visitor is sent back to this deck after signing in
+  // rather than to the home page, which is where a link in an email used to land.
   const { id } = await params;
+  const admin = await requireAdminPage(`/decks/${encodeURIComponent(id)}`);
 
   // Who could attend this, and who already has it. Started now rather than after the
   // deck arrives, because it needs only the customer and the id and was otherwise

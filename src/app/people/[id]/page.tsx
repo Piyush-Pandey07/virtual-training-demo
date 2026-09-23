@@ -41,8 +41,10 @@ export async function generateMetadata({ params }: PersonPageProps): Promise<Met
 }
 
 export default async function PersonPage({ params }: PersonPageProps) {
-  const admin = await requireAdminPage();
+  // The id first, so a signed-out visitor comes back to this person after signing in
+  // rather than to the home page. This is the page an email about somebody links to.
   const { id } = await params;
+  const admin = await requireAdminPage(`/people/${encodeURIComponent(id)}`);
 
   const person = await rosterStore(admin.orgId)
     .getPerson(id)
