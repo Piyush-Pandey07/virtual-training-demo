@@ -191,7 +191,11 @@ export function AssignDeck({ deckId, published, candidates, assigned }: AssignDe
                 if (chosen.size > 0) void assign();
               }}
             >
-              <fieldset className="border-charcoal-line max-h-64 overflow-y-auto rounded-md border">
+              {/* min-w-0 because every browser gives a fieldset min-inline-size:
+                  min-content, so it will not be narrower than its widest row. Without
+                  it the truncate below never fires: the fieldset grew to 450px on a
+                  400px phone and dragged the whole page into sideways scrolling. */}
+              <fieldset className="border-charcoal-line max-h-64 min-w-0 overflow-y-auto rounded-md border">
                 <legend className="sr-only">People to assign this deck to</legend>
                 {candidates.map((person) => (
                   <label
