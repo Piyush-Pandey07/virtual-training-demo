@@ -11,6 +11,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { cache } from 'react';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
@@ -35,6 +36,16 @@ function thumbSize(width?: number, height?: number): { width?: number; height?: 
   return { width: thumbWidth, height: Math.round((height / width) * thumbWidth) };
 }
 
+/**
+ * The deck, read once per request.
+ *
+ * `generateMetadata` and the page both need it, and they run alongside each other, so
+ * without this every visit loaded the whole deck twice: the record, then its slides and
+ * topics, about half a second each time. Scoped to one request by React, so an edit is
+ * visible on the very next load.
+ */
+const loadDeckOnce = cache((orgId: string, id: string) => loadStoredDeck(orgId, id));
+
 interface ReviewPageProps {
   params: Promise<{ id: string }>;
 }
@@ -47,7 +58,7 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
   const viewer = await currentPerson();
   if (!viewer) return {};
 
-  const stored = await loadStoredDeck(viewer.orgId, id).catch(() => undefined);
+  const stored = await loadDeckOnce(viewer.orgId, id).catch(() => undefined);
   return stored ? { title: `Review ${stored.record.meta.title}` } : {};
 }
 
@@ -55,9 +66,24 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   const admin = await requireAdminPage();
   const { id } = await params;
 
+  // Who could attend this, and who already has it. Started now rather than after the
+  // deck arrives, because it needs only the customer and the id and was otherwise
+  // queued behind half a second of deck loading for no reason.
+  //
+  // Scoped to this admin's own customer, which requireAdminPage has already settled,
+  // so reading it before the deck is confirmed exposes nothing: a bad id still 404s
+  // below before any of it is rendered.
+  const store = rosterStore(admin.orgId);
+  const rosterRead = store.writable
+    ? Promise.all([store.listPeople(), store.listAssignmentsForDeck(id)])
+    : undefined;
+  // Awaited inside a try below. This covers the one path where it never is: a bad id
+  // reaching notFound() first, which would otherwise leave a rejection unhandled.
+  rosterRead?.catch(() => undefined);
+
   // A bad id throws from the store rather than returning nothing, and a bad link
   // should be a 404 rather than a stack trace.
-  const stored = await loadStoredDeck(admin.orgId, id).catch(() => undefined);
+  const stored = await loadDeckOnce(admin.orgId, id).catch(() => undefined);
   if (!stored) notFound();
 
   const { record } = stored;
@@ -109,13 +135,9 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   let candidates: Candidate[] = [];
   let rosterAvailable = false;
 
-  const store = rosterStore(admin.orgId);
-  if (store.writable) {
+  if (rosterRead) {
     try {
-      const [people, assignments] = await Promise.all([
-        store.listPeople(),
-        store.listAssignmentsForDeck(id),
-      ]);
+      const [people, assignments] = await rosterRead;
 
       const byId = new Map(people.map((person) => [person.id, person]));
       assigned = assignments.flatMap((assignment) => {

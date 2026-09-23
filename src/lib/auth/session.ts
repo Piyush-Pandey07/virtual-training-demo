@@ -15,6 +15,7 @@
 
 import 'server-only';
 
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 
 import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
@@ -51,13 +52,8 @@ export function firebaseConfigured(): boolean {
   return firebaseAdminConfigured();
 }
 
-/**
- * The person making this request, or null when nobody is signed in.
- *
- * Never throws. A page that wants a refusal asks the guard for one; a page that
- * merely wants to know reads this.
- */
-export async function currentPerson(): Promise<SignedInPerson | null> {
+/** The uncached lookup. Everything outside this file goes through `currentPerson`. */
+async function resolveCurrentPerson(): Promise<SignedInPerson | null> {
   const jar = await cookies();
 
   // The real one. Verified against Firebase on every request, including its
@@ -152,3 +148,29 @@ export async function currentPerson(): Promise<SignedInPerson | null> {
     role: effectiveRole(person),
   };
 }
+
+/**
+ * The person making this request, or null when nobody is signed in.
+ *
+ * Never throws. A page that wants a refusal asks the guard for one; a page that
+ * merely wants to know reads this.
+ *
+ * Answered once per request, however many times it is asked. The root layout asks
+ * (for the acting banner), `generateMetadata` asks, and the page's guard asks, so the
+ * deck review page was verifying the same cookie three times over. Each verification
+ * checks revocation with Firebase, which is a network round trip measured at about
+ * 320ms from Mumbai, plus a roster read at about 130ms.
+ *
+ * Counted rather than assumed, on a production build: three calls and three lookups
+ * per load before, three calls and one lookup after. The first request to a freshly
+ * started instance renders more, and made eight calls; this brings that to four, which
+ * matters because a fresh instance on Vercel is a cold start, the slowest load there is.
+ *
+ * React's `cache` is scoped to a single request and discarded when it ends, so this
+ * shares an answer between the parts of one render and never between two requests.
+ * The revocation check still runs on every request, which is the property the
+ * comment inside the resolver is protecting. It is safe here because nothing changes
+ * who is signed in partway through a render: there are no server actions, and the
+ * three routes that write these cookies read the person once, write, and return.
+ */
+export const currentPerson = cache(resolveCurrentPerson);
