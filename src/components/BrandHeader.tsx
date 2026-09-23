@@ -21,12 +21,18 @@ export function BrandHeader({ children }: { children?: React.ReactNode }) {
           aria-label="Technavious home"
           className="shrink-0 transition-opacity hover:opacity-80"
         >
-          {/* The dark ground needs the light-tagline artwork to stay legible. */}
+          {/* The dark ground needs the light-tagline artwork to stay legible.
+
+              Declared at the size it is shown, 28px tall at most, not at the size of
+              the artwork. next/image picks a width from these numbers, and with the
+              artwork's 2087 it chose 3840: every page preloaded, at high priority, a
+              logo nineteen times wider than the header it sits in. Same ratio as the
+              artwork, so the reserved space and the layout are unchanged. */}
           <Image
             src="/brand/logo-primary.png"
             alt="Technavious"
-            width={2087}
-            height={281}
+            width={208}
+            height={28}
             priority
             className="h-6 w-auto sm:h-7"
           />
