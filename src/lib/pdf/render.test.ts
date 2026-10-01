@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
-import { groupIntoRows, joinRow, titleHintFrom, type TextRow } from './render';
+import { closeUpLetterSpacing, groupIntoRows, joinRow, titleHintFrom, type TextRow } from './render';
 
 /**
  * A pdf.js text run.
@@ -192,5 +192,91 @@ describe('guessing a page title', () => {
       row([['body', 0, 100]], 10),
     ]);
     assert.equal(hint, 'Actual Heading');
+  });
+});
+
+/**
+ * Letter-spaced headings, as pdf.js 6.2.108 actually reports them.
+ *
+ * Captured from a PDF built for the purpose: one heading letter-spaced by the renderer,
+ * one with mixed case and digits, one spaced out by hand with three spaces between the
+ * words, and ordinary lines either side. Both kinds of spacing arrive the same way: one
+ * run per word with a space between every letter, and the gap between words as its own
+ * whitespace-only run. Real output rather than what pdf.js was assumed to do, which is
+ * the reason a deck's title came out as "C A P A B I L I T Y B U I L D I N G".
+ */
+const SPACED_PAGE: TextItem[] = [
+  run("C A P A B I L I T Y", 60, 520, 249, 28),
+  run(" ", 309, 520, 25.78, 0),
+  run("B U I L D I N G", 334.78, 520, 198.32, 28),
+  run("", 60, 460, 0, 0),
+  run("R E V E N U E", 60, 460, 148.35, 22),
+  run(" ", 208.35, 460, 20.12, 0),
+  run("v s", 228.46, 460, 31.46, 22),
+  run(" ", 259.93, 460, 20.12, 0),
+  run("F Y 2 6 - 2 7", 280.04, 460, 126.37, 22),
+  run(" ", 406.41, 460, 20.12, 0),
+  run("T A R G E T", 426.53, 460, 125.44, 22),
+  run("", 60, 400, 0, 0),
+  run("Monthly Business Review", 60, 400, 392.99, 32),
+  run("", 60, 350, 0, 0),
+  run("The ISMS policy applies to all staff and contractors.", 60, 350, 343.1, 14),
+  run("Step 1 of 3", 60, 310, 70.8, 14),
+  run("", 60, 270, 0, 0),
+  run("C A P A B I L I T Y", 60, 270, 187.04, 22),
+  run(" ", 247.04, 270, 18.35, 0),
+  run("B U I L D I N G", 265.39, 270, 149.14, 22),
+  run("", 60, 230, 0, 0),
+  run("1 2 3 4 5", 60, 230, 54.49, 14)
+];
+
+describe('headings printed with their letters spread out', () => {
+  const lines = groupIntoRows(SPACED_PAGE).map(joinRow);
+
+  it('reads a letter-spaced heading as words, keeping the space between them', () => {
+    assert.equal(lines[0], 'CAPABILITY BUILDING');
+  });
+
+  it('keeps mixed case, digits and hyphens inside a letter-spaced heading', () => {
+    assert.equal(lines[1], 'REVENUE vs FY26-27 TARGET');
+  });
+
+  it('reads a heading spaced out by hand the same way', () => {
+    assert.equal(lines[5], 'CAPABILITY BUILDING');
+  });
+
+  it('leaves ordinary lines exactly as they were', () => {
+    assert.equal(lines[2], 'Monthly Business Review');
+    assert.equal(lines[3], 'The ISMS policy applies to all staff and contractors.');
+    assert.equal(lines[4], 'Step 1 of 3');
+  });
+
+  it('leaves a row of numbers alone, since it has no letters to close up', () => {
+    // A rating scale or a row of step markers. Closing it up would read "12345".
+    assert.equal(lines[6], '1 2 3 4 5');
+  });
+
+  it('gives the title hint the words, not the letters', () => {
+    // The spaced heading over two lines of body text, so it stands out as a title the
+    // way titleHintFrom requires. Before the fix this returned the letters, spaced.
+    const page = [...SPACED_PAGE.slice(0, 3), SPACED_PAGE[14]!, SPACED_PAGE[15]!];
+    assert.equal(titleHintFrom(groupIntoRows(page)), 'CAPABILITY BUILDING');
+  });
+});
+
+describe('closing up one run', () => {
+  it('closes up a word whose letters are spaced', () => {
+    assert.equal(closeUpLetterSpacing('C A P A B I L I T Y'), 'CAPABILITY');
+    assert.equal(closeUpLetterSpacing('v s'), 'vs');
+  });
+
+  it('splits a whole spaced heading kept in one run at its wider gaps', () => {
+    assert.equal(closeUpLetterSpacing('C A P A B I L I T Y   B U I L D I N G'), 'CAPABILITY BUILDING');
+  });
+
+  it('touches nothing that is not spaced letter by letter', () => {
+    for (const text of ['Step 1 of 3', 'The ISMS policy', 'a', 'AB C', '1 2 3 4 5', 'x', '']) {
+      assert.equal(closeUpLetterSpacing(text), text, `${JSON.stringify(text)} was changed`);
+    }
   });
 });

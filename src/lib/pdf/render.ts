@@ -139,19 +139,54 @@ export function joinRow(row: TextRow): string {
   let previousEnd: number | null = null;
 
   for (const part of parts) {
+    const str = closeUpLetterSpacing(part.str);
     const needsSpace =
       previousEnd !== null &&
       part.x - previousEnd > gapMeaningSpace &&
       // Some producers already put the space in the run itself.
       !/\s$/.test(text) &&
-      !/^\s/.test(part.str);
+      !/^\s/.test(str);
 
     if (needsSpace) text += ' ';
-    text += part.str;
+    text += str;
     previousEnd = part.x + part.width;
   }
 
   return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A run's text with its letter-spacing closed up, when it is a word printed with its
+ * letters spread apart.
+ *
+ * A heading set with wide letter-spacing, or spaced out by hand, reaches pdf.js as one
+ * run per word with a space between every letter, "C A P A B I L I T Y", and the gap
+ * between words as a separate whitespace-only run. That was checked against pdf.js
+ * 6.2.108 with both kinds of spacing, and both arrive the same way. groupIntoRows drops
+ * whitespace-only runs, so joinRow then put a single space between the words, identical
+ * to the spaces between the letters: "C A P A B I L I T Y B U I L D I N G". The analysis
+ * pass copied that into a deck's title, subtitle and slide titles, and a delegate's lobby
+ * showed it as the session name.
+ *
+ * Because each run is one word, closing up its letters cannot run two words together;
+ * the space between words is still decided by the gap between runs, as before.
+ *
+ * Only a run made entirely of single characters separated by single spaces, with at
+ * least two letters in it. A rating scale such as "1 2 3 4 5" has no letters and is left
+ * alone, and ordinary text always has a longer word in it. Segments set apart by two or
+ * more spaces are treated separately, for a producer that keeps a whole spaced heading in
+ * one run.
+ */
+export function closeUpLetterSpacing(str: string): string {
+  return str
+    .split(/\s{2,}/)
+    .map((segment) => {
+      const trimmed = segment.trim();
+      if (!/^\S(?: \S)+$/.test(trimmed)) return segment;
+      const letters = trimmed.replace(/[^\p{L}]/gu, '').length;
+      return letters >= 2 ? trimmed.replaceAll(' ', '') : segment;
+    })
+    .join(' ');
 }
 
 /** Groups a page's text runs into rows, top to bottom. */
