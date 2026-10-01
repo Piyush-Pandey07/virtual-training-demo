@@ -26,6 +26,22 @@ const PLAYER = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8');
 const SESSION = readFileSync('src/hooks/useTrainingSession.ts', 'utf8');
 const SCREEN = readFileSync('src/app/session/SessionScreen.tsx', 'utf8');
 
+/**
+ * One hook-level function, from its declaration to the next one.
+ *
+ * Hook members are declared two spaces in, so the next `\n  const ` is where this one
+ * ends. Reading a specific body matters: the earlier version of the scheduling check
+ * sliced from the first `getContext()` in the file, which is in ensureAudible, and so
+ * found unlock's call before speakChunk's and would have passed with speakChunk's
+ * removed.
+ */
+function bodyOf(source: string, name: string): string {
+  const start = source.indexOf(`const ${name} = useCallback(`);
+  assert.ok(start >= 0, `could not find ${name}`);
+  const end = source.indexOf('\n  const ', start + 1);
+  return source.slice(start, end === -1 ? undefined : end);
+}
+
 describe('detecting that nobody can hear the trainer', () => {
   it('reads the context state rather than trusting resume to have worked', () => {
     // The heart of it. `resume()` can resolve while the context stays suspended, so a
@@ -43,7 +59,7 @@ describe('detecting that nobody can hear the trainer', () => {
     // Raised at the moment the audio would have been heard and was not. Checking
     // afterwards would report it a buffer late, which on a forty-five second slide is
     // forty-five seconds of somebody wondering whether it is their headphones.
-    const scheduling = PLAYER.slice(PLAYER.indexOf('const context = getContext();'));
+    const scheduling = bodyOf(PLAYER, 'speakChunk');
     const check = scheduling.indexOf('await ensureAudible()');
     const create = scheduling.indexOf('createBufferSource');
 
@@ -89,5 +105,67 @@ describe('detecting that nobody can hear the trainer', () => {
     // nothing recorded.
     const banner = SCREEN.slice(SCREEN.indexOf('session.audioInaudible &&'));
     assert.match(banner.slice(0, 1400), /marked as\s*\n?\s*completed until it plays/);
+  });
+});
+
+describe('a deliberate pause is not mistaken for silence', () => {
+  /**
+   * A paused context and a context the browser is holding back are the same thing from
+   * inside: both report `suspended`. The player has to know which it is, because it
+   * checks before every sentence, and that check must neither undo a pause by resuming
+   * nor raise "You will not hear the trainer" over a session that is quiet on purpose.
+   */
+
+  it('steps aside while paused, before it can resume or warn', () => {
+    const check = bodyOf(PLAYER, 'ensureAudible');
+    const guard = check.indexOf('if (pausedRef.current) return false;');
+    assert.ok(guard >= 0, 'ensureAudible no longer knows about a deliberate pause');
+    assert.ok(
+      guard < check.indexOf('context.resume()'),
+      'a paused session would be resumed from inside the playback loop, undoing the pause',
+    );
+    assert.ok(
+      guard < check.indexOf('setInaudible(!running)'),
+      'a paused session would raise the inaudible warning',
+    );
+  });
+
+  it('takes the warning down when pausing, rather than leaving it up', () => {
+    const pause = bodyOf(PLAYER, 'pause');
+    assert.match(pause, /pausedRef\.current = true;/);
+    assert.match(pause, /setInaudible\(false\)/);
+    assert.match(pause, /context\.suspend\(\)/);
+  });
+
+  it('checks honestly on resume, through the same path as any other silence', () => {
+    // If the browser will not come back, the trainee should hear about it exactly as
+    // they would at the start of a session. Going round ensureAudible would hide that.
+    const resume = bodyOf(PLAYER, 'resume');
+    const cleared = resume.indexOf('pausedRef.current = false;');
+    const checked = resume.indexOf('return ensureAudible();');
+    assert.ok(cleared >= 0 && checked >= 0, 'resume no longer clears the pause and checks');
+    assert.ok(cleared < checked, 'resume checks audibility while still marked paused, so it always skips');
+  });
+
+  it('does not end a stopped session on the warning', () => {
+    // Stop runs through interrupt. It discards what the pause held and restarts the
+    // empty timeline quietly; going through ensureAudible could raise the warning on
+    // the "Session complete" screen.
+    const interrupt = bodyOf(PLAYER, 'interrupt');
+    const branch = interrupt.slice(interrupt.indexOf('if (pausedRef.current)'));
+    assert.ok(branch.length > 0, 'interrupt no longer ends a pause');
+    assert.match(branch.slice(0, 200), /pausedRef\.current = false;/);
+    assert.match(branch.slice(0, 200), /context\?\.resume\(\)/);
+    // A call, not the word: the comment beside the branch names it to explain why not.
+    assert.doesNotMatch(interrupt, /ensureAudible\(/, 'interrupt can raise the inaudible warning');
+  });
+
+  it('runs pause and resume one at a time', () => {
+    // suspend() is asynchronous. Pause then Play pressed quickly used to let the
+    // suspend land after the resume and freeze a session that thought it was playing.
+    assert.match(bodyOf(PLAYER, 'pause'), /transitionRef\.current\.then\(/);
+    assert.match(bodyOf(PLAYER, 'resume'), /transitionRef\.current\.then\(/);
+    // And a pause overtaken by a Stop before it ran must not suspend anything.
+    assert.match(bodyOf(PLAYER, 'pause'), /if \(pausedRef\.current && context && context\.state === 'running'\)/);
   });
 });

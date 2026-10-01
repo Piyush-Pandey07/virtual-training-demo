@@ -87,7 +87,19 @@ export interface UseTrainingSessionResult {
   /** Retry playback. Must be called from a user gesture to have any chance. */
   retryAudio: () => Promise<boolean>;
 
+  /**
+   * Held by the trainee. Separate from `phase` rather than one of its values, because
+   * a turn already in flight sets the phase itself: a pause pressed while the trainer
+   * was thinking would be overwritten by 'speaking' the moment the first words landed.
+   */
+  paused: boolean;
+  /** Freezes the trainer mid-word and closes the microphone. */
+  pauseSession: () => Promise<void>;
+  /** Carries on from the exact word. Call from the click, so the browser plays it. */
+  resumeSession: () => Promise<void>;
+
   startSession: (traineeName?: string) => Promise<void>;
+  /** Stops the session. Every slide already taught is kept. */
   endSession: () => void;
   nextSlide: () => void;
   previousSlide: () => void;
@@ -139,6 +151,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
   const [traineeName, setTraineeName] = useState<string | undefined>();
+  const [paused, setPaused] = useState(false);
 
   /** Refs mirror state that async callbacks need to read without going stale. */
   // Seeded from the same values as the state above. This used to be `useRef(1)`
@@ -150,6 +163,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   const learnerRef = useRef<LearnerProfile>(EMPTY_LEARNER);
   const traineeNameRef = useRef<string | undefined>(undefined);
   const phaseRef = useRef<SessionPhase>('idle');
+  /** Read by callbacks that must not act while the session is held. */
+  const pausedRef = useRef(false);
   const turnAbortRef = useRef<AbortController | null>(null);
   /** Set while a turn is being generated, so overlapping requests are dropped. */
   const busyRef = useRef(false);
@@ -242,6 +257,11 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
    */
   const runTurn = useCallback(
     async (kind: TurnKind, opts: { question?: string; slideId?: number } = {}) => {
+      // Before anything else, and in particular before player.interrupt() below, which
+      // ends a pause. A turn begun while paused would unfreeze the audio underneath a
+      // screen still saying Paused. The controls are locked while paused, so this is
+      // the backstop for whatever path is added next.
+      if (pausedRef.current) return;
       if (busyRef.current) return;
       // An ended session stays ended. Without this, any control that reaches
       // runTurn could restart the trainer after the microphone had been torn
@@ -403,6 +423,9 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       const clean = text.trim();
       if (!clean) return;
       if (phaseRef.current === 'ended') return;
+      // The microphone is closed while paused, so nothing should arrive. If something
+      // does, cancelling the turn below would end the pause from underneath the screen.
+      if (pausedRef.current) return;
 
       /**
        * Take the floor before routing, exactly as the typed path already did.
@@ -458,6 +481,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
 
   /** Cuts the trainer off when the trainee starts talking over it. */
   const handleSpeechStart = useCallback(() => {
+    if (pausedRef.current) return;
     if (!ttsRef.current.speaking) return;
     cancelCurrentTurn();
     setPhase('listening');
@@ -488,6 +512,45 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   useEffect(() => {
     sttRef.current = stt;
   }, [stt]);
+
+  /**
+   * Holds the session exactly where it is.
+   *
+   * The audio timeline is suspended rather than the turn cancelled, so the trainer
+   * stops mid-word and carries on from the same word: nothing is thrown away, nothing
+   * is generated again, and nothing is billed twice. A turn still generating when the
+   * pause lands finishes in the background and queues behind it.
+   *
+   * The microphone is closed outright rather than muted. A held session should not be
+   * listening, should not keep the browser's recording light on, and should not keep
+   * a socket open to Deepgram, which is billed for every second of audio it is sent.
+   *
+   * A slide interrupted by a pause is not yet taught, and needs nothing extra to stay
+   * that way: it is marked only when its narration finishes playing, which a pause
+   * delays and a Stop prevents.
+   */
+  const pauseSession = useCallback(async () => {
+    const phase = phaseRef.current;
+    if (pausedRef.current) return;
+    // Nothing to hold before the session is up, or once it is over.
+    if (phase === 'idle' || phase === 'connecting' || phase === 'ended') return;
+
+    pausedRef.current = true;
+    setPaused(true);
+    sttRef.current.stop();
+    await ttsRef.current.pause();
+  }, []);
+
+  const resumeSession = useCallback(async () => {
+    if (!pausedRef.current) return;
+    pausedRef.current = false;
+    setPaused(false);
+    // Sound first, while this is still the click the browser will accept it from.
+    // The microphone follows; it needs permission, which was granted at the start,
+    // not a gesture.
+    await ttsRef.current.resume();
+    await sttRef.current.start();
+  }, []);
 
   const startSession = useCallback(
     async (name?: string) => {
@@ -521,6 +584,10 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   );
 
   const endSession = useCallback(() => {
+    // Stop works from a pause. Cancelling the turn ends the player's half of it, since
+    // interrupt() discards what the pause was holding; this ends the screen's half.
+    pausedRef.current = false;
+    setPaused(false);
     cancelCurrentTurn();
     sttRef.current.stop();
     setPhase('ended');
@@ -633,6 +700,9 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     trainerSpeaking: tts.speaking,
     audioInaudible: tts.inaudible,
     retryAudio: tts.ensureAudible,
+    paused,
+    pauseSession,
+    resumeSession,
     startSession,
     endSession,
     nextSlide,

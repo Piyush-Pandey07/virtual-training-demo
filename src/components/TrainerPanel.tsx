@@ -9,7 +9,11 @@ function statusFor(
   phase: SessionPhase,
   micState: MicState,
   transcribing: boolean,
+  paused: boolean,
 ): { label: string; tone: string } {
+  // First, because a pause is the trainee's own choice and outranks whatever the turn
+  // underneath it was doing when it was held.
+  if (paused) return { label: 'Paused', tone: 'text-muted' };
   if (phase === 'error') return { label: 'Something went wrong', tone: 'text-logo-red' };
   // Batch transport only. Worth showing, because the transcript lands a beat
   // after the trainee stops rather than appearing as they speak.
@@ -35,6 +39,7 @@ interface TrainerPanelProps {
   transport: SttTransport | null;
   /** Live partial transcript of what the trainee is saying right now. */
   heard: string;
+  paused: boolean;
 }
 
 /**
@@ -55,8 +60,9 @@ export function TrainerPanel({
   transcribing,
   transport,
   heard,
+  paused,
 }: TrainerPanelProps) {
-  const status = statusFor(phase, micState, transcribing);
+  const status = statusFor(phase, micState, transcribing, paused);
   const listening = phase === 'listening' && micState === 'live';
 
   return (

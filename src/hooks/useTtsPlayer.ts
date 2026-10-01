@@ -51,6 +51,16 @@ export interface UseTtsPlayerResult {
   inaudible: boolean;
   /** Retries playback from a user gesture. Resolves true if audio can now be heard. */
   ensureAudible: () => Promise<boolean>;
+  /**
+   * Freezes playback exactly where it is, mid-word if need be. Nothing queued is
+   * dropped or synthesised again, and speech that arrives while paused waits behind it.
+   */
+  pause: () => Promise<void>;
+  /**
+   * Carries on from exactly where `pause` stopped. Call it from the click that asked,
+   * since that click is the gesture a browser wants before it will play anything.
+   */
+  resume: () => Promise<boolean>;
 }
 
 interface Options {
@@ -74,6 +84,17 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
    * a button: a click is the gesture, and resuming on one works.
    */
   const [inaudible, setInaudible] = useState(false);
+
+  /**
+   * Suspended because the trainee asked, as opposed to held back by the browser.
+   *
+   * Both look identical from inside: the context reports `suspended` either way. The
+   * difference matters in exactly one place, `ensureAudible`, which runs before every
+   * sentence is scheduled. Without this it would see a paused timeline and either
+   * resume it, undoing the pause from inside the playback loop, or fail to and raise
+   * "You will not hear the trainer" over a session that is quiet on purpose.
+   */
+  const pausedRef = useRef(false);
 
   const contextRef = useRef<AudioContext | null>(null);
   /** Next free moment on the audio timeline. */
@@ -109,6 +130,11 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
    * stays suspended, so the state is read afterwards rather than the promise trusted.
    */
   const ensureAudible = useCallback(async (): Promise<boolean> => {
+    // A deliberate pause is not a failure to be heard. Leave the timeline frozen and
+    // the warning down: anything scheduled now waits behind the pause and plays the
+    // moment the trainee carries on.
+    if (pausedRef.current) return false;
+
     const context = getContext();
     if (context.state === 'suspended') {
       await context.resume().catch(() => undefined);
@@ -120,6 +146,45 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
   const unlock = useCallback(async () => {
     await ensureAudible();
+  }, [ensureAudible]);
+
+  /**
+   * Pause and resume, one at a time.
+   *
+   * `suspend()` is asynchronous. Without this, Pause then Play pressed quickly let the
+   * resume run while the suspend was still pending; the suspend then landed second and
+   * froze a timeline the player believed was running. At the end of a slide nothing
+   * else comes along to restart it, so the session simply stopped.
+   */
+  const transitionRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  const pause = useCallback((): Promise<void> => {
+    // Set now rather than in turn, so a sentence scheduled during the transition is
+    // already treated as held.
+    pausedRef.current = true;
+    // Whatever the browser was doing before, the silence from here on is chosen. A
+    // warning left up across a pause would tell the trainee their sound is broken
+    // while they are the one who turned it off.
+    setInaudible(false);
+    const next = transitionRef.current.then(async () => {
+      const context = contextRef.current;
+      if (pausedRef.current && context && context.state === 'running') {
+        await context.suspend().catch(() => undefined);
+      }
+    });
+    transitionRef.current = next.catch(() => undefined);
+    return next;
+  }, []);
+
+  const resume = useCallback((): Promise<boolean> => {
+    const next = transitionRef.current.then(() => {
+      pausedRef.current = false;
+      // Through ensureAudible rather than around it, so that if the browser refuses to
+      // come back, the trainee is told, exactly as for any other silence.
+      return ensureAudible();
+    });
+    transitionRef.current = next.catch(() => undefined);
+    return next;
   }, [ensureAudible]);
 
   const settleIfIdle = useCallback(() => {
@@ -152,6 +217,15 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
     const context = contextRef.current;
     playheadRef.current = context ? context.currentTime : 0;
+
+    // Everything a pause was holding has just been thrown away, so the pause goes
+    // with it. The empty timeline is restarted quietly rather than through
+    // ensureAudible: there is nothing to hear, so nothing to warn about, and a session
+    // stopped while paused must not end on "You will not hear the trainer".
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      void context?.resume().catch(() => undefined);
+    }
 
     setSpeaking(false);
     const waiters = doneWaitersRef.current;
@@ -341,5 +415,17 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     [],
   );
 
-  return { speaking, push, flush, interrupt, waitUntilDone, unlock, error, inaudible, ensureAudible };
+  return {
+    speaking,
+    push,
+    flush,
+    interrupt,
+    waitUntilDone,
+    unlock,
+    error,
+    inaudible,
+    ensureAudible,
+    pause,
+    resume,
+  };
 }

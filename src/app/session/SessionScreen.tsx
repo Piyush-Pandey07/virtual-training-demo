@@ -160,7 +160,8 @@ export function SessionScreen({
    *
    * `busy` is still right for dimming the slide, which is exactly what it means.
    */
-  const navLocked = session.phase === 'connecting' || session.phase === 'ended';
+  const navLocked =
+    session.phase === 'connecting' || session.phase === 'ended' || session.paused;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -242,7 +243,7 @@ export function SessionScreen({
         // No transcript. The session reads as a presentation rather than a chat
         // window, so the slide takes the room the conversation log used to.
         <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-5 sm:px-8">
-          {slide && <SlideStage slide={slide} dimmed={busy} />}
+          {slide && <SlideStage slide={slide} dimmed={busy || session.paused} />}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex min-w-0 flex-col gap-4">
@@ -258,6 +259,9 @@ export function SessionScreen({
                 micState={session.micState}
                 slideId={session.slideId}
                 trainerSpeaking={session.trainerSpeaking}
+                paused={session.paused}
+                onPause={() => void session.pauseSession()}
+                onResume={() => void session.resumeSession()}
                 onPrevious={session.previousSlide}
                 onNext={session.nextSlide}
                 onRepeat={session.repeatSlide}
@@ -273,10 +277,13 @@ export function SessionScreen({
                 phase={session.phase}
                 micState={session.micState}
                 micLevel={session.micLevel}
-                speaking={session.trainerSpeaking}
+                // Audio is held mid-word while paused, so the avatar should be still
+                // rather than mouthing along to nothing.
+                speaking={session.trainerSpeaking && !session.paused}
                 transcribing={session.transcribing}
                 transport={session.sttTransport}
                 heard={session.interim}
+                paused={session.paused}
               />
 
               {session.phase === 'ended' && (
