@@ -34,6 +34,14 @@ const ENDPOINTING_MS = 400;
 /** How long Deepgram waits before emitting UtteranceEnd. */
 const UTTERANCE_END_MS = 1_000;
 
+/**
+ * How often live audio is reported to usage metering while the socket stays open.
+ *
+ * It is also reported whenever the socket closes, which covers pausing, stopping and
+ * leaving. This is the backstop for a tab that dies without closing anything.
+ */
+const STREAM_REPORT_MS = 60_000;
+
 // ---------------------------------------------------------------------------
 // Voice activity detection, used by the batch transport only.
 // ---------------------------------------------------------------------------
@@ -111,6 +119,15 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   // Streaming transport state.
   const socketRef = useRef<WebSocket | null>(null);
   const keepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Samples sent to Deepgram on the live socket and not yet reported.
+   *
+   * Counted from what was actually sent rather than how long the socket was open,
+   * because sent audio is what Deepgram bills. Keepalives cost nothing and are not
+   * counted; muted chunks are never sent, so they are not counted either.
+   */
+  const unreportedSamplesRef = useRef(0);
   const pendingRef = useRef('');
   const speakingRef = useRef(false);
 
@@ -239,7 +256,28 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     if (chunk.muted) return;
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(chunk.pcm.buffer as ArrayBuffer);
+      unreportedSamplesRef.current += chunk.pcm.length;
     }
+  }, []);
+
+  /**
+   * Tells usage metering how much live audio went to Deepgram since the last report.
+   *
+   * The batch transport is metered on the server, which receives the audio. This one
+   * never touches the server, so until now its minutes were not recorded at all, and
+   * a customer's usage under-reported the line on the bill that grows with session
+   * length. `keepalive` lets the last report survive the page being closed.
+   */
+  const reportStreamedAudio = useCallback(() => {
+    const samples = unreportedSamplesRef.current;
+    unreportedSamplesRef.current = 0;
+    if (samples <= 0) return;
+    void fetch('/api/usage/stt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds: samples / CAPTURE_SAMPLE_RATE }),
+      keepalive: true,
+    }).catch(() => undefined);
   }, []);
 
   const handleChunk = useCallback(
@@ -264,6 +302,13 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       clearInterval(keepaliveRef.current);
       keepaliveRef.current = null;
     }
+    if (reportTimerRef.current) {
+      clearInterval(reportTimerRef.current);
+      reportTimerRef.current = null;
+    }
+    // Every way the socket closes comes through here: pausing, stopping, falling back
+    // to batch, and leaving the page. So does every report that was still owed.
+    reportStreamedAudio();
     const socket = socketRef.current;
     socketRef.current = null;
     if (!socket) return;
@@ -279,7 +324,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     socket.onerror = null;
     socket.onclose = null;
     socket.close();
-  }, []);
+  }, [reportStreamedAudio]);
 
   const stop = useCallback(() => {
     stoppingRef.current = true;
@@ -328,6 +373,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
             socketRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
           }
         }, KEEPALIVE_MS);
+        reportTimerRef.current = setInterval(reportStreamedAudio, STREAM_REPORT_MS);
       };
 
       socket.onmessage = (event) => {
@@ -413,7 +459,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
         );
       };
     },
-    [resetBatchState, teardownSocket],
+    [reportStreamedAudio, resetBatchState, teardownSocket],
   );
 
   const start = useCallback(async () => {
@@ -473,6 +519,14 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       setInterim('');
     }
   }, []);
+
+  // Closing the tab does not reliably unmount anything, so the clean-up below cannot
+  // be counted on to report. pagehide fires on the way out, and the report's keepalive
+  // flag lets it finish after the page is gone.
+  useEffect(() => {
+    window.addEventListener('pagehide', reportStreamedAudio);
+    return () => window.removeEventListener('pagehide', reportStreamedAudio);
+  }, [reportStreamedAudio]);
 
   useEffect(
     () => () => {
