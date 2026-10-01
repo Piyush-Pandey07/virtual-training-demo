@@ -222,7 +222,8 @@ export function HomeForAdmin({
       </main>
 
       <footer className="border-charcoal-line text-muted border-t px-5 py-6 text-sm sm:px-8">
-        <p>Technavious internal training platform. Signed in as {person.email}.</p>
+        {/* Not "internal": this is the screen a customer's own administrator sees. */}
+        <p>Technavious training platform. Signed in as {person.email}.</p>
       </footer>
     </div>
   );

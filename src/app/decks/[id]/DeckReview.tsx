@@ -18,7 +18,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 
-import { pageAssetName } from '@/lib/decks/asset-paths';
 import type { DeckMeta, SlideRole } from '@/lib/deck-types';
 
 /** What the server sends down: enough to review, without the trainer's material. */
@@ -37,6 +36,13 @@ export interface ReviewSlide {
   discussionPrompts: string[];
   /** The brief opens as a description of the page rather than as instructions. */
   briefLooksLikeSummary: boolean;
+  /**
+   * Where this slide's thumbnail is, decided on the server, which knows what kind of
+   * deck this is. This screen used to build an uploaded-asset address itself for every
+   * deck, and the authored example has no uploaded assets, so every thumbnail of the
+   * deck shown to prospects was a broken image.
+   */
+  thumbnail: string;
   width?: number;
   height?: number;
 }
@@ -421,7 +427,7 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
             >
               <div>
                 <Image
-                  src={`/api/decks/${initial.id}/assets/${pageAssetName(slide.id, 'thumb')}`}
+                  src={slide.thumbnail}
                   alt={`Page ${slide.id}`}
                   width={slide.width ?? 768}
                   height={slide.height ?? 432}

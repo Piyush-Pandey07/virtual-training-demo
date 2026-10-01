@@ -16,6 +16,7 @@ import { cache } from 'react';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
+import { pageAssetName } from '@/lib/decks/asset-paths';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { currentPerson } from '@/lib/auth/session';
@@ -23,6 +24,7 @@ import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
 import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
+import { DeleteDeck } from './DeleteDeck';
 import { DeckReview, type ReviewDeck } from './DeckReview';
 
 export const dynamic = 'force-dynamic';
@@ -115,6 +117,13 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
       keyPoints: slide.keyPoints,
       discussionPrompts: slide.discussionPrompts,
       briefLooksLikeSummary: briefReadsAsSummary(slide.narrationBrief),
+      // An uploaded deck has a small render made for exactly this. The authored example
+      // has only its slide images, which ship with the app and were never uploaded, so
+      // asking the asset route for its thumbnails returned 404 for every one.
+      thumbnail:
+        record.meta.origin === 'authored'
+          ? slide.image
+          : `/api/decks/${encodeURIComponent(record.meta.id)}/assets/${pageAssetName(slide.id, 'thumb')}`,
       // The thumbnail's own size, not the full render's. Same ratio, but declaring
       // 1600 wide for an image that is 768 wide is a small lie in the markup.
       ...thumbSize(slide.width, slide.height),
@@ -217,6 +226,17 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
               published={stored.status === 'published'}
               candidates={candidates}
               assigned={assigned}
+            />
+          )}
+
+          {/* Last. Not offered for a read-only deck, which the server refuses to remove.
+              The example deck is read-only only when the app runs with no storage at
+              all; in a customer's library it is an ordinary copy they may delete. */}
+          {!stored.readOnly && (
+            <DeleteDeck
+              deckId={review.id}
+              title={record.meta.title}
+              assignedCount={assigned.length}
             />
           )}
         </div>

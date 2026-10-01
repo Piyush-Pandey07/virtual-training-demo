@@ -1,6 +1,24 @@
 @import 'tailwindcss';
 
 /*
+ * Hover never restyles a disabled control.
+ *
+ * Tailwind's own `hover` applies whether or not a button is disabled, so a greyed-out
+ * Next slide lit up teal under the pointer as if it could be pressed, and the same was
+ * true of eighteen buttons across the app. Redefining the variant fixes all of them in
+ * one place rather than thirteen files. It is Tailwind's built-in definition with
+ * `:not(:disabled)` added, so links, which can never be disabled, hover exactly as
+ * before, and a disabled button keeps its title tooltip and not-allowed cursor.
+ */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      @slot;
+    }
+  }
+}
+
+/*
  * Technavious brand tokens.
  *
  * Deep Charcoal ground, Azure Blue as the primary and accent, Teal Tint for

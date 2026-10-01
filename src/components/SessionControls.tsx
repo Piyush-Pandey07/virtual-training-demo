@@ -192,7 +192,11 @@ export function SessionControls({
       </div>
 
       <div className="border-charcoal-line flex flex-wrap items-center gap-3 border-t pt-3">
-        {paused ? (
+        {/* Not "Just speak" once it is over: the microphone is off, and inviting
+            somebody to talk to a session that has stopped listening is simply wrong. */}
+        {ended ? (
+          <p className="text-muted text-xs">This session has ended, and your microphone is off.</p>
+        ) : paused ? (
           <p className="text-mist text-sm">
             <span className="font-semibold">Paused.</span> Your microphone is off. Press Play to
             carry on from the same word.
