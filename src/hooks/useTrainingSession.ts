@@ -98,7 +98,14 @@ export interface UseTrainingSessionResult {
   /** Carries on from the exact word. Call from the click, so the browser plays it. */
   resumeSession: () => Promise<void>;
 
-  startSession: (traineeName?: string) => Promise<void>;
+  /**
+   * Starts the session in the chosen voice, which is then fixed for the rest of it.
+   *
+   * There is deliberately no way to change the voice once started. Switching mid-session
+   * would mean regenerating what is queued in the new voice, adding a pause where the
+   * trainer goes quiet, which is the reason the to-do gave for ruling it out.
+   */
+  startSession: (traineeName?: string, voice?: string) => Promise<void>;
   /** Stops the session. Every slide already taught is kept. */
   endSession: () => void;
   nextSlide: () => void;
@@ -553,9 +560,13 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   }, []);
 
   const startSession = useCallback(
-    async (name?: string) => {
+    async (name?: string, voice?: string) => {
       setError(null);
       setPhase('connecting');
+      // The one place the voice is set. Fixed from here: nothing in this hook exposes a
+      // way to change it, and the picker lives only on the lobby, which is gone once
+      // the session is up.
+      ttsRef.current.setVoice(voice);
       const trimmed = name?.trim();
       setTraineeName(trimmed || undefined);
       traineeNameRef.current = trimmed || undefined;

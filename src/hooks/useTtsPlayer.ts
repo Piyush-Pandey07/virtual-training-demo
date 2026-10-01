@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
+import { pcmToFloat } from '@/lib/pcm';
 import { sanitiseForSpeech } from '@/lib/speech';
 
 /** Below this, a fragment is too short to be worth its own request. */
@@ -61,6 +62,11 @@ export interface UseTtsPlayerResult {
    * since that click is the gesture a browser wants before it will play anything.
    */
   resume: () => Promise<boolean>;
+  /**
+   * The voice every sentence from here on is spoken in, as an id from /api/voices.
+   * Undefined speaks in the deployment's default.
+   */
+  setVoice: (voice: string | undefined) => void;
 }
 
 interface Options {
@@ -95,6 +101,12 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
    * "You will not hear the trainer" over a session that is quiet on purpose.
    */
   const pausedRef = useRef(false);
+
+  /** Read by every synthesis request. Set by the session, once, as it starts. */
+  const voiceRef = useRef<string | undefined>(undefined);
+  const setVoice = useCallback((voice: string | undefined) => {
+    voiceRef.current = voice;
+  }, []);
 
   const contextRef = useRef<AudioContext | null>(null);
   /** Next free moment on the audio timeline. */
@@ -243,10 +255,13 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
       let pcm: ArrayBuffer;
       try {
+        const voice = voiceRef.current;
         const response = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
+          // No voice field at all when none was chosen, so the server's default applies
+          // exactly as it did before there was a choice.
+          body: JSON.stringify(voice ? { text, voice } : { text }),
           signal: controller.signal,
         });
 
@@ -275,12 +290,9 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       await ensureAudible();
 
       // Convert signed 16-bit PCM into the float buffer Web Audio expects.
-      const samples = new Int16Array(pcm, 0, Math.floor(pcm.byteLength / 2));
+      const samples = pcmToFloat(pcm);
       const audioBuffer = context.createBuffer(1, samples.length, AUDIO_SAMPLE_RATE);
-      const channel = audioBuffer.getChannelData(0);
-      for (let i = 0; i < samples.length; i += 1) {
-        channel[i] = samples[i] / 0x8000;
-      }
+      audioBuffer.copyToChannel(samples, 0);
 
       if (generation !== generationRef.current) return;
 
@@ -427,5 +439,6 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     ensureAudible,
     pause,
     resume,
+    setVoice,
   };
 }

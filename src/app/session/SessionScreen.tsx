@@ -8,6 +8,7 @@ import { SessionControls } from '@/components/SessionControls';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
 import { TrainerPanel } from '@/components/TrainerPanel';
+import { VoicePicker } from '@/components/VoicePicker';
 import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
@@ -18,18 +19,24 @@ interface HealthState {
   missing: string[];
 }
 
-/** Pre-session screen. Collects an optional name and unlocks audio on the click. */
+/**
+ * Pre-session screen. Collects an optional name and the trainer's voice, and unlocks
+ * audio on the click.
+ */
 function Lobby({
   onStart,
   connecting,
   resume,
 }: {
-  onStart: (name: string) => void;
+  onStart: (name: string, voice?: string) => void;
   connecting: boolean;
   resume: ResumeState | null;
 }) {
   const deck = useDeck();
   const [name, setName] = useState('');
+  /** Null until the picker has loaded and preselected the default. */
+  const [voice, setVoice] = useState<string | null>(null);
+  const start = () => onStart(name, voice ?? undefined);
   const [health, setHealth] = useState<HealthState | null>(null);
 
   // Checked before the trainee is asked for their microphone. On a fresh
@@ -87,11 +94,13 @@ function Lobby({
         value={name}
         onChange={(event) => setName(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && !connecting) onStart(name);
+          if (event.key === 'Enter' && !connecting) start();
         }}
         placeholder="So the trainer can address you"
         className="bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal mt-2 w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset"
       />
+
+      <VoicePicker value={voice} onChange={setVoice} disabled={connecting} />
 
       {blocked && (
         <div
@@ -109,7 +118,7 @@ function Lobby({
 
       <button
         type="button"
-        onClick={() => onStart(name)}
+        onClick={start}
         disabled={connecting || blocked}
         className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 w-full rounded-md px-6 py-3 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
       >
@@ -235,7 +244,7 @@ export function SessionScreen({
         <main className="flex-1">
           <Lobby
             connecting={session.phase === 'connecting'}
-            onStart={(name) => void session.startSession(name)}
+            onStart={(name, voice) => void session.startSession(name, voice)}
             resume={resume}
           />
         </main>
