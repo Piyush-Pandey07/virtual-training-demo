@@ -21,8 +21,10 @@ import type { DeckRecord, DeckSlide } from '@/lib/deck-types';
 import { DEFAULT_DECK_ID, loadDeck } from '@/lib/decks/registry';
 import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
 import { bestSlideForQuestion } from '@/lib/knowledge';
+import { sessionLanguage } from '@/lib/language';
 import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
+import { speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
 import { mayStartSession } from '@/lib/usage/limits';
@@ -116,6 +118,11 @@ export async function POST(request: Request) {
   const traineeName =
     typeof body.traineeName === 'string' ? body.traineeName.trim().slice(0, 80) : undefined;
 
+  // Anything but Hindi is English, which is what every session was before there was a
+  // choice. The voice matters only to Hindi, whose verbs agree with whoever is speaking.
+  const language = sessionLanguage(body.language);
+  const speaksAs = language === 'hi' ? speaksAsFor(body.voice) : undefined;
+
   const coveredSlideIds = Array.isArray(body.coveredSlideIds)
     ? [...new Set(body.coveredSlideIds.map((id) => clampSlideId(deck, Number(id))))].sort(
         (a, b) => a - b,
@@ -208,6 +215,7 @@ export async function POST(request: Request) {
             question: turnKind === 'answer' ? question : undefined,
             coveredSlideIds,
             learner,
+            language,
           }),
         },
       ],
@@ -241,7 +249,7 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(deck, traineeName),
+        systemInstruction: buildSystemInstruction(deck, traineeName, { language, speaksAs }),
         /**
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.
@@ -322,6 +330,9 @@ export async function POST(request: Request) {
           geminiInputTokens: inputTokens,
           geminiOutputTokens: outputTokens,
           ttsCharacters: finalText.length,
+          // Counted again on its own line, because Sarvam bills it, from a prepaid
+          // credit, and the question of how much of that a session uses needs an answer.
+          hindiCharacters: language === 'hi' ? finalText.length : 0,
         });
         if (!finalText) {
           send({

@@ -25,6 +25,8 @@ export interface CustomerRow {
   usage: {
     sessions: number;
     ttsCharacters: number;
+    /** Of those, spoken in Hindi, which Sarvam bills separately. */
+    hindiCharacters: number;
     sttSeconds: number;
     geminiTokens: number;
   };
@@ -207,6 +209,8 @@ export function CustomerList({ customers, viewing, home }: CustomerListProps) {
                   </span>
                   {' · '}
                   {compact(customer.usage.ttsCharacters)} spoken
+                  {customer.usage.hindiCharacters > 0 &&
+                    ` (${compact(customer.usage.hindiCharacters)} in Hindi)`}
                   {' · '}
                   {minutes(customer.usage.sttSeconds)} heard
                   {' · '}

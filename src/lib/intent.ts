@@ -92,6 +92,79 @@ const REPEAT_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * The same requests in Hindi.
+ *
+ * A Hindi session listens in Deepgram's code-switching mode, so the trainee's Hindi
+ * arrives in Devanagari and any English in it, "next slide" included, in English
+ * letters, where the patterns above already catch it. These catch the Hindi. Without
+ * them "अगली स्लाइड पर चलिए" was answered as a question, which is the stalled session
+ * described at the top of this file, in a second language.
+ *
+ * Built through `hindi()` because JavaScript's \b knows only ASCII letters: beside
+ * Devanagari it never matches, so word edges are marked by hand, with vowel signs
+ * counted as part of the word they belong to. And normalised, because a letter with a
+ * nukta, as in बढ़, can arrive as one code point or as two.
+ */
+function hindi(body: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{M}])(?:${body.normalize('NFC')})(?![\\p{L}\\p{M}])`, 'u');
+}
+
+/** The rest of an inflected word: बढ़िए, बढ़ो, बढ़ें and बढ़ते are all बढ़ going on. */
+const INFLECTED = '[\\p{L}\\p{M}]*';
+
+const HINDI_LEADING_FILLER = new RegExp(
+  '^(?:(?:हाँ|हां|जी|ठीक है|अच्छा|ओके|चलो|तो|अब)[\\s,।.!]+)+'.normalize('NFC'),
+  'u',
+);
+
+const HINDI_ADVANCE: RegExp[] = [
+  // अगली स्लाइड, अगला topic, अगले slide पर.
+  hindi('अगल[ीाे] (?:स्लाइड|slide|टॉपिक|topic|पेज|page|हिस्स[ाे]|भाग|पॉइंट|point)'),
+  // आगे बढ़िए, आगे चलिए, आगे बढ़ते हैं.
+  hindi(`आगे (?:बढ़|चल)${INFLECTED}`),
+  hindi(`जारी रख${INFLECTED}`),
+  // Nothing to ask, which is a request to move on here as in English.
+  hindi('कोई (?:सवाल|प्रश्न|question|doubt|डाउट) नहीं'),
+  hindi('समझ (?:गया|गई|गयी|गए|आ गया|आ गई|आ गयी)'),
+];
+
+const HINDI_BACK: RegExp[] = [
+  hindi('पिछल[ीाे] (?:स्लाइड|slide|टॉपिक|topic|पेज|page)'),
+  // पीछे जाइए, पीछे चलिए. Not पीछे on its own: "इसके पीछे क्या logic है" asks why.
+  hindi(`पीछे (?:जा|चल|ले)${INFLECTED}`),
+];
+
+/**
+ * "Say that again", anchored to the whole utterance.
+ *
+ * As narrow as the English. "UPS को फिर से समझाइए" names a subject, so it belongs on the
+ * question path where the trainer can go to that slide; only the bare request, with
+ * nothing named, repeats the slide on screen.
+ */
+const HINDI_REPEAT = new RegExp(
+  `^(?:(?:इसे|इसको|यह|ये|वो|वह|उसे|उसको)\\s+)?(?:फिर\\s+से|दोबारा|दुबारा|एक\\s+बार\\s+(?:और|फिर)(?:\\s+से)?)\\s+(?:बता|बोल|समझा|कह|सुना)${INFLECTED}(?:\\s+(?:दीजिए|दीजिये|दो|दें|देंगे|देंगी|सकते|सकती|हैं|है))*[\\s.।!]*$`.normalize(
+    'NFC',
+  ),
+  'u',
+);
+
+/** A request to hold on, or not to move yet, which must not be read as moving on. */
+const HINDI_NEGATED_ADVANCE: RegExp[] = [
+  hindi(`(?:मत|नहीं|ना|न) (?:बढ़|चल|जा)${INFLECTED}`),
+  hindi(`(?:बढ़|चल)${INFLECTED} (?:मत|नहीं|से पहले)`),
+  hindi(`रुक${INFLECTED}`),
+  hindi('अभी नहीं'),
+];
+
+const HINDI_QUESTION_MARKERS = hindi(
+  'क्या|क्यों|क्यूँ|कैसे|कैसा|कैसी|कौन|किस|कब|कहाँ|कहां|कितन[ाेी]|बताइए|बताइये|बताओ|बताएँ|बताएं|समझाइए|समझाइये|समझाओ|मतलब|उदाहरण|फ़र्क|फर्क|अंतर',
+);
+
+const ADVANCE = [...ADVANCE_PATTERNS, ...HINDI_ADVANCE];
+const BACK = [...BACK_PATTERNS, ...HINDI_BACK];
+const NEGATED = [NEGATED_ADVANCE, ...HINDI_NEGATED_ADVANCE];
+
+/**
  * Beyond this many words an utterance is treated as substantive, whatever it
  * matches. Someone saying a lot is not nudging you along.
  */
@@ -135,35 +208,41 @@ function foldApostrophes(text: string): string {
  * question for a nudge silently drops what the trainee wanted to know.
  */
 export function classifyUtterance(raw: string): Utterance {
-  const text = foldApostrophes(raw.trim());
+  // Normalised so Hindi matches whichever way its letters were encoded. English is
+  // unchanged by it.
+  const text = foldApostrophes(raw.trim()).normalize('NFC');
   if (!text) return 'question';
 
   // A question mark settles it, whatever else is in there.
   if (text.includes('?')) return 'question';
 
-  const stripped = text.replace(LEADING_FILLER, '').trim() || text;
+  const stripped =
+    text.replace(LEADING_FILLER, '').replace(HINDI_LEADING_FILLER, '').trim() || text;
   const forms = stripped === text ? [text] : [stripped, text];
   const wordCount = stripped.split(/\s+/).length;
 
   // Checked before the word limit, since a politely phrased "would you mind
   // saying that again" runs long while carrying no new subject.
-  if (matchesAny(forms, REPEAT_PATTERNS)) return 'repeat';
+  if (matchesAny(forms, REPEAT_PATTERNS) || HINDI_REPEAT.test(stripped)) return 'repeat';
 
   // Past this length an utterance is substantive whatever it matches.
   if (wordCount > MAX_CONTROL_WORDS) return 'question';
 
   // A short utterance that still asks something is a question, not a nudge.
-  if (QUESTION_MARKERS.test(stripped) && !matchesAny(forms, ADVANCE_PATTERNS)) {
+  if (
+    (QUESTION_MARKERS.test(stripped) || HINDI_QUESTION_MARKERS.test(stripped)) &&
+    !matchesAny(forms, ADVANCE)
+  ) {
     return 'question';
   }
 
-  if (matchesAny(forms, BACK_PATTERNS)) return 'back';
+  if (matchesAny(forms, BACK)) return 'back';
 
   // Checked before advance, because the advance patterns match the un-negated
   // word and would otherwise read "I'm not ready" as a request to move on.
-  if (matchesAny(forms, [NEGATED_ADVANCE])) return 'question';
+  if (matchesAny(forms, NEGATED)) return 'question';
 
-  if (matchesAny(forms, ADVANCE_PATTERNS)) return 'advance';
+  if (matchesAny(forms, ADVANCE)) return 'advance';
 
   return 'question';
 }

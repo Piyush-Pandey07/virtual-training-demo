@@ -13,6 +13,7 @@ import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { TRAINER_NAME } from '@/lib/trainer';
+import type { SessionLanguage } from '@/lib/types';
 
 interface HealthState {
   ready: boolean;
@@ -20,23 +21,25 @@ interface HealthState {
 }
 
 /**
- * Pre-session screen. Collects an optional name and the trainer's voice, and unlocks
- * audio on the click.
+ * Pre-session screen. Collects an optional name, the session's language and the
+ * trainer's voice, and unlocks audio on the click.
  */
 function Lobby({
   onStart,
   connecting,
   resume,
 }: {
-  onStart: (name: string, voice?: string) => void;
+  onStart: (name: string, voice?: string, language?: SessionLanguage) => void;
   connecting: boolean;
   resume: ResumeState | null;
 }) {
   const deck = useDeck();
   const [name, setName] = useState('');
+  /** English until somebody chooses otherwise, which is every session before Hindi. */
+  const [language, setLanguage] = useState<SessionLanguage>('en');
   /** Null until the picker has loaded and preselected the default. */
   const [voice, setVoice] = useState<string | null>(null);
-  const start = () => onStart(name, voice ?? undefined);
+  const start = () => onStart(name, voice ?? undefined, language);
   const [health, setHealth] = useState<HealthState | null>(null);
 
   // Checked before the trainee is asked for their microphone. On a fresh
@@ -100,7 +103,13 @@ function Lobby({
         className="bg-charcoal-soft text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal mt-2 w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset"
       />
 
-      <VoicePicker value={voice} onChange={setVoice} disabled={connecting} />
+      <VoicePicker
+        language={language}
+        onLanguageChange={setLanguage}
+        value={voice}
+        onChange={setVoice}
+        disabled={connecting}
+      />
 
       {blocked && (
         <div
@@ -244,7 +253,7 @@ export function SessionScreen({
         <main className="flex-1">
           <Lobby
             connecting={session.phase === 'connecting'}
-            onStart={(name, voice) => void session.startSession(name, voice)}
+            onStart={(name, voice, language) => void session.startSession(name, voice, language)}
             resume={resume}
           />
         </main>

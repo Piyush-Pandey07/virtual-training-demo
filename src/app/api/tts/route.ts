@@ -8,11 +8,12 @@
  * playback starts sooner and a barge-in can cut it off cleanly mid-sentence.
  *
  * `voice` is optional. Without it this speaks in the deployment's default, exactly as
- * it did before there was a choice. A voice that is named but not offered is refused.
+ * it did before there was a choice. A voice that is named but not offered is refused,
+ * and so is Hindi sent to an English voice, which would otherwise play as nonsense.
  */
 
 import { checkUser } from '@/lib/auth/guard';
-import { voiceModelFor } from '@/lib/voice/catalogue';
+import { canSpeak, voiceFor } from '@/lib/voice/catalogue';
 import { audioHeaders, synthesise, synthesisFailure } from '@/lib/voice/synthesise';
 
 export const runtime = 'nodejs';
@@ -25,11 +26,11 @@ export async function POST(request: Request) {
   if (!gate.ok) return gate.response;
 
   let text: string;
-  let voice: unknown;
+  let requested: unknown;
   try {
     const body = (await request.json()) as { text?: unknown; voice?: unknown };
     text = typeof body.text === 'string' ? body.text.trim() : '';
-    voice = body.voice;
+    requested = body.voice;
   } catch {
     return Response.json(
       { error: 'Request body must be JSON with a text field.' },
@@ -41,12 +42,24 @@ export async function POST(request: Request) {
     return Response.json({ error: 'text is required.' }, { status: 400 });
   }
 
-  const model = voiceModelFor(voice);
-  if (!model) {
-    return Response.json({ error: 'That voice is not one this deployment offers.' }, { status: 400 });
+  const voice = voiceFor(requested);
+  if (!voice) {
+    return Response.json(
+      { error: 'That voice is not one this deployment offers.' },
+      { status: 400 },
+    );
+  }
+  if (!canSpeak(voice, text)) {
+    return Response.json(
+      {
+        error:
+          'That voice speaks English only. Choose Hindi on the start screen for a Hindi session.',
+      },
+      { status: 400 },
+    );
   }
 
-  const result = await synthesise(text, model, request.signal);
+  const result = await synthesise(text, voice, request.signal);
   if (!result.ok) return synthesisFailure(result);
 
   return new Response(result.audio, { headers: audioHeaders() });

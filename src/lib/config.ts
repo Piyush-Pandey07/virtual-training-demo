@@ -86,6 +86,20 @@ export const DEEPGRAM_STT_MODEL = () => envOr('DEEPGRAM_STT_MODEL', 'nova-3');
 export const DEEPGRAM_TTS_MODEL = () => envOr('DEEPGRAM_TTS_MODEL', 'aura-2-thalia-en');
 
 /**
+ * Hindi, spoken by Sarvam's Bulbul.
+ *
+ * Deepgram has no Hindi voice, and handed Devanagari it answers with audio of the
+ * letters read as English rather than an error. Sarvam speaks Hindi natively and reads
+ * English terms inside it in English, which is how a data centre trainer here talks.
+ *
+ * Offered only where the key is set, so a deployment without one simply has no Hindi
+ * option rather than a Hindi option that fails on its first sentence. Removing the key
+ * switches Hindi off; English never touches Sarvam either way.
+ */
+export const SARVAM_TTS_MODEL = () => envOr('SARVAM_TTS_MODEL', 'bulbul:v3');
+export const hindiAvailable = () => Boolean(process.env.SARVAM_API_KEY?.trim());
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.

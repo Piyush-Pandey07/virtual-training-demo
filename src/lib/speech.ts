@@ -11,6 +11,42 @@
  * where text becomes audio.
  */
 
+/** Below this, a fragment is too short to be worth its own request. */
+export const MIN_CHUNK_CHARS = 60;
+
+/** Above this we cut regardless, so a long clause never stalls playback. */
+export const MAX_CHUNK_CHARS = 320;
+
+/**
+ * Where to cut streamed text into the next piece worth speaking, or -1 to wait for more.
+ *
+ * A sentence ending followed by whitespace is the safe place. The danda is how Hindi ends
+ * a sentence, and without it Hindi waited for 320 characters before making a sound, then
+ * cut wherever that landed.
+ *
+ * Past the length limit with no sentence ending, a comma will do, and failing that the
+ * last space. Never inside a word: in English that splits a word between two requests,
+ * and in Devanagari it can separate a consonant from the vowel sign that belongs to it,
+ * which the voice then reads as two different sounds.
+ */
+export function nextSpeechCut(buffer: string): number {
+  if (buffer.length < MIN_CHUNK_CHARS) return -1;
+
+  const sentenceEnd = /[.!?।॥](?=\s)/g;
+  let match: RegExpExecArray | null;
+  while ((match = sentenceEnd.exec(buffer)) !== null) {
+    if (match.index + 1 >= MIN_CHUNK_CHARS) return match.index + 1;
+  }
+
+  if (buffer.length < MAX_CHUNK_CHARS) return -1;
+
+  const comma = buffer.lastIndexOf(', ', MAX_CHUNK_CHARS);
+  if (comma > MIN_CHUNK_CHARS) return comma + 1;
+
+  const space = buffer.lastIndexOf(' ', MAX_CHUNK_CHARS);
+  return space > MIN_CHUNK_CHARS ? space : MAX_CHUNK_CHARS;
+}
+
 /**
  * Strips anything that would sound wrong when spoken.
  *

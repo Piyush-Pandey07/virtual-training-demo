@@ -19,7 +19,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CAPTURE_SAMPLE_RATE } from '@/lib/config';
-import type { DeepgramTokenResponse, MicState } from '@/lib/types';
+import { listeningLanguage } from '@/lib/language';
+import type { DeepgramTokenResponse, MicState, SessionLanguage } from '@/lib/types';
 
 import { CHUNK_MS, useMicCapture, type MicChunk } from './useMicCapture';
 
@@ -94,6 +95,8 @@ export interface UseSpeechInputResult {
   start: () => Promise<void>;
   stop: () => void;
   setMuted: (muted: boolean) => void;
+  /** What the trainee is expected to speak. Set once, before the session first starts. */
+  setLanguage: (language: SessionLanguage) => void;
 }
 
 interface DeepgramTranscriptMessage {
@@ -115,6 +118,12 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
 
   const transportRef = useRef<SttTransport | null>(null);
   const stoppingRef = useRef(false);
+
+  /** Read each time a transport opens, so Play after a pause listens the same way. */
+  const languageRef = useRef<SessionLanguage>('en');
+  const setLanguage = useCallback((language: SessionLanguage) => {
+    languageRef.current = language;
+  }, []);
 
   // Streaming transport state.
   const socketRef = useRef<WebSocket | null>(null);
@@ -171,7 +180,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     setTranscribing(true);
 
     try {
-      const response = await fetch('/api/stt', {
+      const response = await fetch(`/api/stt?language=${languageRef.current}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
         body: merged.buffer as ArrayBuffer,
@@ -353,7 +362,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       url.searchParams.set('endpointing', String(ENDPOINTING_MS));
       url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
       url.searchParams.set('vad_events', 'true');
-      url.searchParams.set('language', 'en');
+      url.searchParams.set('language', listeningLanguage(languageRef.current));
 
       const socket = new WebSocket(url, [credentials.scheme, credentials.token]);
       socket.binaryType = 'arraybuffer';
@@ -552,5 +561,6 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     start,
     stop,
     setMuted,
+    setLanguage,
   };
 }

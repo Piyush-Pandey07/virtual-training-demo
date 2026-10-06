@@ -1,36 +1,23 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { emptyUsage, monthOf, type Usage, type UsageDelta } from './types';
+import { readFileSync } from 'node:fs';
+
+import { addUsage as apply, emptyUsage, monthOf, type Usage } from './types';
 
 /**
  * Counting what a customer spends.
  *
- * The arithmetic is tested against the same accumulate step the store performs, rather
- * than through the store itself, because the store is one `update` call and everything
- * that can be got wrong is in what that call computes: which fields add, which are left
- * alone, and whether two increments arriving together both land.
- */
-
-/**
- * The accumulate step, as `record` performs it.
+ * The arithmetic is tested through `addUsage`, the accumulate step the store performs
+ * inside its transaction, because the store is one `update` call and everything that can
+ * be got wrong is in what that call computes: which fields add, which are left alone,
+ * and whether two increments arriving together both land. The transaction around it is
+ * Firestore's job and is not this test's to prove.
  *
- * Written out here rather than imported because `store.ts` is `server-only` and pulls
- * in Firestore. Keeping the arithmetic honest is the point; the transaction around it
- * is Firestore's job and is not this test's to prove.
+ * This used to test a copy of the step written out here, because the store is
+ * `server-only`. A copy can agree with itself while the real one drifts, so the step now
+ * lives beside the types, and the store is checked to use it.
  */
-function apply(current: Usage, delta: UsageDelta, now: string): Usage {
-  return {
-    ...current,
-    ttsCharacters: current.ttsCharacters + (delta.ttsCharacters ?? 0),
-    sttSeconds: current.sttSeconds + (delta.sttSeconds ?? 0),
-    geminiInputTokens: current.geminiInputTokens + (delta.geminiInputTokens ?? 0),
-    geminiOutputTokens: current.geminiOutputTokens + (delta.geminiOutputTokens ?? 0),
-    sessions: current.sessions + (delta.sessions ?? 0),
-    decksAnalysed: current.decksAnalysed + (delta.decksAnalysed ?? 0),
-    updatedAt: now,
-  };
-}
 
 const NOW = '2026-09-01T10:00:00.000Z';
 const start = () => emptyUsage('acme', '2026-09', NOW);
@@ -81,6 +68,27 @@ describe('adding to a month', () => {
   it('adds nothing for an empty delta', () => {
     const after = apply(start(), {}, NOW);
     assert.deepEqual({ ...after, updatedAt: NOW }, start());
+  });
+
+  it('counts Hindi on its own line as well as in the total', () => {
+    const after = apply(start(), { ttsCharacters: 900, hindiCharacters: 900 }, NOW);
+    assert.equal(after.ttsCharacters, 900);
+    assert.equal(after.hindiCharacters, 900);
+  });
+
+  it('starts Hindi from zero on a month recorded before Hindi existed', () => {
+    // Those documents have no such field. Adding to undefined gives NaN, which would
+    // then be stored, and every later addition would stay NaN for the rest of the month.
+    const old: Usage = { ...start(), ttsCharacters: 5000 };
+    delete old.hindiCharacters;
+    const after = apply(old, { ttsCharacters: 300, hindiCharacters: 300 }, NOW);
+    assert.equal(after.hindiCharacters, 300);
+    assert.equal(after.ttsCharacters, 5300);
+  });
+
+  it('is the step the store really performs, not a copy of it', () => {
+    const store = readFileSync('src/lib/usage/store.ts', 'utf8');
+    assert.match(store, /addUsage\(current \?\? emptyUsage\(orgId, month, now\), delta, now\)/);
   });
 });
 

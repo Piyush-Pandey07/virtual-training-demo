@@ -17,16 +17,31 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
 import { pcmToFloat } from '@/lib/pcm';
-import { sanitiseForSpeech } from '@/lib/speech';
-
-/** Below this, a fragment is too short to be worth its own request. */
-const MIN_CHUNK_CHARS = 60;
-
-/** Above this we flush regardless, so a long clause never stalls playback. */
-const MAX_CHUNK_CHARS = 320;
+import { nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
+import type { SessionLanguage } from '@/lib/types';
 
 /** Small lead time so the first buffer is queued before the clock reaches it. */
 const SCHEDULE_LEAD_SECONDS = 0.08;
+
+/**
+ * How far ahead of the listener Hindi is synthesised, in seconds of audio.
+ *
+ * English is synthesised as fast as the text arrives, as it always was. Hindi is held
+ * back until what is already queued runs this low, for two reasons that both come from
+ * Sarvam's account rather than from the audio:
+ *
+ * Sarvam bills every character it speaks, heard or not, from a small prepaid credit.
+ * Synthesising a whole slide up front meant that a trainee pressing Next ten seconds in
+ * paid for the other eighty seconds of narration all the same. Held to this margin, an
+ * interruption wastes at most the sentence playing and the one after it.
+ *
+ * And its starter plan allows thirty requests a minute. Paced by playback, a session
+ * makes a handful.
+ *
+ * Six seconds is comfortably more than Sarvam takes to answer for one sentence, so the
+ * pacing is never heard as a gap.
+ */
+const HINDI_LOOKAHEAD_SECONDS = 6;
 
 export interface UseTtsPlayerResult {
   /** True from the first scheduled buffer until the last one finishes. */
@@ -67,6 +82,8 @@ export interface UseTtsPlayerResult {
    * Undefined speaks in the deployment's default.
    */
   setVoice: (voice: string | undefined) => void;
+  /** The language being spoken, which decides how far ahead speech is synthesised. */
+  setLanguage: (language: SessionLanguage) => void;
 }
 
 interface Options {
@@ -106,6 +123,12 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const voiceRef = useRef<string | undefined>(undefined);
   const setVoice = useCallback((voice: string | undefined) => {
     voiceRef.current = voice;
+  }, []);
+
+  /** Set with the voice, once, as the session starts. */
+  const languageRef = useRef<SessionLanguage>('en');
+  const setLanguage = useCallback((language: SessionLanguage) => {
+    languageRef.current = language;
   }, []);
 
   const contextRef = useRef<AudioContext | null>(null);
@@ -245,10 +268,34 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     waiters.forEach((resolve) => resolve());
   }, []);
 
+  /**
+   * Waits until the audio already queued has run down to the lookahead.
+   *
+   * Polls rather than computing one delay, because the clock it reads stops while the
+   * session is paused and starts again on Play, and because an interruption has to end
+   * the wait as promptly as it ends everything else.
+   */
+  const waitForRoom = useCallback(async (generation: number) => {
+    for (;;) {
+      if (generation !== generationRef.current) return;
+      const context = contextRef.current;
+      const ahead = context ? playheadRef.current - context.currentTime : 0;
+      if (ahead <= HINDI_LOOKAHEAD_SECONDS) return;
+      const ms = Math.min(1000, (ahead - HINDI_LOOKAHEAD_SECONDS) * 1000 + 50);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    }
+  }, []);
+
   /** Fetches audio for one fragment and schedules it on the timeline. */
   const speakChunk = useCallback(
     async (text: string, generation: number) => {
       if (generation !== generationRef.current) return;
+
+      // Hindi only, and see HINDI_LOOKAHEAD_SECONDS for why. English goes straight on.
+      if (languageRef.current === 'hi') {
+        await waitForRoom(generation);
+        if (generation !== generationRef.current) return;
+      }
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -314,7 +361,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         settleIfIdle();
       };
     },
-    [ensureAudible, getContext, settleIfIdle],
+    [ensureAudible, getContext, settleIfIdle, waitForRoom],
   );
 
   const enqueue = useCallback(
@@ -355,26 +402,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const drain = useCallback(() => {
     for (;;) {
       const buffer = bufferRef.current;
-      if (buffer.length < MIN_CHUNK_CHARS) return;
-
-      // A sentence ending followed by whitespace is a safe split point.
-      const sentenceEnd = /[.!?](?=\s)/g;
-      let cut = -1;
-      let match: RegExpExecArray | null;
-      while ((match = sentenceEnd.exec(buffer)) !== null) {
-        if (match.index + 1 >= MIN_CHUNK_CHARS) {
-          cut = match.index + 1;
-          break;
-        }
-      }
-
-      // Nothing to split on yet, but the fragment is long enough that waiting
-      // would be audible. Break at the last comma instead.
-      if (cut === -1 && buffer.length >= MAX_CHUNK_CHARS) {
-        const comma = buffer.lastIndexOf(', ', MAX_CHUNK_CHARS);
-        cut = comma > MIN_CHUNK_CHARS ? comma + 1 : MAX_CHUNK_CHARS;
-      }
-
+      const cut = nextSpeechCut(buffer);
       if (cut === -1) return;
 
       enqueue(buffer.slice(0, cut));
@@ -440,5 +468,6 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     pause,
     resume,
     setVoice,
+    setLanguage,
   };
 }

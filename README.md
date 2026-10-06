@@ -101,6 +101,13 @@ You need two keys:
   key is enough to run the demo. Give it **Member** permissions if you want the better of the two
   speech to text transports; see [Speech to text transports](#speech-to-text-transports) below.
 
+One more is optional:
+
+- **`SARVAM_API_KEY`** from the [Sarvam dashboard](https://dashboard.sarvam.ai). With it set, the start
+  screen offers Hindi beside English, spoken by Sarvam's Bulbul voices. Without it, sessions are
+  English only. English never uses Sarvam, because Deepgram has no Hindi voice and reads Devanagari
+  with English phonetics rather than refusing it.
+
 Then:
 
 ```bash
@@ -121,6 +128,7 @@ Open http://localhost:3000.
 | `DEEPGRAM_STT_MODEL`         | `nova-3`           | Live transcription model.                                                              |
 | `DEEPGRAM_TTS_MODEL`         | `aura-2-thalia-en` | Any Aura voice. See the [voice list](https://developers.deepgram.com/docs/tts-models). |
 | `DEEPGRAM_TOKEN_TTL_SECONDS` | `300`              | Lifetime of the browser token. Only needs to outlive the initial handshake.            |
+| `SARVAM_TTS_MODEL`           | `bulbul:v3`        | Hindi voice model. Only read when `SARVAM_API_KEY` is set.                             |
 
 ---
 
@@ -136,6 +144,9 @@ Development:
 | ------------------ | ------------------------- |
 | `GEMINI_API_KEY`   | Your Google AI Studio key |
 | `DEEPGRAM_API_KEY` | Your Deepgram key         |
+
+Add `SARVAM_API_KEY` as well to offer Hindi. A change to it takes effect on the next deployment, and
+`/api/health` reports `hindiTextToSpeech` once it has.
 
 Every other setting has a default in `src/lib/config.ts`, which is deliberate: one source of truth
 beats a dashboard that quietly disagrees with the code.
@@ -455,7 +466,7 @@ src/
     page.tsx         Landing page and session outline
     session/         The training room
     api/chat/        Gemini turn, streamed as server sent events
-    api/tts/         Deepgram Aura proxy
+    api/tts/         Speech: Deepgram Aura for English, Sarvam Bulbul for Hindi
     api/stt/         Deepgram batch transcription, fallback transport
     api/deepgram/    Short-lived browser token
   components/        Slide stage, trainer panel, transcript, controls
@@ -567,7 +578,12 @@ classification topic.
 
 ## Known limits
 
-- Speech to text is English only, set by the `language=en` parameter on the transcription socket.
+- Speech to text listens for English (`language=en`) in an English session, and for Hindi mixed with
+  English (`language=multi`, Nova-3's code-switching mode) in a Hindi one. No other language is
+  offered.
+- Hindi is spoken by Sarvam, which bills every character it speaks from a prepaid credit. The player
+  asks for Hindi only about six seconds before it is heard, so skipping ahead wastes little, and the
+  platform screen counts Hindi characters on their own line.
 - Barge-in behaviour differs by transport. On `stream` it needs two or more transcribed words, so a
   single word interjection such as "wait" will not stop the trainer. On `batch` it fires on sustained
   energy, which is faster but will also trigger on a loud noise. The onset threshold is now derived

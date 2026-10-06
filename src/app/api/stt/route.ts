@@ -12,6 +12,7 @@
  */
 
 import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/config';
+import { listeningLanguage, sessionLanguage } from '@/lib/language';
 
 import { checkUser } from '@/lib/auth/guard';
 import { recordQuietly } from '@/lib/usage/store';
@@ -76,7 +77,10 @@ export async function POST(request: Request) {
   url.searchParams.set('model', DEEPGRAM_STT_MODEL());
   url.searchParams.set('smart_format', 'true');
   url.searchParams.set('punctuate', 'true');
-  url.searchParams.set('language', 'en');
+  // The session's language, from the browser and so narrowed: anything but Hindi is
+  // English, which is what this route always listened for.
+  const language = sessionLanguage(new URL(request.url).searchParams.get('language'));
+  url.searchParams.set('language', listeningLanguage(language));
   // Raw audio, so Deepgram needs to be told the format explicitly.
   url.searchParams.set('encoding', 'linear16');
   url.searchParams.set('sample_rate', String(CAPTURE_SAMPLE_RATE));

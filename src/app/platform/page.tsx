@@ -64,6 +64,7 @@ export default async function PlatformPage() {
             usage: {
               sessions: usage?.sessions ?? 0,
               ttsCharacters: usage?.ttsCharacters ?? 0,
+              hindiCharacters: usage?.hindiCharacters ?? 0,
               sttSeconds: usage?.sttSeconds ?? 0,
               geminiTokens: (usage?.geminiInputTokens ?? 0) + (usage?.geminiOutputTokens ?? 0),
             },

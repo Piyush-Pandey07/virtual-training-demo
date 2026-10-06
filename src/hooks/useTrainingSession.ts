@@ -25,6 +25,7 @@ import type {
   ChatEvent,
   HistoryTurn,
   LearnerProfile,
+  SessionLanguage,
   SessionPhase,
   TranscriptEntry,
   TurnKind,
@@ -99,13 +100,15 @@ export interface UseTrainingSessionResult {
   resumeSession: () => Promise<void>;
 
   /**
-   * Starts the session in the chosen voice, which is then fixed for the rest of it.
+   * Starts the session in the chosen voice and language, both then fixed for the rest
+   * of it.
    *
    * There is deliberately no way to change the voice once started. Switching mid-session
    * would mean regenerating what is queued in the new voice, adding a pause where the
-   * trainer goes quiet, which is the reason the to-do gave for ruling it out.
+   * trainer goes quiet, which is the reason the to-do gave for ruling it out. The
+   * language goes with the voice, since each voice speaks only one.
    */
-  startSession: (traineeName?: string, voice?: string) => Promise<void>;
+  startSession: (traineeName?: string, voice?: string, language?: SessionLanguage) => Promise<void>;
   /** Stops the session. Every slide already taught is kept. */
   endSession: () => void;
   nextSlide: () => void;
@@ -172,6 +175,13 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   const phaseRef = useRef<SessionPhase>('idle');
   /** Read by callbacks that must not act while the session is held. */
   const pausedRef = useRef(false);
+  /**
+   * What the trainer speaks in, and in which voice, sent with every turn. Set as the
+   * session starts and never again: the chat route needs both because Hindi verbs agree
+   * with the speaker, so the words have to be written for the voice that will say them.
+   */
+  const languageRef = useRef<SessionLanguage>('en');
+  const chosenVoiceRef = useRef<string | undefined>(undefined);
   const turnAbortRef = useRef<AbortController | null>(null);
   /** Set while a turn is being generated, so overlapping requests are dropped. */
   const busyRef = useRef(false);
@@ -326,6 +336,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
             traineeName: traineeNameRef.current,
             coveredSlideIds: coveredRef.current,
             learner: learnerRef.current,
+            language: languageRef.current,
+            voice: chosenVoiceRef.current,
           }),
           signal: controller.signal,
         });
@@ -560,13 +572,19 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   }, []);
 
   const startSession = useCallback(
-    async (name?: string, voice?: string) => {
+    async (name?: string, voice?: string, language: SessionLanguage = 'en') => {
       setError(null);
       setPhase('connecting');
       // The one place the voice is set. Fixed from here: nothing in this hook exposes a
       // way to change it, and the picker lives only on the lobby, which is gone once
-      // the session is up.
+      // the session is up. The language is set beside it, for the same reasons, in each
+      // of the three places that need it: what the trainer writes, how far ahead it is
+      // spoken, and what the microphone listens for.
       ttsRef.current.setVoice(voice);
+      ttsRef.current.setLanguage(language);
+      sttRef.current.setLanguage(language);
+      languageRef.current = language;
+      chosenVoiceRef.current = voice;
       const trimmed = name?.trim();
       setTraineeName(trimmed || undefined);
       traineeNameRef.current = trimmed || undefined;

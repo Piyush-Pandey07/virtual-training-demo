@@ -19,6 +19,8 @@ import {
   DEEPGRAM_TTS_MODEL,
   GEMINI_ANSWER_MODEL,
   GEMINI_MODEL,
+  SARVAM_TTS_MODEL,
+  hindiAvailable,
 } from '@/lib/config';
 import { platformAdminEmails } from '@/lib/auth/roles';
 import { assetStorage, deckStorage } from '@/lib/decks/registry';
@@ -57,6 +59,14 @@ export interface HealthResponse {
     answering: string;
     speechToText: string;
     textToSpeech: string;
+    /**
+     * The voice model Hindi is spoken with, or null where Hindi is not offered.
+     *
+     * Hindi appears only once SARVAM_API_KEY is set, and an unset key looks from the
+     * outside exactly like a deployment that never meant to offer it. This says which,
+     * without saying anything about the key.
+     */
+    hindiTextToSpeech: string | null;
   };
   /**
    * Which deck store is in use.
@@ -150,6 +160,7 @@ export async function GET() {
       answering: GEMINI_ANSWER_MODEL(),
       speechToText: DEEPGRAM_STT_MODEL(),
       textToSpeech: DEEPGRAM_TTS_MODEL(),
+      hindiTextToSpeech: hindiAvailable() ? `sarvam ${SARVAM_TTS_MODEL()}` : null,
     },
     decks: {
       store: store.kind,

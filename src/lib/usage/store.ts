@@ -4,7 +4,7 @@ import { firestoreDocuments } from '../firebase/firestore';
 import { orgsConfigured } from '../orgs/registry';
 import { scopedDocuments } from '../orgs/scope';
 import { InMemoryDocumentStore, type DocumentStore } from '../roster/documents';
-import { emptyUsage, monthOf, type Usage, type UsageDelta } from './types';
+import { addUsage, emptyUsage, monthOf, type Usage, type UsageDelta } from './types';
 
 /**
  * What each customer has spent, counted as it is spent.
@@ -45,19 +45,9 @@ export async function record(orgId: string, delta: UsageDelta, when = new Date()
   const month = monthOf(when);
   const now = when.toISOString();
 
-  await documents(orgId).update<Usage>(USAGE, month, (current) => {
-    const base = current ?? emptyUsage(orgId, month, now);
-    return {
-      ...base,
-      ttsCharacters: base.ttsCharacters + (delta.ttsCharacters ?? 0),
-      sttSeconds: base.sttSeconds + (delta.sttSeconds ?? 0),
-      geminiInputTokens: base.geminiInputTokens + (delta.geminiInputTokens ?? 0),
-      geminiOutputTokens: base.geminiOutputTokens + (delta.geminiOutputTokens ?? 0),
-      sessions: base.sessions + (delta.sessions ?? 0),
-      decksAnalysed: base.decksAnalysed + (delta.decksAnalysed ?? 0),
-      updatedAt: now,
-    };
-  });
+  await documents(orgId).update<Usage>(USAGE, month, (current) =>
+    addUsage(current ?? emptyUsage(orgId, month, now), delta, now),
+  );
 }
 
 /**

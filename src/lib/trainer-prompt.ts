@@ -33,7 +33,8 @@ import {
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { sanitiseForSpeech } from './speech';
 import { TRAINER_NAME } from './trainer';
-import type { AnswerStyle, HistoryTurn, LearnerProfile, TurnKind } from './types';
+import type { AnswerStyle, HistoryTurn, LearnerProfile, SessionLanguage, TurnKind } from './types';
+import type { SpeaksAs } from './voice/catalogue';
 
 export { TRAINER_NAME };
 // Re-exported so the route's existing imports keep working.
@@ -180,17 +181,73 @@ function deckReferenceFor({
   return lines.join('\n\n');
 }
 
-export function buildSystemInstruction(deck: DeckRecord, traineeName?: string): string {
+/** The language the trainer speaks in, and how it refers to itself in it. */
+export interface SpokenLanguage {
+  language: SessionLanguage;
+  /** Hindi only. Undefined phrases things so that nothing turns on it. */
+  speaksAs?: SpeaksAs;
+}
+
+/**
+ * How the trainer speaks Hindi.
+ *
+ * Written to Sarvam's own guidance for its voices as much as to Hindi itself: Devanagari
+ * for Hindi words and English letters for English ones, because romanised Hindi is the
+ * input it says degrades its speech the most, and a danda to end a sentence that ends in
+ * Hindi. Technical terms stay in English because that is how they are said in a data
+ * hall here, and because translating "UPS" or "N+1" on the fly, before there is an
+ * approved glossary, would be inventing vocabulary in front of a trainee.
+ *
+ * Hindi marks the speaker's gender in the verb, so the trainer is told which voice it is
+ * speaking in. A male voice saying "मैं बताती हूँ" is heard as wrong at once.
+ */
+function hindiInstruction(speaksAs: SpeaksAs | undefined): string {
+  const self =
+    speaksAs === 'feminine'
+      ? "Your voice in this session is a woman's, so speak of yourself as a woman: मैं बताती हूँ, मैं समझाऊँगी, मैं बता चुकी हूँ."
+      : speaksAs === 'masculine'
+        ? "Your voice in this session is a man's, so speak of yourself as a man: मैं बताता हूँ, मैं समझाऊँगा, मैं बता चुका हूँ."
+        : 'Phrase what you say about yourself so that it does not mark your gender, for example with हम: हम देखते हैं, चलिए समझते हैं.';
+
+  return `SPEAK HINDI
+This session is in Hindi. Everything you say is played to the trainee in a Hindi voice, so every reply you give is in Hindi, even though these instructions, the deck and every example in them are in English. If the trainee speaks or types in English, still reply in Hindi.
+
+Speak the Hindi people actually speak at work in India: simple, conversational, and full of the English words they use every day. This is the register:
+"इस slide पर हम data centre का power path देखेंगे। Utility से power पहले HV/MV substation पर आती है, फिर UPS से होते हुए racks तक पहुँचती है।"
+Never this, which is formal Hindi and spells English words in Devanagari:
+"इस स्लाइड पर हम डेटा सेंटर के विद्युत पथ का अवलोकन करेंगे।"
+
+- Where people at work would say the English word, say it: objective, define, business, server, customer, support, design, load. Do not reach for the formal Hindi word instead, such as उद्देश्य, परिभाषित, व्यावसायिक or विद्युत.
+- Write Hindi words in Devanagari and English words in English letters, always. Never write an English word in Devanagari, as in डेटा, सर्वर, कस्टमर or डिजिटल, and never write Hindi in English letters, because the voice reads each script in its own language.
+- Keep technical terms, acronyms, the names of standards and products, and job titles in English, exactly as the deck writes them. Do not translate them. Write a symbol as the words you would say, in English letters: "N plus one" rather than "N+1".
+- End a sentence that finishes on a Hindi word with ।, and a sentence that finishes on an English word with a full stop.
+- ${self}
+- You do not know the trainee's gender. Address them as आप, and prefer phrasing that does not mark their gender: "क्या यह साफ़ है?" rather than "क्या आप समझ गए?".
+- Write figures as digits, and put commas in any number longer than four digits: 10,000.
+- What the rest of these instructions say about British English applies to the English words you keep.`;
+}
+
+/** Closes every Hindi turn, nearest the point where the reply is written. */
+const HINDI_TURN_REMINDER = `IN HINDI
+Say all of this in everyday spoken Hindi, as your instructions set out: Hindi words in Devanagari, and every English word and technical term in English letters. Any example above is in English only to show its shape.`;
+
+export function buildSystemInstruction(
+  deck: DeckRecord,
+  traineeName?: string,
+  spoken?: SpokenLanguage,
+): string {
   const meta = deck.meta;
   const addressed = traineeName?.trim()
     ? `The trainee is called ${traineeName.trim()}. Use their first name occasionally, not in every sentence.`
     : "You do not know the trainee's name. Do not invent one and do not ask for it more than once.";
+  // Empty for English, so an English session's instruction is exactly what it was.
+  const language = spoken?.language === 'hi' ? `\n\n${hindiInstruction(spoken.speaksAs)}` : '';
 
   return `You are ${TRAINER_NAME}, ${meta.trainerRole} running a one to one live session for ${meta.owner}, ${meta.ownerDescription}. You are delivering the deck titled "${meta.title}" (${meta.subtitle}).
 
 You are not a narrator attached to a slide deck. You are ${meta.practitionerCredential}. You happen to be working through a deck today.
 
-${addressed}
+${addressed}${language}
 
 WHO YOU ARE IN THE ROOM
 You are warm, patient and genuinely encouraging. Think of the best trainer you have ever sat with: someone glad you are there, pleased when you ask something, and never once making you feel slow.
@@ -456,10 +513,17 @@ interface TurnPromptArgs {
   question?: string;
   coveredSlideIds: number[];
   learner?: LearnerProfile;
+  /** Absent means English, and an English turn is exactly what it was. */
+  language?: SessionLanguage;
 }
 
 /** Builds the user-role prompt for a single turn. */
-export function buildTurnPrompt({
+export function buildTurnPrompt(args: TurnPromptArgs): string {
+  const prompt = turnPromptFor(args);
+  return args.language === 'hi' ? `${prompt}\n\n${HINDI_TURN_REMINDER}` : prompt;
+}
+
+function turnPromptFor({
   deck,
   kind,
   slide,

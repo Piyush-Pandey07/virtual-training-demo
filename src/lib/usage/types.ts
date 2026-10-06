@@ -23,6 +23,14 @@ export interface Usage {
    */
   ttsCharacters: number;
 
+  /**
+   * Of `ttsCharacters`, how many were spoken in Hindi.
+   *
+   * Hindi is spoken by Sarvam, which bills separately and from a prepaid credit, so it is
+   * worth seeing apart from the rest. Absent from months recorded before Hindi existed.
+   */
+  hindiCharacters?: number;
+
   /** Seconds of audio sent to speech-to-text. */
   sttSeconds: number;
 
@@ -48,6 +56,7 @@ export type UsageDelta = Partial<
   Pick<
     Usage,
     | 'ttsCharacters'
+    | 'hindiCharacters'
     | 'sttSeconds'
     | 'geminiInputTokens'
     | 'geminiOutputTokens'
@@ -61,11 +70,33 @@ export function monthOf(when: Date): string {
   return `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * A month's counters with one spend added.
+ *
+ * The whole of what `record` computes inside its transaction, kept here, apart from the
+ * store, so the tests exercise this function itself rather than a copy of it. A counter
+ * missing from an older document counts from zero rather than turning the sum into NaN.
+ */
+export function addUsage(current: Usage, delta: UsageDelta, now: string): Usage {
+  return {
+    ...current,
+    ttsCharacters: current.ttsCharacters + (delta.ttsCharacters ?? 0),
+    hindiCharacters: (current.hindiCharacters ?? 0) + (delta.hindiCharacters ?? 0),
+    sttSeconds: current.sttSeconds + (delta.sttSeconds ?? 0),
+    geminiInputTokens: current.geminiInputTokens + (delta.geminiInputTokens ?? 0),
+    geminiOutputTokens: current.geminiOutputTokens + (delta.geminiOutputTokens ?? 0),
+    sessions: current.sessions + (delta.sessions ?? 0),
+    decksAnalysed: current.decksAnalysed + (delta.decksAnalysed ?? 0),
+    updatedAt: now,
+  };
+}
+
 export function emptyUsage(orgId: string, month: string, now: string): Usage {
   return {
     orgId,
     month,
     ttsCharacters: 0,
+    hindiCharacters: 0,
     sttSeconds: 0,
     geminiInputTokens: 0,
     geminiOutputTokens: 0,

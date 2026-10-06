@@ -49,6 +49,15 @@ export interface LearnerProfile {
   askedForStandard: boolean;
 }
 
+/**
+ * The language a session is held in, chosen on the lobby and fixed with the voice.
+ *
+ * English is spoken by Deepgram, exactly as every session was before there was a
+ * choice. Hindi is spoken by Sarvam, because Deepgram has no Hindi voice at all and
+ * reads Devanagari with English phonetics rather than refusing it.
+ */
+export type SessionLanguage = 'en' | 'hi';
+
 /** Who said a given line. */
 export type Speaker = 'trainer' | 'trainee';
 
@@ -89,6 +98,16 @@ export interface ChatRequest {
   coveredSlideIds?: number[];
   /** What the session has learned about the trainee so far. */
   learner?: LearnerProfile;
+  /** What the trainer speaks in. Absent means English, as before there was a choice. */
+  language?: SessionLanguage;
+  /**
+   * The voice the delegate chose, as an id from /api/voices.
+   *
+   * Needed here as well as by the speech route, because Hindi marks the speaker's
+   * gender in the verb: a male voice saying "मैं बताती हूँ" sounds wrong to anybody who
+   * speaks it, so the trainer has to know which voice it is speaking in.
+   */
+  voice?: string;
 }
 
 /** Server sent events emitted by POST /api/chat. */

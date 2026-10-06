@@ -71,7 +71,11 @@ describe('sanitiseForSpeech', () => {
 describe('the sanitiser is on the path to the speaker', () => {
   it('runs inside the player, at the point text becomes audio', () => {
     const player = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8');
-    assert.match(player, /import \{ sanitiseForSpeech \}/, 'the player does not import it');
+    assert.match(
+      player,
+      /import \{[^}]*\bsanitiseForSpeech\b[^}]*\} from '@\/lib\/speech';/,
+      'the player does not import it',
+    );
     assert.match(
       player,
       /const trimmed = sanitiseForSpeech\(text\)/,

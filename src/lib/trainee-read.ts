@@ -20,12 +20,14 @@ import type { HistoryTurn } from './types';
  * The last sentence of a turn, which is where it hands the conversation back.
  *
  * Splitting on sentence ends rather than taking the last line, because a spoken
- * turn is a paragraph and the closing is its final clause.
+ * turn is a paragraph and the closing is its final clause. The danda ends a Hindi
+ * sentence; without it a whole Hindi turn read as one sentence, and was quoted back
+ * to the trainer in full as the closing it must not reuse.
  */
 export function closingSentence(text: string): string {
   const sentences = text
     .trim()
-    .split(/(?<=[.!?])\s+/)
+    .split(/(?<=[.!?।॥])\s+/)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
   return sentences[sentences.length - 1] ?? '';
