@@ -139,8 +139,13 @@ export function sarvamFailure(status: number, detail: string): string {
     message = detail.slice(0, 200);
   }
 
+  // Sarvam's own words, beside the plain explanation. "Out of credit" covers an empty
+  // account, an expired trial and a key from another account alike, and only its message
+  // says which. The first real call from production hit exactly that, with nothing to go on.
+  const said = message ? ` Sarvam said: "${message.slice(0, 200)}" (HTTP ${status}).` : '';
+
   if (code === 'insufficient_quota_error' || status === 402) {
-    return 'Hindi speech has stopped because the Sarvam credit has run out. Add credit at dashboard.sarvam.ai, or start an English session.';
+    return `Hindi speech has stopped because the Sarvam credit has run out. Add credit at dashboard.sarvam.ai, or start an English session.${said}`;
   }
   if (
     code === 'invalid_api_key_error' ||
@@ -148,7 +153,7 @@ export function sarvamFailure(status: number, detail: string): string {
     status === 401 ||
     status === 403
   ) {
-    return 'Sarvam refused the key, so Hindi cannot be spoken. Check that SARVAM_API_KEY is correct.';
+    return `Sarvam refused the key, so Hindi cannot be spoken. Check that SARVAM_API_KEY is correct.${said}`;
   }
   if (code === 'rate_limit_exceeded_error' || status === 429) {
     return 'Sarvam is asking for fewer requests a minute. Wait a moment, then carry on.';

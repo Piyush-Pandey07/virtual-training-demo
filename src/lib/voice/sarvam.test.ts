@@ -293,6 +293,23 @@ describe('what a Sarvam failure says', () => {
     assert.match(sarvamFailure(429, body('rate_limit_exceeded_error')), /fewer requests/);
   });
 
+  it("keeps Sarvam's own words beside the plain explanation", () => {
+    // "Out of credit" is an empty account, an expired trial or a key from another
+    // account, and only Sarvam's message says which.
+    const quota = JSON.stringify({
+      error: { code: 'insufficient_quota_error', message: 'Your trial credits have expired' },
+    });
+    const said = sarvamFailure(429, quota);
+    assert.match(said, /credit has run out/);
+    assert.match(said, /Sarvam said: "Your trial credits have expired" \(HTTP 429\)\.$/);
+    const key = JSON.stringify({
+      error: { code: 'invalid_api_key_error', message: 'Invalid key' },
+    });
+    assert.match(sarvamFailure(403, key), /Sarvam said: "Invalid key" \(HTTP 403\)\.$/);
+    // Nothing to add when Sarvam said nothing.
+    assert.ok(sarvamFailure(402, '').endsWith('or start an English session.'));
+  });
+
   it('falls back to the status and whatever Sarvam said', () => {
     assert.equal(
       sarvamFailure(
