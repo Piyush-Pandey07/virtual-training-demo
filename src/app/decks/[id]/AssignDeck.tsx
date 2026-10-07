@@ -148,8 +148,8 @@ export function AssignDeck({ deckId, published, candidates, assigned }: AssignDe
       {!published ? (
         <p className="text-muted mt-3 text-sm leading-relaxed">
           This deck is still a draft, so it cannot be given to anybody yet. Read what the trainer
-          intends to say, then <span className="text-mist font-semibold">Publish</span> — a draft
-          has not been checked by a person, and a trainee has no way to tell the difference.
+          intends to say, then <span className="text-mist font-semibold">Publish</span>. A draft has
+          not been checked by a person, and a trainee has no way to tell the difference.
         </p>
       ) : (
         <>

@@ -34,8 +34,8 @@ export function HappeningNow({ sessions }: { sessions: Row[] }) {
         <p className="text-muted mt-2 text-sm leading-relaxed">
           Nobody is part-way through a session at any customer. A session shows here while it is
           being attended and drops off {OPEN_SESSION_MINUTES} minutes after the last slide it
-          recorded — nothing tells the server that a trainee closed the tab, so this is the most
-          that can honestly be said.
+          recorded. Nothing tells the server that a trainee closed the tab, so this is the most that
+          can honestly be said.
         </p>
       ) : (
         <ul className="mt-4 space-y-2">

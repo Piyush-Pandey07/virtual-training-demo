@@ -94,7 +94,7 @@ export default async function PlatformPage() {
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Customers</h1>
         <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
           Every company using this deployment. Opening one shows you what their administrators see,
-          and everything you do while you are in there happens inside their organisation — so leave
+          and everything you do while you are in there happens inside their organisation, so leave
           it again when you are done.
         </p>
 

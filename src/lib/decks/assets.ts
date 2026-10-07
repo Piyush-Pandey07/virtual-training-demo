@@ -138,7 +138,14 @@ export class BlobAssetStore implements AssetStore {
 
   async removeAll(deckId: string): Promise<void> {
     assertUsableDeckId(deckId);
-    const blobs = await this.client.list(`decks/${deckId}/pages/`);
+    // Under this customer's prefix, exactly where `put` wrote them. This listed
+    // `decks/<id>/pages/` with no prefix, which matched nothing once decks moved under
+    // `orgs/<org>/decks`, so every deck deleted since then kept its slide images: the
+    // delete reported success and the renders stayed in storage, readable by id.
+    //
+    // `pages/` and no wider, because a blob deck store keeps the deck's own record in
+    // the same folder, and that is removed separately, after this.
+    const blobs = await this.client.list(`${this.base}/${deckId}/pages/`);
     if (blobs.length > 0) await this.client.remove(blobs.map((blob) => blob.url));
   }
 }

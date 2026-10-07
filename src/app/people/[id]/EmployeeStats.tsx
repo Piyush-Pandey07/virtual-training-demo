@@ -88,8 +88,8 @@ export function EmployeeStats({
           complete={stats.completed === stats.assigned && stats.assigned > 0}
         />
         <p className="text-muted mt-2 text-xs">
-          {stats.percent}% of everything assigned, weighted by how long each deck runs —{' '}
-          {stats.slidesTaught} of {stats.slidesAssigned} slides taught
+          {stats.percent}% of everything assigned, weighted by how long each deck runs.{' '}
+          {stats.slidesTaught} of {stats.slidesAssigned} slides taught.
         </p>
       </div>
 

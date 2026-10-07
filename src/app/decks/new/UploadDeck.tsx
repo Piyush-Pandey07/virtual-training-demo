@@ -210,7 +210,7 @@ export function UploadDeck() {
             if (!pdf) {
               setError(
                 pptx
-                  ? 'The PDF is missing. Nothing in a browser can turn a PowerPoint into a picture, so the slides come from the PDF export. In PowerPoint: File, then Save As, then PDF \u2014 then choose the PDF and the .pptx together.'
+                  ? 'The PDF is missing. Nothing in a browser can turn a PowerPoint into a picture, so the slides come from the PDF export. In PowerPoint: File, then Save As, then PDF. Then choose the PDF and the .pptx together.'
                   : 'That is not a PDF. Choose the PDF export of your deck, and the .pptx beside it if you want the speaker notes.',
               );
               return;
