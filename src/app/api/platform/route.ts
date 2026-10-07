@@ -24,7 +24,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 15;
 
-const NOT_FOUND = Response.json({ error: 'Not found.' }, { status: 404 });
+/**
+ * A fresh refusal each time. This was one Response made when the module loaded and
+ * returned to every refused request, and a response body can be read only once: the
+ * first refusal on a warm server said "Not found.", and every one after it was empty.
+ */
+const notFound = () => Response.json({ error: 'Not found.' }, { status: 404 });
 
 function cookieOptions() {
   return {
@@ -42,7 +47,7 @@ function cookieOptions() {
 export async function POST(request: Request) {
   try {
     const person = await requireUser();
-    if (!isPlatformAdmin(person.email)) return NOT_FOUND;
+    if (!isPlatformAdmin(person.email)) return notFound();
 
     let body: { orgId?: string };
     try {
@@ -74,7 +79,7 @@ export async function POST(request: Request) {
 export async function DELETE() {
   try {
     const person = await requireUser();
-    if (!isPlatformAdmin(person.email)) return NOT_FOUND;
+    if (!isPlatformAdmin(person.email)) return notFound();
 
     const jar = await cookies();
     jar.delete(ACTING_ORG_COOKIE);

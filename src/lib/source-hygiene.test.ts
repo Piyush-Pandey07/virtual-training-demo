@@ -70,3 +70,28 @@ describe('source hygiene', () => {
     assert.deepEqual(problems, [], `\n${problems.join('\n')}`);
   });
 });
+
+/**
+ * A Response made once, at module level, and returned to many requests.
+ *
+ * A response body can be read only once. Both platform routes built their refusal that
+ * way, so on a warm server the first refusal said "Not found." and every later one was
+ * an empty 404, or a 500 on a runtime that rejects a body already read. The production
+ * check of 7 October found it. Every response has to be made inside the handler.
+ */
+describe('responses are made per request', () => {
+  const routes = sourceFiles('src/app').filter((path) => /[\\/]route\.ts$/.test(path));
+
+  it('finds the routes, so a broken walk cannot pass silently', () => {
+    assert.ok(routes.length > 15, `only ${routes.length} routes found`);
+  });
+
+  it('never keeps a Response at module level for handlers to share', () => {
+    const shared = routes.filter((path) =>
+      /^(?:export\s+)?(?:const|let|var)\s+\w+\s*=\s*(?:Response\.\w+|new\s+Response)\(/m.test(
+        readFileSync(path, 'utf8'),
+      ),
+    );
+    assert.deepEqual(shared, []);
+  });
+});

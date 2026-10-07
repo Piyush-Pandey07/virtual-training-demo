@@ -24,11 +24,13 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-const NOT_FOUND = Response.json({ error: 'Not found.' }, { status: 404 });
-
 async function platformStaff(): Promise<Response | null> {
   const person = await requireUser();
-  return isPlatformAdmin(person.email) ? null : NOT_FOUND;
+  // Made fresh for each refusal. One Response shared across requests is empty from the
+  // second refusal on, because a response body can be read only once.
+  return isPlatformAdmin(person.email)
+    ? null
+    : Response.json({ error: 'Not found.' }, { status: 404 });
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
