@@ -107,6 +107,11 @@ One more is optional:
   screen offers Hindi beside English, spoken by Sarvam's Bulbul voices. Without it, sessions are
   English only. English never uses Sarvam, because Deepgram has no Hindi voice and reads Devanagari
   with English phonetics rather than refusing it.
+- **`OPENAI_API_KEY`** from [OpenAI](https://platform.openai.com). Powers the **OpenAI test** page,
+  which Technavious's own administrators reach from the header and the home page: hear OpenAI's
+  voices say the same sentence in English, Hindi and Indonesian beside today's voices, and compare
+  its transcription of a recording with Deepgram's. Nothing in a training session uses OpenAI, and
+  a customer's administrators never see the page.
 
 Then:
 

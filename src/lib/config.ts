@@ -100,6 +100,18 @@ export const SARVAM_TTS_MODEL = () => envOr('SARVAM_TTS_MODEL', 'bulbul:v3');
 export const hindiAvailable = () => Boolean(process.env.SARVAM_API_KEY?.trim());
 
 /**
+ * OpenAI, for the OpenAI test only.
+ *
+ * Nothing a trainee uses touches OpenAI. The test page lets Technavious staff hear its
+ * voices and compare its transcription with Deepgram's, which is the comparison the
+ * feedback of September asked for before choosing between Deepgram with Sarvam and
+ * OpenAI alone. Without the key the page says what is missing and does nothing else.
+ */
+export const OPENAI_TTS_MODEL = () => envOr('OPENAI_TTS_MODEL', 'gpt-4o-mini-tts');
+export const OPENAI_TRANSCRIBE_MODEL = () => envOr('OPENAI_TRANSCRIBE_MODEL', 'gpt-4o-transcribe');
+export const openAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim());
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.

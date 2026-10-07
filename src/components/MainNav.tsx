@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { SignOutButton } from './SignOutButton';
 import { roleLabel } from '@/lib/auth/labels';
+import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { Role } from '@/lib/roster/types';
 
 /**
@@ -22,12 +23,14 @@ export interface NavPerson {
   role: Role;
   /** Technavious staff, who additionally get the customer list. */
   platform: boolean;
+  /** Their own customer. Technavious's own administrators also get the OpenAI test. */
+  homeOrgId?: string;
 }
 
 interface MainNavProps {
   person: NavPerson;
   /** The page the viewer is on, so it is not offered as somewhere to go. */
-  current?: '/' | '/decks' | '/people' | '/platform';
+  current?: '/' | '/decks' | '/people' | '/platform' | '/openai-test';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -39,6 +42,8 @@ export function MainNav({ person, current }: MainNavProps) {
     links.push({ href: '/decks', label: 'Deck library' });
   }
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
+  // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
+  if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
 
   return (
     <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">

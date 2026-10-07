@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import type { DeckSummary } from '@/lib/decks/store';
+import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 
@@ -89,6 +90,17 @@ export function HomeForAdmin({
               className="border-charcoal-line text-mist hover:border-teal hover:text-teal rounded-md border px-6 py-3 text-base font-semibold transition-colors"
             >
               See a worked example
+            </Link>
+          )}
+
+          {/* Technavious staff only. A customer's administrator never sees a vendor
+              comparison inside the product they bought. */}
+          {mayUseOpenAiTest(person) && (
+            <Link
+              href="/openai-test"
+              className="border-charcoal-line text-mist hover:border-teal hover:text-teal rounded-md border px-6 py-3 text-base font-semibold transition-colors"
+            >
+              OpenAI test
             </Link>
           )}
         </div>
