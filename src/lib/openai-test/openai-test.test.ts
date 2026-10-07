@@ -272,6 +272,21 @@ describe('what a failure says', () => {
     assert.match(openAiFailure(429, body('rate_limit_exceeded')), /fewer requests/);
   });
 
+  it('knows an empty account by its words too, as production first reported it', () => {
+    // Exactly what came back on 7 October: a 429 with no code to go on.
+    const reply = JSON.stringify({
+      error: {
+        message:
+          'You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.',
+        type: null,
+        code: null,
+      },
+    });
+    const said = openAiFailure(429, reply);
+    assert.match(said, /^The OpenAI account has no credit left\./);
+    assert.doesNotMatch(said, /fewer requests/);
+  });
+
   it('points at the key when OpenAI refuses it, and keeps its own words', () => {
     const said = openAiFailure(401, body('invalid_api_key', 'Incorrect API key provided'));
     assert.match(said, /OPENAI_API_KEY/);

@@ -35,23 +35,31 @@ const NOT_CONNECTED = 'OpenAI is not connected yet: OPENAI_API_KEY is not set in
  * error's code tells them apart, so the code is read before the status.
  */
 export function openAiFailure(status: number, detail: string): string {
-  let code = '';
+  let codes: string[] = [];
   let message = '';
   try {
     const parsed = JSON.parse(detail) as {
-      error?: { code?: string; type?: string; message?: string };
+      error?: { code?: string | null; type?: string | null; message?: string };
     };
-    code = parsed.error?.code ?? parsed.error?.type ?? '';
+    codes = [parsed.error?.code, parsed.error?.type].filter((value): value is string => !!value);
     message = parsed.error?.message ?? '';
   } catch {
     message = detail.slice(0, 200);
   }
   const said = message ? ` OpenAI said: "${message.slice(0, 200)}" (HTTP ${status}).` : '';
 
-  if (code === 'insufficient_quota') {
+  // Read from the words as well as the code. The first real call from production came
+  // back 429 saying "You have no credits remaining" without the code this looked for, and
+  // was reported as OpenAI being busy, which sends somebody to wait rather than to pay.
+  const outOfCredit =
+    codes.includes('insufficient_quota') ||
+    /\bno credits\b|\bcredits? remaining\b|\bexceeded your current quota\b|\bbilling\b/i.test(
+      message,
+    );
+  if (outOfCredit) {
     return `The OpenAI account has no credit left. Add credit at platform.openai.com.${said}`;
   }
-  if (status === 401 || code === 'invalid_api_key') {
+  if (status === 401 || codes.includes('invalid_api_key')) {
     return `OpenAI refused the key. Check that OPENAI_API_KEY is correct.${said}`;
   }
   if (status === 429) {
