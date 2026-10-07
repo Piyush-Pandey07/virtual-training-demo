@@ -23,6 +23,12 @@ import {
 const OPENAI = 'https://api.openai.com/v1';
 
 /**
+ * Said on the page rather than requireEnv's own message, which is written for somebody
+ * running the app on their own machine and tells them to restart a dev server.
+ */
+const NOT_CONNECTED = 'OpenAI is not connected yet: OPENAI_API_KEY is not set in this deployment.';
+
+/**
  * Says what went wrong in words that tell somebody what to do about it.
  *
  * OpenAI reports an empty account and a busy one with the same status, 429, and only the
@@ -68,8 +74,8 @@ export async function speakWithOpenAi(
   let key: string;
   try {
     key = requireEnv('OPENAI_API_KEY');
-  } catch (error) {
-    return { ok: false, status: 503, error: (error as Error).message };
+  } catch {
+    return { ok: false, status: 503, error: NOT_CONNECTED };
   }
 
   let upstream: Response;
@@ -111,8 +117,8 @@ export async function transcribeWithOpenAi(
   let key: string;
   try {
     key = requireEnv('OPENAI_API_KEY');
-  } catch (error) {
-    return { error: (error as Error).message, ms: 0 };
+  } catch {
+    return { error: NOT_CONNECTED, ms: 0 };
   }
 
   const form = new FormData();
