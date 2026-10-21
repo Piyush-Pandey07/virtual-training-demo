@@ -30,6 +30,7 @@ import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
 import { checkAdmin } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { recordQuietly } from '@/lib/usage/store';
 
 export const runtime = 'nodejs';
@@ -51,6 +52,9 @@ interface RouteContext {
 export async function POST(request: Request, { params }: RouteContext) {
   const gate = await checkAdmin();
   if (!gate.ok) return gate.response;
+
+  const limited = await rateLimited(gate.person, 'analyse');
+  if (limited) return limited;
 
   const { id } = await params;
 

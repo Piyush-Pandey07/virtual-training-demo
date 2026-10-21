@@ -28,6 +28,7 @@ describe('what a purge is told to delete', () => {
     for (const [path, pattern] of [
       ['src/lib/roster/store-documents.ts', /^const (?:PEOPLE|ASSIGNMENTS|ATTEMPTS) = '([^']+)'/gm],
       ['src/lib/usage/store.ts', /^const USAGE = '([^']+)'/gm],
+      ['src/lib/limits/rate.ts', /^const RATES = '([^']+)'/gm],
       ['src/lib/decks/store-documents.ts', /^(?:export )?const (?:DECKS|SEED) = '([^']+)'/gm],
     ] as const) {
       const source = readFileSync(path, 'utf8');
@@ -38,9 +39,10 @@ describe('what a purge is told to delete', () => {
     // written, and it went on passing because its idea of "every collection" was a
     // list of two files. The seed marker survived a purge for exactly that long: a
     // document belonging to a deleted customer, which a reused organisation id would
-    // then have read and skipped seeding on.
+    // then have read and skipped seeding on. Seven since the rate limiter began keeping
+    // a count per person.
     assert.ok(
-      written.size >= 6,
+      written.size >= 7,
       `only found ${written.size} customer collections: ${[...written]}`,
     );
 

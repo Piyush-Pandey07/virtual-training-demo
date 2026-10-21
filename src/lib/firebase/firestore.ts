@@ -17,7 +17,7 @@ import 'server-only';
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
-import type { DocumentStore } from '../roster/documents';
+import type { DocumentStore, UpdateOptions } from '../roster/documents';
 import { adminApp } from './admin';
 
 /**
@@ -103,21 +103,29 @@ export function firestoreDocuments(): DocumentStore {
      * finishing slides at the same moment both land instead of one overwriting the
      * other. The change function may therefore run more than once, which is why
      * `store-documents.ts` keeps it a pure function of what it is handed.
+     *
+     * `maxAttempts` is handed to Firestore only when a caller sets it, so everybody
+     * else keeps the library's own default of five.
      */
     async update<T>(
       collection: string,
       id: string,
       change: (current: T | undefined) => T,
+      options?: UpdateOptions,
     ): Promise<T> {
       assertUsableDocId(id);
       const ref = db().collection(collection).doc(id);
+      const maxAttempts = options?.maxAttempts;
 
-      return db().runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
-        const next = change(snap.exists ? (snap.data() as T) : undefined);
-        tx.set(ref, next as Record<string, unknown>);
-        return next;
-      });
+      return db().runTransaction(
+        async (tx) => {
+          const snap = await tx.get(ref);
+          const next = change(snap.exists ? (snap.data() as T) : undefined);
+          tx.set(ref, next as Record<string, unknown>);
+          return next;
+        },
+        maxAttempts === undefined ? undefined : { maxAttempts },
+      );
     },
   };
 }

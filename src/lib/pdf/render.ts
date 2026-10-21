@@ -266,10 +266,6 @@ export async function readOutline(file: File): Promise<OpenedPdf> {
   const task = pdfjs.getDocument({
     data: bytes,
     disableAutoFetch: true,
-    // Turns off the expression evaluator pdf.js uses for some font programs. Not in
-    // the published types for this version, so it goes through a narrow cast rather
-    // than being dropped: an uploaded PDF is untrusted input.
-    ...({ isEvalSupported: false } as Record<string, boolean>),
   });
   const doc = await task.promise;
 

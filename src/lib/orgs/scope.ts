@@ -57,7 +57,8 @@ export function scopedDocuments(docs: DocumentStore, orgId: string): DocumentSto
     remove: (collection, id) => docs.remove(within(collection), id),
     all: (collection) => docs.all(within(collection)),
     where: (collection, field, value) => docs.where(within(collection), field, value),
-    update: (collection, id, change) => docs.update(within(collection), id, change),
+    update: (collection, id, change, options) =>
+      docs.update(within(collection), id, change, options),
   };
 }
 

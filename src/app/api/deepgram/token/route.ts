@@ -12,6 +12,7 @@ import { DEEPGRAM_STT_MODEL, DEEPGRAM_TOKEN_TTL, requireEnv } from '@/lib/config
 import type { DeepgramTokenResponse } from '@/lib/types';
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,9 @@ export async function POST() {
   // upstream token to whoever asked.
   const gate = await checkUser();
   if (!gate.ok) return gate.response;
+
+  const limited = await rateLimited(gate.person, 'token');
+  if (limited) return limited;
 
   let apiKey: string;
   try {

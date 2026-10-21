@@ -109,6 +109,35 @@ interface Progress {
   label: string;
 }
 
+/**
+ * How the analysis waits out a rate limit rather than abandoning the run.
+ *
+ * The server answers 429 with a Retry-After in seconds once a trainer analyses faster
+ * than its limit allows. Treating that like any other failure threw away the run, and
+ * "Analyse again" then started from the first step even though the server had kept
+ * every step already done. Waiting and asking for the same step again costs nothing.
+ *
+ * The wait falls back to a few seconds when the header is missing or unreadable, and
+ * is capped so a misread header cannot leave the trainer watching a countdown for an
+ * hour. Five refusals in a row means something other than a passing burst, so the run
+ * stops there and shows the server's own explanation.
+ */
+const RATE_LIMIT_DEFAULT_WAIT_SECONDS = 5;
+const RATE_LIMIT_MAX_WAIT_SECONDS = 120;
+const RATE_LIMIT_GIVE_UP_AFTER = 5;
+
+/** Seconds to wait before asking again, from the response's Retry-After header. */
+function retryAfterSeconds(response: Response): number {
+  // Number(null) is 0 and an HTTP date is NaN, so both fall through to the default.
+  const seconds = Number(response.headers.get('Retry-After'));
+  if (!Number.isFinite(seconds) || seconds <= 0) return RATE_LIMIT_DEFAULT_WAIT_SECONDS;
+  return Math.min(Math.ceil(seconds), RATE_LIMIT_MAX_WAIT_SECONDS);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function DeckReview({ initial }: { initial: ReviewDeck }) {
   const router = useRouter();
   const [meta, setMeta] = useState(initial.meta);
@@ -214,6 +243,7 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
     try {
       let step = 0;
       let total = 1;
+      let limitedInARow = 0;
 
       for (;;) {
         const response = await fetch(`/api/decks/${initial.id}/analyse`, {
@@ -221,6 +251,30 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ step }),
         });
+
+        // Rate limited: wait as long as the server asks, then ask for the same step
+        // again. See RATE_LIMIT_GIVE_UP_AFTER for why this stops trying eventually.
+        if (response.status === 429) {
+          const limited = (await response.json().catch(() => ({}))) as { error?: string };
+          limitedInARow += 1;
+          if (limitedInARow >= RATE_LIMIT_GIVE_UP_AFTER) {
+            throw new Error(limited.error ?? 'Analysis is being refused for now. Try again later.');
+          }
+
+          // Counted down on the existing progress bar, keeping its step and total, so
+          // the trainer can see the run is held rather than stuck.
+          for (let left = retryAfterSeconds(response); left > 0; left -= 1) {
+            const label = `Waiting ${left} ${left === 1 ? 'second' : 'seconds'} before carrying on`;
+            setProgress((current) => ({
+              step: current?.step ?? 0,
+              total: current?.total ?? total,
+              label,
+            }));
+            await sleep(1000);
+          }
+          continue;
+        }
+        limitedInARow = 0;
 
         const body = (await response.json()) as {
           step: number;

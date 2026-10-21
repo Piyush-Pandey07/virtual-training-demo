@@ -144,6 +144,16 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const generationRef = useRef(0);
   const pendingCountRef = useRef(0);
   const doneWaitersRef = useRef<Array<() => void>>([]);
+  /**
+   * The generation, and so the turn, that the server has rate limited.
+   *
+   * A turn is ten or so sentences queued behind one another. Treating a 429 like any
+   * other failure sent every one of them into the same limit, each one refused and each
+   * one raising the same message. Once one sentence is refused the rest of that turn is
+   * dropped without asking, and the message is shown once. Every turn starts with an
+   * interrupt, which moves the generation on, so the next turn asks again as normal.
+   */
+  const limitedGenerationRef = useRef(-1);
 
   const optionsRef = useRef(options);
   useEffect(() => {
@@ -290,6 +300,8 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const speakChunk = useCallback(
     async (text: string, generation: number) => {
       if (generation !== generationRef.current) return;
+      // This turn has already been refused, and asking again would only be refused too.
+      if (generation === limitedGenerationRef.current) return;
 
       // Hindi only, and see HINDI_LOOKAHEAD_SECONDS for why. English goes straight on.
       if (languageRef.current === 'hi') {
@@ -314,6 +326,9 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
         if (!response.ok) {
           const body = (await response.json().catch(() => ({}))) as { error?: string };
+          // Marked before the message is raised below, so that message is this turn's
+          // only one. See limitedGenerationRef.
+          if (response.status === 429) limitedGenerationRef.current = generation;
           throw new Error(body.error ?? `Text to speech failed with ${response.status}.`);
         }
 

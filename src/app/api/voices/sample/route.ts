@@ -13,6 +13,7 @@
  */
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { sampleTextFor, voiceFor } from '@/lib/voice/catalogue';
 import { audioHeaders, synthesise, synthesisFailure } from '@/lib/voice/synthesise';
 
@@ -23,6 +24,9 @@ export const maxDuration = 30;
 export async function GET(request: Request) {
   const gate = await checkUser();
   if (!gate.ok) return gate.response;
+
+  const limited = await rateLimited(gate.person, 'sample');
+  if (limited) return limited;
 
   // Required here, unlike /api/tts: a sample of no voice in particular means nothing.
   const requested = new URL(request.url).searchParams.get('voice');

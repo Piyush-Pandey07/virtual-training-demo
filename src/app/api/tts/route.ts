@@ -13,6 +13,7 @@
  */
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { canSpeak, voiceFor } from '@/lib/voice/catalogue';
 import { audioHeaders, synthesise, synthesisFailure } from '@/lib/voice/synthesise';
 
@@ -41,6 +42,14 @@ export async function POST(request: Request) {
   if (!text) {
     return Response.json({ error: 'text is required.' }, { status: 400 });
   }
+
+  // After the body, because speech is billed by the character and the weight is how
+  // long the text is: one unit per 320 characters, about one spoken sentence, so a
+  // session's ordinary calls each count once and a paragraph sent in one go counts
+  // as the sentences it is. Still before anything is billed.
+  const weight = Math.max(1, Math.ceil(text.length / 320));
+  const limited = await rateLimited(gate.person, 'speech', weight);
+  if (limited) return limited;
 
   const voice = voiceFor(requested);
   if (!voice) {

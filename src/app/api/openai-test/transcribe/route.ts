@@ -10,6 +10,7 @@
  */
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import { transcribeWithDeepgram, transcribeWithOpenAi } from '@/lib/openai-test/providers';
 import { listeningChoice, MAX_RECORDING_BYTES } from '@/lib/openai-test/samples';
@@ -24,6 +25,9 @@ export async function POST(request: Request) {
   if (!mayUseOpenAiTest(gate.person)) {
     return Response.json({ error: 'Not found.' }, { status: 404 });
   }
+
+  const limited = await rateLimited(gate.person, 'openaiTest');
+  if (limited) return limited;
 
   const form = await request.formData().catch(() => null);
   const audio = form?.get('audio');
