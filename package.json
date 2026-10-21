@@ -27,7 +27,8 @@
     "compare-batch": "tsx --conditions react-server --env-file=.env.local scripts/compare-batch-size.ts"
   },
   "overrides": {
-    "jose": "^5.10.0"
+    "jose": "^5.10.0",
+    "@grpc/grpc-js": "^1.14.6"
   },
   "dependencies": {
     "@deepgram/sdk": "^5.8.0",
