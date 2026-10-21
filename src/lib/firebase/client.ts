@@ -21,10 +21,12 @@
 
 import { initializeApp, getApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
-  getAuth,
+  inMemoryPersistence,
+  initializeAuth,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   type Auth,
+  type Dependencies,
 } from 'firebase/auth';
 
 const config = {
@@ -47,8 +49,33 @@ function app(): FirebaseApp {
   return getApps().length > 0 ? getApp() : initializeApp(config as Required<typeof config>);
 }
 
+/**
+ * How the browser half of Auth is set up, and what it deliberately leaves out.
+ *
+ * No popup or redirect resolver. `getAuth` installs one, and on Safari, iOS and Android
+ * that resolver loads https://apis.google.com/js/api.js as soon as Auth starts, which
+ * the content security policy refuses. Nobody here signs in through a popup or a
+ * redirect, only with an email address and password, so the resolver bought nothing
+ * but a blocked script and an error on the console.
+ *
+ * Held in memory only. The ID token is posted once to `/api/auth/session` and the
+ * httpOnly cookie it is swapped for is all the app trusts afterwards; nothing reads the
+ * browser-side user again after a page load. Keeping it in IndexedDB as well would
+ * only leave a refresh token sitting in storage that any script on the page can read,
+ * outliving the session cookie it was exchanged for.
+ *
+ * One object for the life of the module, because `initializeAuth` returns the existing
+ * instance only when it is called again with options that compare equal.
+ */
+const DEPS: Dependencies = { persistence: inMemoryPersistence };
+
+let authInstance: Auth | null = null;
+
 function auth(): Auth {
-  return getAuth(app());
+  // Cached here too, so the instance is created once rather than relying on Firebase to
+  // recognise a second call with the same options.
+  authInstance ??= initializeAuth(app(), DEPS);
+  return authInstance;
 }
 
 /**
