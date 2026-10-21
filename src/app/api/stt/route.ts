@@ -15,6 +15,7 @@ import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/confi
 import { listeningLanguage, sessionLanguage } from '@/lib/language';
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { recordQuietly } from '@/lib/usage/store';
 
 export const runtime = 'nodejs';
@@ -66,6 +67,13 @@ export async function POST(request: Request) {
   if (audio.byteLength < MIN_BYTES) {
     return Response.json({ transcript: '', confidence: 0 });
   }
+
+  // After the body, because Deepgram bills by duration and the weight is how much audio
+  // arrived: one unit per five seconds, so a short reply counts once and a thirty second
+  // ramble counts six times. Still before anything is billed or recorded.
+  const weight = Math.max(1, Math.ceil(audio.byteLength / (CAPTURE_SAMPLE_RATE * 2 * 5)));
+  const limited = await rateLimited(gate.person, 'listening', weight);
+  if (limited) return limited;
 
   // Deepgram bills this by duration, and the body is raw 16-bit mono at a known
   // rate, so the seconds are arithmetic rather than a guess.

@@ -27,6 +27,7 @@ import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } fr
 import { speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -102,7 +103,18 @@ export async function POST(request: Request) {
   const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
   if (!gate.ok) return gate.response;
 
-  const deck = await loadDeck(gate.person.orgId, body.deckId);
+  // Before anything is billed. Every call here costs money upstream, and the session
+  // cap counts sessions rather than calls, so this is what stops one account, or a
+  // client stuck in a loop, from running up the bill. See src/lib/limits/rate.ts.
+  //
+  // Run alongside loading the deck rather than before it. Both are a round trip to
+  // the database and neither needs the other, and this route is waited on before the
+  // trainer says a word, so doing them one after the other would add to every turn.
+  const [limited, deck] = await Promise.all([
+    rateLimited(gate.person, 'chat'),
+    loadDeck(gate.person.orgId, body.deckId),
+  ]);
+  if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
 
   const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';

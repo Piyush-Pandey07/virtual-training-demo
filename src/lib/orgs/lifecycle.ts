@@ -34,6 +34,9 @@ const OWNED_COLLECTIONS = [
   'assignments',
   'attempts',
   'usage',
+  // How fast each person has been calling the paid routes. Firestore expires these by
+  // itself once its TTL policy is on, but a purge should not depend on a console setting.
+  'ratelimits',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -214,9 +217,10 @@ export async function purge(orgId: string): Promise<PurgeReport> {
 /**
  * The key a document was stored under, rebuilt from the document itself.
  *
- * The store returns contents rather than keys, and these four collections are keyed
- * three different ways: by a person's id, by a person and deck pair, and by a month.
- * Guessing wrong here means a row that is read, not deleted, and reported as deleted.
+ * The store returns contents rather than keys, and these collections are keyed four
+ * different ways: by their own id, by a person and deck pair, by a person and kind of
+ * call, and by a month. Guessing wrong here means a row that is read, not deleted, and
+ * reported as deleted.
  */
 function documentIdOf(
   collection: (typeof OWNED_COLLECTIONS)[number],
@@ -224,6 +228,12 @@ function documentIdOf(
 ): string | undefined {
   if (collection === 'usage') {
     return typeof row.month === 'string' ? row.month : undefined;
+  }
+  // A rate count is keyed on the person and the kind of call it counts.
+  if (collection === 'ratelimits') {
+    return typeof row.personId === 'string' && typeof row.kind === 'string'
+      ? `${row.personId}__${row.kind}`
+      : undefined;
   }
   // people, decks and the seed marker all carry their own id.
   if (collection === 'people' || collection === 'decks' || collection === 'deck-seed') {

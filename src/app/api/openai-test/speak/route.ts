@@ -10,6 +10,7 @@
  */
 
 import { checkUser } from '@/lib/auth/guard';
+import { rateLimited } from '@/lib/limits/rate';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import { speakWithOpenAi } from '@/lib/openai-test/providers';
 import { parseSpeakRequest } from '@/lib/openai-test/samples';
@@ -25,6 +26,9 @@ export async function POST(request: Request) {
   if (!mayUseOpenAiTest(gate.person)) {
     return Response.json({ error: 'Not found.' }, { status: 404 });
   }
+
+  const limited = await rateLimited(gate.person, 'openaiTest');
+  if (limited) return limited;
 
   const parsed = parseSpeakRequest(await request.json().catch(() => null));
   if (typeof parsed === 'string') return Response.json({ error: parsed }, { status: 400 });

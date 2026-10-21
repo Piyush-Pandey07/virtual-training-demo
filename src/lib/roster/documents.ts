@@ -30,8 +30,21 @@ export interface DocumentStore {
    * The change function may run more than once: a real database retries it when two
    * writers collide, which is the whole point. So it must be a pure function of what
    * it is given, and must not do anything it would mind doing twice.
+   *
+   * `maxAttempts` caps how many times a real database tries before giving up, for a
+   * caller that would rather fail quickly than wait out a long run of retries. A store
+   * with nothing to retry ignores it.
    */
-  update<T>(collection: string, id: string, change: (current: T | undefined) => T): Promise<T>;
+  update<T>(
+    collection: string,
+    id: string,
+    change: (current: T | undefined) => T,
+    options?: UpdateOptions,
+  ): Promise<T>;
+}
+
+export interface UpdateOptions {
+  maxAttempts?: number;
 }
 
 /**
@@ -81,6 +94,9 @@ export class InMemoryDocumentStore implements DocumentStore {
     ) as T[];
   }
 
+  // Takes no `options`. Nothing here is ever contended, so there is nothing to retry
+  // and nothing for `maxAttempts` to cap; a caller passing them through the port is
+  // simply not heard.
   async update<T>(
     collection: string,
     id: string,
