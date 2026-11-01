@@ -113,6 +113,8 @@ export interface UseSpeechInputResult {
   setMuted: (muted: boolean) => void;
   /** What the trainee is expected to speak. Set once, before the session first starts. */
   setLanguage: (language: SessionLanguage) => void;
+  /** Words to listen hard for, such as the deck's acronyms. Set before the session starts. */
+  setKeyterms: (terms: string[]) => void;
 }
 
 interface DeepgramTranscriptMessage {
@@ -139,6 +141,15 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   const languageRef = useRef<SessionLanguage>('en');
   const setLanguage = useCallback((language: SessionLanguage) => {
     languageRef.current = language;
+  }, []);
+
+  /**
+   * Words to listen hard for: the deck's glossary acronyms. Deepgram's keyterm prompting
+   * turned "CRY units", "RDA" and "LOTTO" into CRAH, RDHx and LOTO on the same recording.
+   */
+  const keytermsRef = useRef<string[]>([]);
+  const setKeyterms = useCallback((terms: string[]) => {
+    keytermsRef.current = terms;
   }, []);
 
   // Streaming transport state.
@@ -199,8 +210,10 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     sttAbortRef.current = controller;
     setTranscribing(true);
 
+    const params = new URLSearchParams({ language: languageRef.current });
+    for (const term of keytermsRef.current) params.append('keyterm', term);
     const send = () =>
-      fetch(`/api/stt?language=${languageRef.current}`, {
+      fetch(`/api/stt?${params}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
         body: merged.buffer as ArrayBuffer,
@@ -405,6 +418,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
       url.searchParams.set('vad_events', 'true');
       url.searchParams.set('language', listeningLanguage(languageRef.current));
+      for (const term of keytermsRef.current) url.searchParams.append('keyterm', term);
 
       const socket = new WebSocket(url, [credentials.scheme, credentials.token]);
       socket.binaryType = 'arraybuffer';
@@ -662,5 +676,6 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     stop,
     setMuted,
     setLanguage,
+    setKeyterms,
   };
 }

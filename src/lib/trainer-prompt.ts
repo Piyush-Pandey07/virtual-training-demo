@@ -30,6 +30,7 @@ import {
   recentClosings,
   turnsOnSlide,
 } from './trainee-read';
+import { renderGlossary, termsForTurn } from './glossary';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import {
   type ExpertiseLevel,
@@ -704,6 +705,15 @@ function turnPromptFor({
     wholeDeck ? 'session' : 'slide',
   );
 
+  /**
+   * The Technavious definitions of the data centre terms this turn uses (AI-21), beside
+   * the knowledge for the slide. Narration and answers only: a recap or a quiz spans the
+   * deck, and the definitions matter when a term is being explained, not revisited.
+   * Empty for every deck that is not about data centres, so those prompts are unchanged.
+   */
+  const glossary = wholeDeck ? '' : renderGlossary(termsForTurn(deck, slide, question));
+  const knowledgeAndTerms = glossary ? `${knowledge}\n\n${glossary}` : knowledge;
+
   /** The deck around this turn, at the detail this turn can use. */
   const deckReference = deckReferenceFor({
     deck,
@@ -733,7 +743,7 @@ ${learnerRead}
 SLIDE NOW ON SCREEN
 ${slideBriefing(deck, slide)}
 
-${knowledge}
+${knowledgeAndTerms}
 
 YOUR TASK
 Teach this slide now. ${
@@ -771,7 +781,7 @@ ${learnerRead}${selfAwareness ? `\n\n${selfAwareness}` : ''}
 SLIDE NOW ON SCREEN
 ${slideBriefing(deck, slide)}
 
-${knowledge}
+${knowledgeAndTerms}
 
 WHERE THIS SITS IN THE DECK
 ${deckReference}

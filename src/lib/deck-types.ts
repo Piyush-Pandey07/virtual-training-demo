@@ -198,4 +198,10 @@ export interface DeckClientView {
   totalSlides: number;
   /** Estimated narration time, precomputed so targetSeconds need not be sent. */
   estimatedMinutes: number;
+  /**
+   * Glossary acronyms this deck uses, for live transcription to listen for. Worked out on
+   * the server, so the glossary itself never ships to the browser. Absent or empty for a
+   * deck that is not about data centres.
+   */
+  listenFor?: string[];
 }

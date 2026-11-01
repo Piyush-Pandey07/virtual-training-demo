@@ -91,8 +91,14 @@ export async function POST(request: Request) {
   url.searchParams.set('punctuate', 'true');
   // The session's language, from the browser and so narrowed: anything but Hindi is
   // English, which is what this route always listened for.
-  const language = sessionLanguage(new URL(request.url).searchParams.get('language'));
+  const query = new URL(request.url).searchParams;
+  const language = sessionLanguage(query.get('language'));
   url.searchParams.set('language', listeningLanguage(language));
+  // The deck's glossary acronyms, to listen hard for. From the browser, so each is checked
+  // to be a short code and the list is capped, well inside Deepgram's limit.
+  for (const term of query.getAll('keyterm').slice(0, 40)) {
+    if (/^[A-Za-z0-9&+-]{2,12}$/.test(term)) url.searchParams.append('keyterm', term);
+  }
   // Raw audio, so Deepgram needs to be told the format explicitly.
   url.searchParams.set('encoding', 'linear16');
   url.searchParams.set('sample_rate', String(CAPTURE_SAMPLE_RATE));

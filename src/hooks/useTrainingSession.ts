@@ -735,6 +735,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       ttsRef.current.setVoice(voice);
       ttsRef.current.setLanguage(language);
       sttRef.current.setLanguage(language);
+      sttRef.current.setKeyterms(deck.listenFor ?? []);
       languageRef.current = language;
       chosenVoiceRef.current = voice;
       const trimmed = name?.trim();

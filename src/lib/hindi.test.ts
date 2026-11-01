@@ -233,11 +233,9 @@ describe('listening in a Hindi session', () => {
   });
 
   it('tells the fallback route too, which narrows it', () => {
-    assert.match(SPEECH_INPUT, /fetch\(`\/api\/stt\?language=\$\{languageRef\.current\}`/);
-    assert.match(
-      STT_ROUTE,
-      /sessionLanguage\(new URL\(request\.url\)\.searchParams\.get\('language'\)\)/,
-    );
+    assert.match(SPEECH_INPUT, /new URLSearchParams\(\{ language: languageRef\.current \}\)/);
+    assert.match(SPEECH_INPUT, /fetch\(`\/api\/stt\?\$\{params\}`/);
+    assert.match(STT_ROUTE, /sessionLanguage\(query\.get\('language'\)\)/);
     assert.match(STT_ROUTE, /url\.searchParams\.set\('language', listeningLanguage\(language\)\);/);
   });
 });

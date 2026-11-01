@@ -335,6 +335,27 @@ The player is built for connections that do not hold:
 - Live transcription that drops falls back to short bursts without alarming the trainee, and tries to
   reconnect after 20 seconds or when the browser comes back online.
 
+### The data centre glossary
+
+The Benchmark team's glossary (`docs/DC Glossary List.docx`, 296 rows) is imported into
+`src/lib/glossary/entries.ts` by `scripts/import-glossary.ts`, which merges terms that appear in
+more than one section (271 entries), fixes plain errors, and writes British spellings. To update it,
+replace the .docx in `docs/`, run `npx tsx scripts/import-glossary.ts "docs/DC Glossary List.docx"`,
+and read the diff.
+
+- **What the trainer gets:** on narration and answer turns, the definitions of up to six terms that
+  turn uses (the trainee's question first, then the slide's title and bullets, then its notes), so
+  every session defines a term the Technavious way.
+- **Only on data centre decks.** Many entries are ordinary words with a data centre meaning, and
+  the ISMS deck uses them in a security sense, so a deck qualifies only if its title says data
+  centre or its slides use at least six of the glossary's stronger terms. Other decks' prompts are
+  unchanged.
+- **Acronyms match as written,** in capitals, so "UPS" never matches "ups".
+- **Live transcription listens for the deck's acronyms** through Deepgram's keyterm prompting. On
+  one recording that turned "CRY units", "RDA" and "LOTTO" into CRAH, RDHx and LOTO.
+- **Six definitions are held back** (`held` in the entries) until the glossary's owners confirm
+  them; the reasons are in `scripts/import-glossary.ts`.
+
 ### What trainees see when something fails, and the developer log
 
 Providers fail in their own words, and those words never reach a trainee. Every failure becomes one

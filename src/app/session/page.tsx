@@ -18,6 +18,7 @@ import { DEFAULT_DECK_ID, loadStoredDeck } from '@/lib/decks/registry';
 import { profileOfferFor } from '@/lib/profiles/offer';
 import { coverageOf, percentComplete } from '@/lib/roster/completion';
 import { rosterStore } from '@/lib/roster/registry';
+import { keytermsFor } from '@/lib/glossary';
 import { SessionScreen } from './SessionScreen';
 
 // The deck comes from storage now, so prerendering this would pin whichever deck
@@ -93,7 +94,7 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
     : null;
 
   return (
-    <DeckProvider deck={toClientView(stored.record)}>
+    <DeckProvider deck={{ ...toClientView(stored.record), listenFor: keytermsFor(stored.record) }}>
       <SessionScreen
         reviewed={stored.status === 'published'}
         resume={resume}
