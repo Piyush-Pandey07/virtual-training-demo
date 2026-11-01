@@ -10,14 +10,22 @@ import {
   transcribeWithDeepgram,
   transcribeWithOpenAi,
 } from './providers';
+import { voiceFor } from '../voice/catalogue';
 import {
   deepgramLanguageFor,
+  languageName,
   listeningChoice,
+  MAX_INSTRUCTION_CHARS,
   MAX_TEST_CHARS,
   OPENAI_VOICES,
   openAiLanguageFor,
   parseSpeakRequest,
+  resultsAsTable,
+  SUGGESTED_INSTRUCTIONS,
+  TEST_LANGUAGES,
   TEST_SENTENCES,
+  todaysVoiceFor,
+  type TestLanguage,
 } from './samples';
 
 /**
@@ -151,13 +159,47 @@ describe('what it accepts', () => {
     );
   });
 
-  it('has the same sentence in all three languages, technical terms in English', () => {
-    for (const sentence of Object.values(TEST_SENTENCES)) {
-      for (const term of ['CDFA', 'HV/MV', 'UPS', 'N+1'])
-        assert.ok(sentence.includes(term), `${term} missing`);
+  it('has the same sentence in every language, technical terms in English', () => {
+    for (const [code, sentence] of Object.entries(TEST_SENTENCES)) {
+      for (const term of ['CDFA', 'HV/MV', 'UPS', 'data hall', 'chiller', 'N+1'])
+        assert.ok(sentence.includes(term), `${term} missing from ${code}`);
     }
     assert.match(TEST_SENTENCES.hi, /[ऀ-ॿ]/);
     assert.match(TEST_SENTENCES.id, /^Selamat datang/);
+  });
+
+  it('offers the seven languages wanted next, each written in its own script', () => {
+    assert.deepEqual(
+      TEST_LANGUAGES.map((entry) => entry.code),
+      ['en', 'hi', 'id', 'ar', 'ms', 'tl', 'vi', 'ta', 'te', 'mr'],
+    );
+    assert.equal(languageName('tl'), 'Filipino');
+    assert.match(TEST_SENTENCES.ar, /\p{Script=Arabic}/u);
+    assert.match(TEST_SENTENCES.ta, /\p{Script=Tamil}/u);
+    assert.match(TEST_SENTENCES.te, /\p{Script=Telugu}/u);
+    assert.match(TEST_SENTENCES.mr, /\p{Script=Devanagari}/u);
+    // Malaysian words, so a voice that drifts into Indonesian can be heard doing it.
+    assert.match(TEST_SENTENCES.ms, /^Selamat datang ke .*\bpencawang\b.*\brosak\b/);
+    assert.match(TEST_SENTENCES.tl, /^Maligayang pagdating/);
+    assert.match(TEST_SENTENCES.vi, /^Chào mừng/);
+    // Marathi is not Hindi, though both are written in Devanagari.
+    assert.notEqual(TEST_SENTENCES.mr, TEST_SENTENCES.hi);
+  });
+
+  it('suggests a local accent for every language, short enough to send', () => {
+    for (const { code } of TEST_LANGUAGES) {
+      const suggestion = SUGGESTED_INSTRUCTIONS[code];
+      assert.ok(suggestion.length <= MAX_INSTRUCTION_CHARS, `${code} is too long`);
+      assert.equal(
+        typeof parseSpeakRequest({ text: 'Hi', voice: 'marin', instructions: suggestion }),
+        'object',
+        `${code} would be refused`,
+      );
+    }
+    assert.match(SUGGESTED_INSTRUCTIONS.ar, /Gulf/);
+    assert.match(SUGGESTED_INSTRUCTIONS.ms, /Malaysian.*not Indonesian/);
+    assert.match(SUGGESTED_INSTRUCTIONS.tl, /Taglish/);
+    assert.match(SUGGESTED_INSTRUCTIONS.vi, /Northern/);
   });
 
   it('listens the way a session does, naming Indonesian because the mixed mode lacks it', () => {
@@ -170,6 +212,171 @@ describe('what it accepts', () => {
     assert.equal(deepgramLanguageFor('hi'), 'multi');
     assert.equal(deepgramLanguageFor('en'), 'en');
     assert.equal(deepgramLanguageFor('id'), 'id');
+  });
+
+  it('accepts every new language, and nothing near one', () => {
+    for (const code of ['ar', 'ms', 'tl', 'vi', 'ta', 'te', 'mr'] as const) {
+      assert.equal(listeningChoice(code), code);
+    }
+    // Filipino is Tagalog to OpenAI, Whisper and Deepgram alike; nothing else is guessed.
+    for (const near of ['fil', 'tg', 'AR', 'ar-AE', 'ms-MY', ' ta', 'auto', '', 7, null, {}]) {
+      assert.equal(listeningChoice(near), 'auto', JSON.stringify(near));
+    }
+  });
+
+  it('gives OpenAI the ISO 639-1 code for each, Tagalog for Filipino', () => {
+    const expected: Record<TestLanguage, string> = {
+      en: 'en',
+      hi: 'hi',
+      id: 'id',
+      ar: 'ar',
+      ms: 'ms',
+      tl: 'tl',
+      vi: 'vi',
+      ta: 'ta',
+      te: 'te',
+      mr: 'mr',
+    };
+    for (const [code, iso] of Object.entries(expected)) {
+      assert.equal(openAiLanguageFor(code as TestLanguage), iso);
+    }
+  });
+
+  it("names every new language to Deepgram in Nova-3's own code, keeping Hindi mixed", () => {
+    assert.equal(deepgramLanguageFor('ar'), 'ar');
+    assert.equal(deepgramLanguageFor('ms'), 'ms');
+    assert.equal(deepgramLanguageFor('tl'), 'tl');
+    assert.equal(deepgramLanguageFor('vi'), 'vi');
+    assert.equal(deepgramLanguageFor('ta'), 'ta');
+    assert.equal(deepgramLanguageFor('te'), 'te');
+    assert.equal(deepgramLanguageFor('mr'), 'mr');
+    // Only Hindi and not knowing use the mixed mode, which covers none of the new ones.
+    const mixed = TEST_LANGUAGES.filter(({ code }) => deepgramLanguageFor(code) === 'multi');
+    assert.deepEqual(
+      mixed.map(({ code }) => code),
+      ['hi'],
+    );
+  });
+});
+
+describe("today's voice", () => {
+  const sarvam = process.env.SARVAM_API_KEY;
+  afterEach(() => {
+    if (sarvam === undefined) delete process.env.SARVAM_API_KEY;
+    else process.env.SARVAM_API_KEY = sarvam;
+  });
+
+  it('is Deepgram for English and Sarvam for Hindi, both voices the app really offers', () => {
+    process.env.SARVAM_API_KEY = 'test-sarvam-key';
+    const english = todaysVoiceFor('en', true);
+    const hindi = todaysVoiceFor('hi', true);
+    assert.ok(english.ok && hindi.ok);
+    assert.equal(english.label, 'Deepgram Thalia');
+    assert.equal(hindi.label, 'Sarvam Priya');
+    assert.ok(voiceFor(english.voice), `${english.voice} is not offered`);
+    assert.ok(voiceFor(hindi.voice), `${hindi.voice} is not offered`);
+  });
+
+  it('has no Hindi to compare against where Sarvam is switched off, and says so', () => {
+    const hindi = todaysVoiceFor('hi', false);
+    assert.ok(!hindi.ok);
+    assert.match(hindi.reason, /not switched on/);
+  });
+
+  it('is unavailable for every other language, with a plain reason rather than an error', () => {
+    for (const code of ['id', 'ar', 'ms', 'tl', 'vi', 'ta', 'te', 'mr'] as const) {
+      for (const hindi of [true, false]) {
+        const today = todaysVoiceFor(code, hindi);
+        assert.ok(!today.ok, `${code} should have no voice today`);
+        assert.ok(today.reason.includes(languageName(code)), `${code} reason does not name it`);
+        // Written as a code, so the house rule against the character holds in this file too.
+        const dash = String.fromCharCode(0x2014);
+        assert.ok(!today.reason.includes(dash), `${code} reason has a long dash`);
+      }
+    }
+    // The Indian languages say why Sarvam, which could speak them, does not here.
+    assert.match((todaysVoiceFor('ta', true) as { reason: string }).reason, /Hindi only/);
+    assert.match((todaysVoiceFor('ar', true) as { reason: string }).reason, /Indian languages/);
+  });
+});
+
+describe('the results log', () => {
+  const at = new Date(2026, 10, 1, 9, 5, 7);
+
+  it('pastes as one tab-separated row per test, under a header', () => {
+    const table = resultsAsTable([
+      {
+        kind: 'speech',
+        at,
+        language: 'ar',
+        voice: 'OpenAI marin',
+        instructions: 'Gulf accent.',
+        firstSoundMs: 640,
+        seconds: 9.24,
+      },
+      {
+        kind: 'listening',
+        at,
+        language: 'tl',
+        openai: { text: 'Kumusta', ms: 900 },
+        deepgram: { error: 'Deepgram failed (400).', ms: 300 },
+      },
+      { kind: 'speech', at, language: 'te', voice: 'OpenAI cedar', error: 'Failed with 502.' },
+      {
+        kind: 'listening',
+        at,
+        language: 'auto',
+        openai: { text: '', ms: 800 },
+        deepgram: { text: 'hello', ms: 400 },
+      },
+    ]);
+    const rows = table.split('\n').map((row) => row.split('\t'));
+    assert.equal(rows.length, 5);
+    assert.ok(rows.every((row) => row.length === rows[0]!.length));
+    assert.deepEqual(rows[0]!.slice(0, 3), ['Time', 'Test', 'Language']);
+    assert.deepEqual(rows[1], [
+      '09:05:07',
+      'Speaking',
+      'Arabic',
+      'OpenAI marin',
+      'Gulf accent.',
+      '640',
+      '9.2',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ]);
+    assert.deepEqual(rows[2]!.slice(1, 3), ['Listening', 'Filipino']);
+    assert.deepEqual(rows[2]!.slice(7, 11), [
+      'Kumusta',
+      '900',
+      '(failed: Deepgram failed (400).)',
+      '300',
+    ]);
+    assert.equal(rows[3]!.at(-1), 'Failed with 502.');
+    assert.equal(rows[4]![2], 'Not said');
+    assert.equal(rows[4]![7], '(heard nothing)');
+  });
+
+  it('keeps a transcript with tabs or line breaks in one cell', () => {
+    const table = resultsAsTable([
+      {
+        kind: 'listening',
+        at,
+        language: 'ar',
+        openai: { text: 'سطر\tأول\nسطر ثانٍ', ms: 1 },
+        deepgram: { text: 'x', ms: 1 },
+      },
+    ]);
+    const lines = table.split('\n');
+    assert.equal(lines.length, 2);
+    assert.equal(lines[1]!.split('\t')[7], 'سطر أول سطر ثانٍ');
+  });
+
+  it('is only a header before anything has been tried', () => {
+    assert.equal(resultsAsTable([]).split('\n').length, 1);
   });
 });
 
@@ -261,6 +468,23 @@ describe('what it sends', () => {
       null,
       'auto should let OpenAI detect it',
     );
+  });
+
+  it('names a new language to each service, Filipino as Tagalog', async () => {
+    const audio = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' });
+    reply = () => Response.json({ text: 'ok' });
+
+    for (const [code, expected] of [
+      ['tl', 'tl'],
+      ['ar', 'ar'],
+      ['te', 'te'],
+    ] as const) {
+      calls = [];
+      await transcribeWithOpenAi(audio, code);
+      await transcribeWithDeepgram(audio, code);
+      assert.equal((calls[0]!.init.body as FormData).get('language'), expected);
+      assert.equal(new URL(calls[1]!.url).searchParams.get('language'), expected);
+    }
   });
 });
 

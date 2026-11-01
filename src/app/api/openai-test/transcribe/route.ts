@@ -6,7 +6,8 @@
  * the upload is read.
  *
  * The body is a form with the recording as `audio` and the expected language as
- * `language` (`en`, `hi`, `id`, or anything else for "work it out").
+ * `language` (one of the test's language codes, such as `en`, `hi` or `ar`, or anything
+ * else for "work it out").
  */
 
 import { checkUser } from '@/lib/auth/guard';
