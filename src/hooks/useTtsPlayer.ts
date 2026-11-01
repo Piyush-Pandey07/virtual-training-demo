@@ -71,6 +71,8 @@ interface QueuedSpeech {
   text: string;
   generation: number;
   audio: Promise<LoadedSpeech> | null;
+  /** Started while another sentence was playing, rather than when its own turn came. */
+  ahead: boolean;
 }
 
 type LoadedSpeech =
@@ -417,12 +419,16 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     (item: QueuedSpeech): Promise<LoadedSpeech> => {
       if (item.audio) return item.audio;
       inFlightRef.current += 1;
-      item.audio = loadSpeech(item.text, item.generation).finally(() => {
+      item.audio = loadSpeech(item.text, item.generation).then((loaded) => {
         // A download from a turn already thrown away was not counted in this one.
         if (item.generation === generationRef.current) {
           inFlightRef.current = Math.max(0, inFlightRef.current - 1);
         }
-        fetchAheadRef.current();
+        // Only a success makes room for the next. A failure starting the next download
+        // ran straight through the queue while offline: every sentence failed in turn,
+        // and each then held the trainer for a few seconds once the connection was back.
+        if (loaded.ok) fetchAheadRef.current();
+        return loaded;
       });
       return item.audio;
     },
@@ -437,9 +443,15 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
    */
   const fetchAhead = useCallback(() => {
     if (languageRef.current === 'hi') return;
+    // Nothing is fetched ahead while the trainer is held or the browser knows it is
+    // offline. It would only fail, and the held sentence is the one that matters.
+    if (releaseStallRef.current || !navigator.onLine) return;
     for (const item of queueRef.current) {
       if (inFlightRef.current >= SPEECH_AHEAD) return;
-      if (item.generation === generationRef.current && !item.audio) void startLoading(item);
+      if (item.generation === generationRef.current && !item.audio) {
+        item.ahead = true;
+        void startLoading(item);
+      }
     }
   }, [startLoading]);
 
@@ -505,6 +517,15 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         loaded = await startLoading(item);
         if (generation !== generationRef.current) return;
         if (loaded.ok || loaded.aborted) break;
+
+        // Fetched ahead and failed, possibly some time ago. Its own turn has come, so it
+        // is asked for again now before anything is held: the connection may well be
+        // back, and holding first would cost the trainee a pause for nothing.
+        if (item.ahead) {
+          item.ahead = false;
+          item.audio = null;
+          continue;
+        }
 
         if (stalls === 0) {
           // Reported when the hold starts, which is usually while the connection is
@@ -585,7 +606,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (!trimmed) return;
 
       const generation = generationRef.current;
-      const item: QueuedSpeech = { text: trimmed, generation, audio: null };
+      const item: QueuedSpeech = { text: trimmed, generation, audio: null, ahead: false };
       queueRef.current.push(item);
       pendingCountRef.current += 1;
       setSpeaking(true);

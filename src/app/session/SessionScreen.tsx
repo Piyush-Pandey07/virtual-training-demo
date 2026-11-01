@@ -325,11 +325,14 @@ export function SessionScreen({
                 micLevel={session.micLevel}
                 // Audio is held mid-word while paused, so the avatar should be still
                 // rather than mouthing along to nothing.
-                speaking={session.trainerSpeaking && !session.paused}
+                speaking={session.trainerSpeaking && !session.paused && !session.speechHeld}
                 transcribing={session.transcribing}
                 transport={session.sttTransport}
                 heard={session.interim}
                 paused={session.paused}
+                held={
+                  session.speechHeld ? (session.speechHeld.retry ? 'waiting' : 'stopped') : null
+                }
               />
 
               {session.phase === 'ended' && (

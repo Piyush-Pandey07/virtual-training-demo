@@ -10,11 +10,17 @@ function statusFor(
   micState: MicState,
   transcribing: boolean,
   paused: boolean,
+  held: 'waiting' | 'stopped' | null,
 ): { label: string; tone: string } {
   // First, because a pause is the trainee's own choice and outranks whatever the turn
   // underneath it was doing when it was held.
   if (paused) return { label: 'Paused', tone: 'text-muted' };
   if (phase === 'error') return { label: 'Something went wrong', tone: 'text-logo-red' };
+  // Said here as well as in the banner, because the banner sits at the top of the page
+  // and a trainee scrolled down to the slide would otherwise read "is speaking" over
+  // silence.
+  if (held === 'waiting') return { label: 'Reconnecting', tone: 'text-azure-bright' };
+  if (held === 'stopped') return { label: `${TRAINER_NAME} has stopped`, tone: 'text-logo-red' };
   // Batch transport only. Worth showing, because the transcript lands a beat
   // after the trainee stops rather than appearing as they speak.
   if (transcribing) return { label: 'Getting that down', tone: 'text-teal' };
@@ -40,6 +46,11 @@ interface TrainerPanelProps {
   /** Live partial transcript of what the trainee is saying right now. */
   heard: string;
   paused: boolean;
+  /**
+   * Held on a sentence that could not be fetched: `waiting` while it retries on its own,
+   * `stopped` when it will only try again when asked.
+   */
+  held?: 'waiting' | 'stopped' | null;
 }
 
 /**
@@ -61,8 +72,9 @@ export function TrainerPanel({
   transport,
   heard,
   paused,
+  held = null,
 }: TrainerPanelProps) {
-  const status = statusFor(phase, micState, transcribing, paused);
+  const status = statusFor(phase, micState, transcribing, paused, held);
   const listening = phase === 'listening' && micState === 'live';
 
   return (
