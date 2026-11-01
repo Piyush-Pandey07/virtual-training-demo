@@ -129,9 +129,10 @@ describe('what the trainer is told', () => {
       CHAT_ROUTE,
       /const speaksAs = language === 'hi' \? speaksAsFor\(body\.voice\) : undefined;/,
     );
+    // The learner's profile now follows as a fourth argument, which wraps the call.
     assert.match(
       CHAT_ROUTE,
-      /buildSystemInstruction\(deck, traineeName, \{ language, speaksAs \}\)/,
+      /buildSystemInstruction\(\s*deck,\s*traineeName,\s*\{ language, speaksAs \},/,
     );
     assert.match(CHAT_ROUTE, /coveredSlideIds,\s*learner,\s*language,\s*\}\)/);
   });
@@ -190,7 +191,12 @@ describe('asking Sarvam only for what is about to be heard', () => {
       speak.slice(wait),
       /^if \(languageRef\.current === 'hi'\) \{\s*await waitForRoom\(generation\);/,
     );
-    assert.ok(wait < speak.indexOf("fetch('/api/tts'"), 'the wait comes after the request');
+    assert.ok(wait < speak.indexOf('startLoading(item)'), 'the wait comes after the request');
+    // And Hindi is never fetched ahead of the sentence playing, which would bypass it.
+    assert.match(
+      bodyOf(PLAYER, 'fetchAhead'),
+      /^const fetchAhead = useCallback\(\(\) => \{\s*if \(languageRef\.current === 'hi'\) return;/,
+    );
   });
 
   it('stops waiting the moment the trainee interrupts', () => {
@@ -227,11 +233,9 @@ describe('listening in a Hindi session', () => {
   });
 
   it('tells the fallback route too, which narrows it', () => {
-    assert.match(SPEECH_INPUT, /fetch\(`\/api\/stt\?language=\$\{languageRef\.current\}`/);
-    assert.match(
-      STT_ROUTE,
-      /sessionLanguage\(new URL\(request\.url\)\.searchParams\.get\('language'\)\)/,
-    );
+    assert.match(SPEECH_INPUT, /new URLSearchParams\(\{ language: languageRef\.current \}\)/);
+    assert.match(SPEECH_INPUT, /fetch\(`\/api\/stt\?\$\{params\}`/);
+    assert.match(STT_ROUTE, /sessionLanguage\(query\.get\('language'\)\)/);
     assert.match(STT_ROUTE, /url\.searchParams\.set\('language', listeningLanguage\(language\)\);/);
   });
 });

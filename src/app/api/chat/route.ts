@@ -27,7 +27,10 @@ import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } fr
 import { speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
+import { classifyThrown } from '@/lib/failures/classify';
+import { failurePayload, failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
+import { profileForTrainer } from '@/lib/profiles/for-trainer';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -110,9 +113,14 @@ export async function POST(request: Request) {
   // Run alongside loading the deck rather than before it. Both are a round trip to
   // the database and neither needs the other, and this route is waited on before the
   // trainer says a word, so doing them one after the other would add to every turn.
-  const [limited, deck] = await Promise.all([
+  //
+  // The learner's profile is the third, for the same reason. It is read for the person
+  // the guard signed in, never from the body, and with PROFILES_ENABLED off it is not
+  // read at all: see src/lib/profiles/for-trainer.ts.
+  const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
+    profileForTrainer(gate.person),
   ]);
   if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
@@ -152,16 +160,28 @@ export async function POST(request: Request) {
   if (startingASession) {
     const verdict = await mayStartSession(gate.person.orgId);
     if (!verdict.allowed) {
-      return Response.json({ error: verdict.reason }, { status: 429 });
+      // The customer's own monthly cap, worded for the person, and not something that
+      // waiting a moment will change, so it is marked as not worth retrying.
+      return Response.json(
+        { error: verdict.reason, code: 'unavailable', retry: false },
+        { status: 429 },
+      );
     }
     recordQuietly(gate.person.orgId, { sessions: 1 });
   }
+
+  const failureContext: FailureContext = {
+    route: '/api/chat',
+    person: gate.person,
+    deckId: deck.meta.id,
+    language,
+  };
 
   let apiKey: string;
   try {
     apiKey = requireEnv('GEMINI_API_KEY');
   } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 500 });
+    return failureResponse(classifyThrown('gemini', error), failureContext);
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -261,7 +281,12 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(deck, traineeName, { language, speaksAs }),
+        systemInstruction: buildSystemInstruction(
+          deck,
+          traineeName,
+          { language, speaksAs },
+          profile,
+        ),
         /**
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.
@@ -347,10 +372,17 @@ export async function POST(request: Request) {
           hindiCharacters: language === 'hi' ? finalText.length : 0,
         });
         if (!finalText) {
+          // Usually a passing upstream issue, so it is marked as worth asking again.
+          const failure = await failurePayload(
+            { provider: 'gemini', kind: 'bad_output', detail: 'The model returned no speech.' },
+            failureContext,
+          );
           send({
             type: 'error',
-            message:
-              'The model returned no speech for this turn. This is usually a transient upstream issue, so try again.',
+            message: failure.error,
+            code: failure.code,
+            retry: failure.retry,
+            ref: failure.ref,
           });
         } else {
           send({ type: 'done', text: finalText });
@@ -358,8 +390,14 @@ export async function POST(request: Request) {
       } catch (error) {
         // An aborted request is the client hanging up, not a failure worth reporting.
         if (!request.signal.aborted) {
-          const message = error instanceof Error ? error.message : 'Unknown error calling Gemini.';
-          send({ type: 'error', message });
+          const failure = await failurePayload(classifyThrown('gemini', error), failureContext);
+          send({
+            type: 'error',
+            message: failure.error,
+            code: failure.code,
+            retry: failure.retry,
+            ref: failure.ref,
+          });
         }
       } finally {
         closed = true;

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { ProfileOffer } from '@/components/ProfileOffer';
 import { SessionControls } from '@/components/SessionControls';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
@@ -12,6 +13,8 @@ import { VoicePicker } from '@/components/VoicePicker';
 import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
+import { describeFailure } from '@/lib/failures/codes';
+import type { ProfileOfferState } from '@/lib/profiles/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { SessionLanguage } from '@/lib/types';
 
@@ -22,16 +25,20 @@ interface HealthState {
 
 /**
  * Pre-session screen. Collects an optional name, the session's language and the
- * trainer's voice, and unlocks audio on the click.
+ * trainer's voice, and unlocks audio on the click. Where learner profiles are switched
+ * on, it also offers the optional profile form, which never stands in the way of
+ * starting.
  */
 function Lobby({
   onStart,
   connecting,
   resume,
+  profileOffer,
 }: {
   onStart: (name: string, voice?: string, language?: SessionLanguage) => void;
   connecting: boolean;
   resume: ResumeState | null;
+  profileOffer: ProfileOfferState | null;
 }) {
   const deck = useDeck();
   const [name, setName] = useState('');
@@ -111,6 +118,11 @@ function Lobby({
         disabled={connecting}
       />
 
+      {/* Absent unless PROFILES_ENABLED is on and there is something not yet asked. The
+          Start button below does not look at it, so skipping it, ignoring it or leaving
+          it half done all start the session exactly as before. */}
+      {profileOffer && <ProfileOffer offer={profileOffer} disabled={connecting} />}
+
       {blocked && (
         <div
           role="alert"
@@ -157,9 +169,12 @@ function Lobby({
 export function SessionScreen({
   reviewed,
   resume = null,
+  profileOffer = null,
 }: {
   reviewed: boolean;
   resume?: ResumeState | null;
+  /** Null whenever PROFILES_ENABLED is off, which the server decides. */
+  profileOffer?: ProfileOfferState | null;
 }) {
   const deck = useDeck();
   const session = useTrainingSession(resume);
@@ -178,8 +193,7 @@ export function SessionScreen({
    *
    * `busy` is still right for dimming the slide, which is exactly what it means.
    */
-  const navLocked =
-    session.phase === 'connecting' || session.phase === 'ended' || session.paused;
+  const navLocked = session.phase === 'connecting' || session.phase === 'ended' || session.paused;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -219,9 +233,9 @@ export function SessionScreen({
           className="border-logo-red/40 bg-logo-red/10 flex flex-wrap items-center gap-3 border-b px-5 py-3 sm:px-8"
         >
           <p className="text-mist flex-1 text-sm">
-            <span className="text-logo-red font-semibold">You will not hear the trainer.</span>{' '}
-            Your browser is holding back the sound. Nothing you do from here will be marked as
-            completed until it plays, because a slide only counts once you have heard it.
+            <span className="text-logo-red font-semibold">You will not hear the trainer.</span> Your
+            browser is holding back the sound. Nothing you do from here will be marked as completed
+            until it plays, because a slide only counts once you have heard it.
           </p>
           <button
             type="button"
@@ -229,6 +243,34 @@ export function SessionScreen({
             className="bg-azure text-mist hover:bg-teal hover:text-charcoal shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
           >
             Turn the sound on
+          </button>
+        </div>
+      )}
+
+      {/*
+        The trainer is held on a sentence it could not fetch, almost always because the
+        connection dropped. It tries again on its own and carries on from the same
+        sentence, so this says so and offers a way to try now, rather than an error to
+        dismiss. Hidden while paused: the trainee's own pause says enough.
+      */}
+      {session.speechHeld && !session.paused && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="border-azure/40 bg-azure/10 flex flex-wrap items-center gap-3 border-b px-5 py-3 sm:px-8"
+        >
+          <p className="text-mist flex-1 text-sm">
+            <span className="text-teal font-semibold">
+              {session.speechHeld.retry ? 'Reconnecting.' : 'Nova has stopped.'}
+            </span>{' '}
+            {describeFailure(session.speechHeld)}
+          </p>
+          <button
+            type="button"
+            onClick={session.carryOn}
+            className="bg-azure text-mist hover:bg-teal hover:text-charcoal shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+          >
+            {session.speechHeld.retry ? 'Try now' : 'Try again'}
           </button>
         </div>
       )}
@@ -255,6 +297,7 @@ export function SessionScreen({
             connecting={session.phase === 'connecting'}
             onStart={(name, voice, language) => void session.startSession(name, voice, language)}
             resume={resume}
+            profileOffer={profileOffer}
           />
         </main>
       ) : (
@@ -297,11 +340,14 @@ export function SessionScreen({
                 micLevel={session.micLevel}
                 // Audio is held mid-word while paused, so the avatar should be still
                 // rather than mouthing along to nothing.
-                speaking={session.trainerSpeaking && !session.paused}
+                speaking={session.trainerSpeaking && !session.paused && !session.speechHeld}
                 transcribing={session.transcribing}
                 transport={session.sttTransport}
                 heard={session.interim}
                 paused={session.paused}
+                held={
+                  session.speechHeld ? (session.speechHeld.retry ? 'waiting' : 'stopped') : null
+                }
               />
 
               {session.phase === 'ended' && (

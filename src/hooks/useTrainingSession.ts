@@ -21,6 +21,15 @@ import { classifyUtterance } from '@/lib/intent';
 import { reportProgress } from '@/lib/progress-client';
 import { sanitiseForSpeech } from '@/lib/speech';
 import { detectAnswerStyle } from '@/lib/intent';
+import {
+  CONNECTION_LOST_MID_TURN,
+  FAILURE_MESSAGES,
+  connectionFailure,
+  describeFailure,
+  readFailure,
+  type Failure,
+} from '@/lib/failures/codes';
+import { reportFailure } from '@/lib/failures/report-client';
 import type {
   ChatEvent,
   HistoryTurn,
@@ -39,6 +48,51 @@ import { useTtsPlayer } from './useTtsPlayer';
  * a cough or by its own voice leaking through the speakers.
  */
 const BARGE_IN_MIN_WORDS = 2;
+
+/**
+ * How many times a turn is asked for before the trainee is told, when nothing of it has
+ * been heard yet.
+ *
+ * Asking again is safe only until the first words arrive: from then on the trainee has
+ * heard part of the turn, and a second request would start it again from the top, which
+ * is the very thing trainees complained of. Before that, a retry is invisible.
+ */
+const CHAT_ATTEMPTS = 3;
+
+/**
+ * How long a turn may go without sending anything before it is treated as lost.
+ *
+ * Gemini takes three to eight seconds to start a turn and then streams steadily, so
+ * twenty seconds of nothing, before or during a turn, is a connection that has gone
+ * rather than a model that is thinking.
+ */
+const CHAT_SILENCE_MS = 20_000;
+
+/** A turn that failed, with what to tell the trainee and what to log. */
+class TurnFailure extends Error {
+  constructor(
+    readonly failure: Failure,
+    /** For the developer log: `network`, `timeout`, or `http-` and the status. */
+    readonly kind: string,
+  ) {
+    super(failure.message);
+    this.name = 'TurnFailure';
+  }
+}
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
 
 const EMPTY_LEARNER: LearnerProfile = {
   questionsAsked: 0,
@@ -69,6 +123,12 @@ export interface UseTrainingSessionResult {
   /** Running read on the trainee, sent to the model each turn. */
   learner: LearnerProfile;
   error: string | null;
+  /**
+   * The trainer is held on a sentence it could not fetch, usually because the
+   * connection dropped. It tries again on its own; `carryOn` tries now.
+   */
+  speechHeld: Failure | null;
+  carryOn: () => void;
   micState: ReturnType<typeof useSpeechInput>['state'];
   micLevel: number;
   /** Which speech to text transport is live. Null before the session starts. */
@@ -207,7 +267,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     traineeNameRef.current = traineeName;
   }, [traineeName]);
 
-  const tts = useTtsPlayer({ onError: setError });
+  const tts = useTtsPlayer({ deckId: deck.meta.id });
   const ttsRef = useRef(tts);
   useEffect(() => {
     ttsRef.current = tts;
@@ -320,71 +380,141 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       /** Set when the model moved the deck during this turn. */
       let navigatedTo: number | null = null;
 
-      try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            // Named explicitly. The server loads a deck per request, and without
-            // this a session on an uploaded deck would be narrated from the
-            // default one: the right slides on screen, the wrong script.
-            deckId: deck.meta.id,
-            kind,
-            slideId: targetSlide,
-            question: opts.question,
-            history: buildHistory(),
-            traineeName: traineeNameRef.current,
-            coveredSlideIds: coveredRef.current,
-            learner: learnerRef.current,
-            language: languageRef.current,
-            voice: chosenVoiceRef.current,
-          }),
-          signal: controller.signal,
-        });
+      const body = JSON.stringify({
+        // Named explicitly. The server loads a deck per request, and without
+        // this a session on an uploaded deck would be narrated from the
+        // default one: the right slides on screen, the wrong script.
+        deckId: deck.meta.id,
+        kind,
+        slideId: targetSlide,
+        question: opts.question,
+        history: buildHistory(),
+        traineeName: traineeNameRef.current,
+        coveredSlideIds: coveredRef.current,
+        learner: learnerRef.current,
+        language: languageRef.current,
+        voice: chosenVoiceRef.current,
+      });
 
-        if (!response.ok || !response.body) {
-          const body = (await response.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `The trainer could not reply (${response.status}).`);
-        }
+      /**
+       * One request for the turn, read to the end.
+       *
+       * Bounded by CHAT_SILENCE_MS of nothing arriving, so a connection that died
+       * without closing does not leave the trainee watching "thinking" for ever.
+       * Every failure leaves as a TurnFailure carrying the standard message.
+       */
+      const streamTurn = async () => {
+        const attempt = new AbortController();
+        const cancel = () => attempt.abort();
+        controller.signal.addEventListener('abort', cancel, { once: true });
+        let silent = false;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
+        const heard = () => {
+          clearTimeout(watchdog);
+          watchdog = setTimeout(() => {
+            silent = true;
+            attempt.abort();
+          }, CHAT_SILENCE_MS);
+        };
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let pending = '';
+        try {
+          heard();
+          let response: Response;
+          try {
+            response = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body,
+              signal: attempt.signal,
+            });
+          } catch (caught) {
+            if (controller.signal.aborted) throw caught;
+            throw new TurnFailure(connectionFailure(), silent ? 'timeout' : 'network');
+          }
 
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          if (!response.ok || !response.body) {
+            throw new TurnFailure(await readFailure(response), `http-${response.status}`);
+          }
 
-          pending += decoder.decode(value, { stream: true });
-          const frames = pending.split('\n\n');
-          pending = frames.pop() ?? '';
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let pending = '';
 
-          for (const frame of frames) {
-            const line = frame.split('\n').find((l) => l.startsWith('data: '));
-            if (!line) continue;
-
-            let event: ChatEvent;
+          for (;;) {
+            let chunk: ReadableStreamReadResult<Uint8Array>;
             try {
-              event = JSON.parse(line.slice(6)) as ChatEvent;
-            } catch {
-              continue;
+              chunk = await reader.read();
+            } catch (caught) {
+              if (controller.signal.aborted) throw caught;
+              throw new TurnFailure(connectionFailure(), silent ? 'timeout' : 'network');
             }
+            const { done, value } = chunk;
+            if (done) break;
+            heard();
 
-            if (event.type === 'text') {
-              if (!sawText) {
-                sawText = true;
-                setPhase('speaking');
+            pending += decoder.decode(value, { stream: true });
+            const frames = pending.split('\n\n');
+            pending = frames.pop() ?? '';
+
+            for (const frame of frames) {
+              const line = frame.split('\n').find((l) => l.startsWith('data: '));
+              if (!line) continue;
+
+              let event: ChatEvent;
+              try {
+                event = JSON.parse(line.slice(6)) as ChatEvent;
+              } catch {
+                continue;
               }
-              spoken += event.delta;
-              player.push(event.delta);
-            } else if (event.type === 'nav') {
-              const next = clampSlideId(deck, event.slideId);
-              navigatedTo = next;
-              setSlideId(next);
-              slideIdRef.current = next;
-            } else if (event.type === 'error') {
-              throw new Error(event.message);
+
+              if (event.type === 'text') {
+                if (!sawText) {
+                  sawText = true;
+                  setPhase('speaking');
+                }
+                spoken += event.delta;
+                player.push(event.delta);
+              } else if (event.type === 'nav') {
+                const next = clampSlideId(deck, event.slideId);
+                navigatedTo = next;
+                setSlideId(next);
+                slideIdRef.current = next;
+              } else if (event.type === 'error') {
+                throw new TurnFailure(
+                  {
+                    code: event.code ?? 'unavailable',
+                    message: event.message,
+                    retry: event.retry !== false,
+                    ref: event.ref,
+                  },
+                  'stream-error',
+                );
+              }
             }
+          }
+        } finally {
+          clearTimeout(watchdog);
+          controller.signal.removeEventListener('abort', cancel);
+        }
+      };
+
+      try {
+        for (let tries = 1; ; tries += 1) {
+          try {
+            await streamTurn();
+            break;
+          } catch (caught) {
+            const retryable =
+              caught instanceof TurnFailure &&
+              caught.failure.retry &&
+              !sawText &&
+              tries < CHAT_ATTEMPTS &&
+              isCurrent();
+            if (!retryable) throw caught;
+            const wait = caught.failure.retryAfter
+              ? caught.failure.retryAfter * 1000
+              : tries * 1500;
+            await pause(wait, controller.signal);
           }
         }
 
@@ -425,7 +555,29 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           appendEntry(makeEntry('trainer', partial, targetSlide));
         }
         if ((caught as Error).name !== 'AbortError' && isCurrent()) {
-          setError((caught as Error).message);
+          if (caught instanceof TurnFailure) {
+            // The server logs what providers said; only the browser knows when the
+            // connection itself went, so that is the part it reports.
+            if (caught.kind === 'network' || caught.kind === 'timeout') {
+              reportFailure({
+                area: 'narration',
+                kind: caught.kind,
+                code: 'connection',
+                detail: `A ${kind} turn ${partial ? 'broke off partway' : 'never arrived'}.`,
+                deckId: deck.meta.id,
+                language: languageRef.current,
+              });
+            }
+            // Part of the turn was heard, so it cannot pick up from the same sentence.
+            // The trainee is told how to hear the rest rather than promised it.
+            setError(
+              partial && caught.failure.code === 'connection'
+                ? CONNECTION_LOST_MID_TURN
+                : describeFailure(caught.failure),
+            );
+          } else {
+            setError(FAILURE_MESSAGES.unavailable);
+          }
           setPhase('error');
         }
       } finally {
@@ -583,6 +735,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       ttsRef.current.setVoice(voice);
       ttsRef.current.setLanguage(language);
       sttRef.current.setLanguage(language);
+      sttRef.current.setKeyterms(deck.listenFor ?? []);
       languageRef.current = language;
       chosenVoiceRef.current = voice;
       const trimmed = name?.trim();
@@ -729,6 +882,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     trainerSpeaking: tts.speaking,
     audioInaudible: tts.inaudible,
     retryAudio: tts.ensureAudible,
+    speechHeld: tts.stall,
+    carryOn: tts.carryOn,
     paused,
     pauseSession,
     resumeSession,

@@ -13,13 +13,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
 import { pcmToFloat } from '@/lib/pcm';
 import {
+  languageName,
   MAX_RECORDING_SECONDS,
   MAX_TEST_CHARS,
   OPENAI_VOICES,
+  resultsAsTable,
   SUGGESTED_INSTRUCTIONS,
   TEST_LANGUAGES,
   TEST_SENTENCES,
+  todaysVoiceFor,
   type ListeningChoice,
+  type LoggedResult,
   type OpenAiVoice,
   type TestLanguage,
 } from '@/lib/openai-test/samples';
@@ -41,13 +45,6 @@ interface SpeechResult {
 }
 
 type Heard = { text: string; ms: number } | { error: string; ms: number };
-
-/** Today's voice for each language, as the session would use it. */
-const TODAY: Record<TestLanguage, { voice: string; label: string } | null> = {
-  en: { voice: 'aura-2-thalia-en', label: 'Deepgram Thalia' },
-  hi: { voice: 'sarvam-hi-priya', label: 'Sarvam Priya' },
-  id: null,
-};
 
 const card = 'border-charcoal-line bg-charcoal-soft mt-8 rounded-xl border p-5';
 const field =
@@ -72,6 +69,10 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
   const [instructions, setInstructions] = useState(SUGGESTED_INSTRUCTIONS.en);
   const [playing, setPlaying] = useState<string | null>(null);
   const [results, setResults] = useState<SpeechResult[]>([]);
+  // Everything tried this visit, oldest first and uncapped, for pasting into a score
+  // sheet. The list on the page keeps only the latest few.
+  const [log, setLog] = useState<LoggedResult[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const counter = useRef(0);
@@ -102,9 +103,17 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
       const context = contextRef.current;
       await context.resume().catch(() => undefined);
 
-      const today = TODAY[language];
-      const label = who === 'openai' ? `OpenAI ${voice}` : (today?.label ?? 'Today');
-      const languageName = TEST_LANGUAGES.find((entry) => entry.code === language)?.name ?? '';
+      const today = todaysVoiceFor(language, hindi);
+      if (who === 'today' && !today.ok) return;
+      const label = who === 'openai' ? `OpenAI ${voice}` : today.ok ? today.label : 'Today';
+      const named = languageName(language);
+      const logged = {
+        kind: 'speech' as const,
+        at: new Date(),
+        language,
+        voice: label,
+        ...(who === 'openai' && instructions.trim() ? { instructions: instructions.trim() } : {}),
+      };
       counter.current += 1;
       const id = counter.current;
       setPlaying(who);
@@ -116,7 +125,9 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(
-            who === 'openai' ? { text, voice, instructions } : { text, voice: today?.voice },
+            who === 'openai'
+              ? { text, voice, instructions }
+              : { text, voice: today.ok ? today.voice : undefined },
           ),
         });
         if (!response.ok || !response.body) {
@@ -159,21 +170,21 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
 
         setResults((current) =>
           [
-            { id, who: label, language: languageName, firstSoundMs, seconds: buffer.duration },
+            { id, who: label, language: named, firstSoundMs, seconds: buffer.duration },
             ...current,
           ].slice(0, 8),
         );
+        setLog((current) => [...current, { ...logged, firstSoundMs, seconds: buffer.duration }]);
       } catch (error) {
         setPlaying(null);
+        const message = (error as Error).message;
         setResults((current) =>
-          [
-            { id, who: label, language: languageName, error: (error as Error).message },
-            ...current,
-          ].slice(0, 8),
+          [{ id, who: label, language: named, error: message }, ...current].slice(0, 8),
         );
+        setLog((current) => [...current, { ...logged, error: message }]);
       }
     },
-    [instructions, language, stopPlayback, text, voice],
+    [hindi, instructions, language, stopPlayback, text, voice],
   );
 
   useEffect(
@@ -213,6 +224,11 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           throw new Error(body.error ?? `Failed with ${response.status}.`);
         }
         setHeard({ openai: body.openai, deepgram: body.deepgram });
+        const { openai, deepgram } = body;
+        setLog((current) => [
+          ...current,
+          { kind: 'listening', at: new Date(), language: choice, openai, deepgram },
+        ]);
       } catch (error) {
         setListenError((error as Error).message);
       } finally {
@@ -276,8 +292,17 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
     [],
   );
 
-  const today = TODAY[language];
-  const todayUnavailable = !today || (language === 'hi' && !hindi);
+  // ------------------------------------------------------------------- the log
+  const copyResults = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(resultsAsTable(log));
+      setCopied(`Copied ${log.length} ${log.length === 1 ? 'result' : 'results'}.`);
+    } catch {
+      setCopied('The browser did not allow copying. Try again from this tab.');
+    }
+  }, [log]);
+
+  const today = todaysVoiceFor(language, hindi);
 
   return (
     <div>
@@ -300,28 +325,22 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           Hear it speak
         </h2>
 
-        <fieldset className="mt-4 min-w-0">
-          <legend className="text-sm font-semibold">Language</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {TEST_LANGUAGES.map((option) => (
-              <label
-                key={option.code}
-                className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm ring-1 transition-colors ring-inset ${
-                  option.code === language ? 'bg-charcoal ring-teal' : 'ring-charcoal-line'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="speak-language"
-                  checked={option.code === language}
-                  onChange={() => chooseLanguage(option.code)}
-                  className="accent-teal size-4"
-                />
-                {option.name}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {/* A list rather than a row of buttons, because ten languages no longer fit a row. */}
+        <label htmlFor="speak-language" className="mt-4 block text-sm font-semibold">
+          Language
+        </label>
+        <select
+          id="speak-language"
+          value={language}
+          onChange={(event) => chooseLanguage(event.target.value as TestLanguage)}
+          className={`${field} sm:w-64`}
+        >
+          {TEST_LANGUAGES.map((option) => (
+            <option key={option.code} value={option.code}>
+              {option.name}
+            </option>
+          ))}
+        </select>
 
         <label htmlFor="speak-text" className="mt-5 block text-sm font-semibold">
           What to say
@@ -337,6 +356,9 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           onChange={(event) => setText(event.target.value)}
           className={field}
           lang={language}
+          // Arabic runs right to left. Auto lets each sentence set its own direction
+          // without turning the page round.
+          dir="auto"
         />
 
         <div className="mt-5 grid gap-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
@@ -385,12 +407,12 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           <button
             type="button"
             onClick={() => void speak('today')}
-            disabled={todayUnavailable || playing !== null || !text.trim()}
+            disabled={!today.ok || playing !== null || !text.trim()}
             className={secondary}
           >
             {playing === 'today'
               ? 'Playing'
-              : today
+              : today.ok
                 ? `Play with today's voice (${today.label})`
                 : "Play with today's voice"}
           </button>
@@ -400,18 +422,7 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
             </button>
           )}
         </div>
-        {language === 'id' && (
-          <p className="text-muted mt-2 text-xs">
-            Nothing the trainer uses today can speak Indonesian: Deepgram&apos;s voices are English
-            and Sarvam&apos;s are Indian languages.
-          </p>
-        )}
-        {language === 'hi' && !hindi && (
-          <p className="text-muted mt-2 text-xs">
-            Today&apos;s Hindi voice is not switched on in this deployment, so there is nothing to
-            compare against.
-          </p>
-        )}
+        {!today.ok && <p className="text-muted mt-2 text-xs">{today.reason}</p>}
 
         {results.length > 0 && (
           <ul className="mt-5 space-y-2" aria-live="polite">
@@ -504,7 +515,7 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
                 {'error' in result ? (
                   <p className="text-logo-red mt-2 text-sm">{result.error}</p>
                 ) : (
-                  <p className="text-mist mt-2 text-sm leading-relaxed">
+                  <p className="text-mist mt-2 text-sm leading-relaxed" dir="auto">
                     {result.text || <span className="text-muted">Heard nothing.</span>}
                   </p>
                 )}
@@ -513,6 +524,29 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           </div>
         )}
       </section>
+
+      {log.length > 0 && (
+        <section className={card} aria-labelledby="log-heading">
+          <h2 id="log-heading" className="text-lg font-semibold">
+            Results this visit
+          </h2>
+          <p className="text-muted mt-1 text-sm leading-relaxed">
+            {log.length} {log.length === 1 ? 'test' : 'tests'} so far: each language, voice and
+            description, the time to first sound, and both transcripts. Copied as rows that paste
+            straight into a spreadsheet. Nothing is kept once this page is closed.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => void copyResults()} className={secondary}>
+              Copy results
+            </button>
+            {copied && (
+              <p role="status" className="text-muted text-sm">
+                {copied}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

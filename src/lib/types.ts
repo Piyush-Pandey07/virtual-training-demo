@@ -124,7 +124,14 @@ export type ChatEvent =
    * about to use on them.
    */
   | { type: 'done'; text: string }
-  | { type: 'error'; message: string };
+  | {
+      type: 'error';
+      /** The standard message for `code`, never a provider's own words. */
+      message: string;
+      code?: import('./failures/codes').FailureCode;
+      retry?: boolean;
+      ref?: string;
+    };
 
 /** Response body for POST /api/deepgram/token. */
 export interface DeepgramTokenResponse {

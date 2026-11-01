@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { SignOutButton } from './SignOutButton';
 import { roleLabel } from '@/lib/auth/labels';
+import { profilesEnabled } from '@/lib/config';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { Role } from '@/lib/roster/types';
 
@@ -30,7 +31,7 @@ export interface NavPerson {
 interface MainNavProps {
   person: NavPerson;
   /** The page the viewer is on, so it is not offered as somewhere to go. */
-  current?: '/' | '/decks' | '/people' | '/platform' | '/openai-test';
+  current?: '/' | '/decks' | '/people' | '/platform' | '/openai-test' | '/profile';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -44,6 +45,9 @@ export function MainNav({ person, current }: MainNavProps) {
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
+  // Everybody's own, so offered to everybody, but only while learner profiles are
+  // switched on. Off, the page is a 404 and the link would be an invitation to one.
+  if (profilesEnabled()) links.push({ href: '/profile', label: 'My profile' });
 
   return (
     <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">

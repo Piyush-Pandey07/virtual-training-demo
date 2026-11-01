@@ -1,10 +1,11 @@
 /**
  * The OpenAI test.
  *
- * For Technavious staff deciding between two ways of offering Hindi and Indonesian:
- * Deepgram with Sarvam beside it, or OpenAI alone. Here they can hear OpenAI's voices
- * say the same sentence in English, Hindi and Indonesian, hear today's voice say it
- * too, and record themselves to compare OpenAI's transcript with Deepgram's.
+ * For Technavious staff deciding how to offer languages beyond English: Deepgram with
+ * Sarvam beside it, or OpenAI alone. Here they can hear OpenAI's voices say the same
+ * sentence in English, Hindi and Indonesian, and in Arabic, Malay, Filipino, Vietnamese,
+ * Tamil, Telugu and Marathi, which are wanted next; hear today's voice say it where there
+ * is one; and record themselves to compare OpenAI's transcript with Deepgram's.
  *
  * Nothing a trainee does reaches this page or OpenAI. Anybody who is not Technavious
  * staff gets a 404, exactly as for any other administrator's page.
@@ -40,9 +41,9 @@ export default async function OpenAiTestPage() {
         </p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">OpenAI test</h1>
         <p className="text-muted mt-3 text-base leading-relaxed">
-          Hear how OpenAI speaks English, Hindi and Indonesian, beside the voices the trainer uses
-          today, and see how well it understands you. Nothing here is used in a training session,
-          and customers never see this page.
+          Hear how OpenAI speaks English, Hindi, Indonesian and the languages wanted next, beside
+          the voices the trainer uses today, and see how well it understands you. Nothing here is
+          used in a training session, and customers never see this page.
         </p>
 
         <OpenAiTest configured={openAiConfigured()} hindi={hindiAvailable()} />

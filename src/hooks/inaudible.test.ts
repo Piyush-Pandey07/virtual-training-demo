@@ -104,7 +104,7 @@ describe('detecting that nobody can hear the trainer', () => {
     // nothing counts until it plays, because otherwise they carry on and finish with
     // nothing recorded.
     const banner = SCREEN.slice(SCREEN.indexOf('session.audioInaudible &&'));
-    assert.match(banner.slice(0, 1400), /marked as\s*\n?\s*completed until it plays/);
+    assert.match(banner.slice(0, 1400), /marked as\s+completed\s+until it plays/);
   });
 });
 

@@ -10,6 +10,7 @@
  */
 
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
@@ -96,6 +97,14 @@ export default async function PlatformPage() {
           Every company using this deployment. Opening one shows you what their administrators see,
           and everything you do while you are in there happens inside their organisation, so leave
           it again when you are done.
+        </p>
+        <p className="mt-3 text-sm">
+          <Link href="/platform/errors" className="text-teal hover:underline">
+            Developer log
+          </Link>
+          <span className="text-muted">
+            : what went wrong for trainees and admins, with each provider&apos;s own words.
+          </span>
         </p>
 
         {!orgsConfigured() && (

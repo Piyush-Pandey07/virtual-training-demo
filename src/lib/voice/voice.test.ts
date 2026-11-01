@@ -310,10 +310,7 @@ describe('the voice and language cannot change once the session has started', ()
   });
 
   it('is carried by every sentence the trainer speaks, and every turn it writes', () => {
-    assert.match(
-      bodyOf(PLAYER, 'speakChunk'),
-      /JSON\.stringify\(voice \? \{ text, voice \} : \{ text \}\)/,
-    );
+    assert.match(bodyOf(PLAYER, 'loadSpeech'), /\.\.\.\(voice \? \{ voice \} : \{\}\)/);
     assert.match(
       bodyOf(SESSION, 'runTurn'),
       /language: languageRef\.current,\s*voice: chosenVoiceRef\.current,/,

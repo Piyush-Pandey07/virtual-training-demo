@@ -19,6 +19,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CAPTURE_SAMPLE_RATE } from '@/lib/config';
+import { LISTENING_LOST, describeFailure, readFailure } from '@/lib/failures/codes';
+import { reportFailure } from '@/lib/failures/report-client';
 import { listeningLanguage } from '@/lib/language';
 import type { DeepgramTokenResponse, MicState, SessionLanguage } from '@/lib/types';
 
@@ -74,6 +76,20 @@ const VAD_ONSET_CHUNKS = Math.ceil(VAD_MIN_SPEECH_MS / CHUNK_MS);
 /** Flush regardless past this length, so a stuck detector cannot buffer forever. */
 const VAD_MAX_UTTERANCE_MS = 30_000;
 
+/** One quick retry for an utterance that did not reach the server. */
+const STT_RETRY_DELAY_MS = 1000;
+
+/**
+ * How long after falling back to short bursts the live connection is tried again.
+ *
+ * Bursts work, but every utterance waits for the whole of itself to upload and there
+ * are no live captions, so live transcription is worth getting back once whatever broke
+ * it has passed. A few attempts only: a key that cannot mint browser tokens fails the
+ * same way every time.
+ */
+const STREAM_REOPEN_MS = 20_000;
+const MAX_STREAM_REOPENS = 3;
+
 export interface UseSpeechInputOptions {
   /** Called with a complete utterance once the speaker has stopped. */
   onUtterance: (text: string) => void;
@@ -97,6 +113,8 @@ export interface UseSpeechInputResult {
   setMuted: (muted: boolean) => void;
   /** What the trainee is expected to speak. Set once, before the session first starts. */
   setLanguage: (language: SessionLanguage) => void;
+  /** Words to listen hard for, such as the deck's acronyms. Set before the session starts. */
+  setKeyterms: (terms: string[]) => void;
 }
 
 interface DeepgramTranscriptMessage {
@@ -125,6 +143,15 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     languageRef.current = language;
   }, []);
 
+  /**
+   * Words to listen hard for: the deck's glossary acronyms. Deepgram's keyterm prompting
+   * turned "CRY units", "RDA" and "LOTTO" into CRAH, RDHx and LOTO on the same recording.
+   */
+  const keytermsRef = useRef<string[]>([]);
+  const setKeyterms = useCallback((terms: string[]) => {
+    keytermsRef.current = terms;
+  }, []);
+
   // Streaming transport state.
   const socketRef = useRef<WebSocket | null>(null);
   const keepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -148,6 +175,10 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   const speechMsRef = useRef(0);
   const inSpeechRef = useRef(false);
   const sttAbortRef = useRef<AbortController | null>(null);
+  const reopenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reopensRef = useRef(0);
+  /** Set below, once openSocket exists, so a fallback can schedule its own way back. */
+  const reopenStreamRef = useRef<() => void>(() => undefined);
 
   const resetBatchState = useCallback(() => {
     bufferRef.current = [];
@@ -179,25 +210,47 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     sttAbortRef.current = controller;
     setTranscribing(true);
 
-    try {
-      const response = await fetch(`/api/stt?language=${languageRef.current}`, {
+    const params = new URLSearchParams({ language: languageRef.current });
+    for (const term of keytermsRef.current) params.append('keyterm', term);
+    const send = () =>
+      fetch(`/api/stt?${params}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/octet-stream' },
         body: merged.buffer as ArrayBuffer,
         signal: controller.signal,
       });
 
+    try {
+      let response: Response;
+      try {
+        response = await send();
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        // The connection blinked. The audio is still here, so it is sent once more
+        // rather than the trainee being asked to repeat themselves.
+        await new Promise((resolve) => setTimeout(resolve, STT_RETRY_DELAY_MS));
+        if (controller.signal.aborted) return;
+        response = await send();
+      }
+
       if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Transcription failed with ${response.status}.`);
+        optionsRef.current.onError?.(describeFailure(await readFailure(response)));
+        return;
       }
 
       const { transcript } = (await response.json()) as { transcript?: string };
       const text = transcript?.trim();
       if (text) optionsRef.current.onUtterance(text);
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        optionsRef.current.onError?.((error as Error).message);
+      if ((error as Error).name !== 'AbortError' && !controller.signal.aborted) {
+        reportFailure({
+          area: 'listening',
+          kind: 'network',
+          code: 'connection',
+          detail: `An utterance of ${Math.round(speechMs / 100) / 10} s could not be sent.`,
+          language: languageRef.current,
+        });
+        optionsRef.current.onError?.(LISTENING_LOST);
       }
     } finally {
       setTranscribing(false);
@@ -338,6 +391,8 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   const stop = useCallback(() => {
     stoppingRef.current = true;
     sttAbortRef.current?.abort();
+    if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
+    reopenTimerRef.current = null;
     teardownSocket();
     micRef.current.stop();
     resetBatchState();
@@ -363,6 +418,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
       url.searchParams.set('vad_events', 'true');
       url.searchParams.set('language', listeningLanguage(languageRef.current));
+      for (const term of keytermsRef.current) url.searchParams.append('keyterm', term);
 
       const socket = new WebSocket(url, [credentials.scheme, credentials.token]);
       socket.binaryType = 'arraybuffer';
@@ -423,6 +479,11 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       /**
        * Losing the socket used to be terminal.
        *
+       * It no longer raises a message either. Bursts work as well for the trainee, so
+       * telling them about the switch only worried them about something they did not
+       * need to act on. It goes to the developer log instead, and the live connection
+       * is tried again in a little while.
+       *
        * The dead socket stayed in socketRef, the keepalive kept ticking, and every
        * chunk was dropped silently because readyState was not OPEN. The microphone
        * stayed live and the interface still said "Listening, go ahead", so the
@@ -447,13 +508,18 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
         transportRef.current = 'batch';
         setTransport('batch');
 
-        optionsRef.current.onError?.(reason);
+        reportFailure({
+          area: 'live-listening',
+          kind: reason,
+          code: 'connection',
+          detail: 'Live transcription closed; switched to short bursts.',
+          language: languageRef.current,
+        });
+        reopenStreamRef.current();
       };
 
       socket.onerror = () => {
-        fallBackToBatch(
-          'The live transcription connection dropped, so your speech is now being sent in short bursts instead. Carry on talking as normal.',
-        );
+        fallBackToBatch('socket-error');
       };
 
       socket.onclose = (event) => {
@@ -461,11 +527,9 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
         // 1000 and 1005 are ordinary closes, which happen when we hang up.
         if (event.code === 1000 || event.code === 1005) return;
 
-        fallBackToBatch(
-          event.code === 1006
-            ? 'Live transcription could not connect, most likely because the Deepgram key cannot mint browser tokens. Your speech is being sent in short bursts instead, which works just as well.'
-            : `Live transcription stopped (code ${event.code}), so your speech is now being sent in short bursts instead. Carry on talking as normal.`,
-        );
+        // 1006 at the start of a session usually means the key cannot mint browser
+        // tokens; later in one, that the connection went.
+        fallBackToBatch(`socket-close-${event.code}`);
       };
     },
     [reportStreamedAudio, resetBatchState, teardownSocket],
@@ -474,6 +538,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   const start = useCallback(async () => {
     if (transportRef.current) return;
     stoppingRef.current = false;
+    reopensRef.current = 0;
     resetBatchState();
 
     // Decide the transport before opening the microphone, so a chunk never
@@ -484,11 +549,15 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       if (response.ok) {
         credentials = (await response.json()) as DeepgramTokenResponse;
       } else {
-        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          fatal?: boolean;
+        };
         // A missing key is fatal for both transports, so report it rather than
-        // silently falling back to a route that will fail the same way.
-        if (/is not set/i.test(body.error ?? '')) {
-          optionsRef.current.onError?.(body.error ?? 'Deepgram is not configured.');
+        // silently falling back to a route that will fail the same way. The server
+        // decides which failures those are, and says so with `fatal`.
+        if (body.fatal === true) {
+          optionsRef.current.onError?.(body.error ?? LISTENING_LOST);
           return;
         }
         // Anything else, most often a key without permission to mint tokens,
@@ -520,6 +589,50 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     if (credentials) openSocket(credentials);
   }, [openSocket, resetBatchState]);
 
+  /**
+   * Tries to get live transcription back after a fallback to bursts.
+   *
+   * Waits STREAM_REOPEN_MS, or for the browser to say it is back online, whichever comes
+   * first, and never mid-utterance: switching then would drop what was being said.
+   */
+  const reopenStream = useCallback(() => {
+    if (reopensRef.current >= MAX_STREAM_REOPENS) return;
+    if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
+
+    const attempt = async () => {
+      reopenTimerRef.current = null;
+      window.removeEventListener('online', onOnline);
+      if (stoppingRef.current || transportRef.current !== 'batch') return;
+      if (inSpeechRef.current) {
+        reopenTimerRef.current = setTimeout(() => void attempt(), 2000);
+        return;
+      }
+      reopensRef.current += 1;
+      try {
+        const response = await fetch('/api/deepgram/token', { method: 'POST' });
+        if (!response.ok) return;
+        const credentials = (await response.json()) as DeepgramTokenResponse;
+        if (stoppingRef.current || transportRef.current !== 'batch' || inSpeechRef.current) return;
+        resetBatchState();
+        transportRef.current = 'stream';
+        setTransport('stream');
+        openSocket(credentials);
+      } catch {
+        // Still offline. The next fallback, or the next online event, tries again.
+      }
+    };
+    const onOnline = () => {
+      if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
+      void attempt();
+    };
+    window.addEventListener('online', onOnline, { once: true });
+    reopenTimerRef.current = setTimeout(() => void attempt(), STREAM_REOPEN_MS);
+  }, [openSocket, resetBatchState]);
+
+  useEffect(() => {
+    reopenStreamRef.current = reopenStream;
+  }, [reopenStream]);
+
   const setMuted = useCallback((muted: boolean) => {
     micRef.current.setMuted(muted);
     if (muted) {
@@ -541,6 +654,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     () => () => {
       stoppingRef.current = true;
       sttAbortRef.current?.abort();
+      if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
       teardownSocket();
       // The socket alone is not enough. Leaving the microphone running kept the
       // recording indicator lit after the page was left, and on the batch
@@ -562,5 +676,6 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     stop,
     setMuted,
     setLanguage,
+    setKeyterms,
   };
 }

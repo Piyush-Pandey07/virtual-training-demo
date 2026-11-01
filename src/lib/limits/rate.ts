@@ -79,6 +79,12 @@ export const RATE_LIMITS = {
     { seconds: 60, max: 10 },
     { seconds: 3600, max: 100 },
   ],
+  // Browser reports to the developer log. Free to make, but each is a database write,
+  // and a page stuck in a loop should not be able to fill the log.
+  report: [
+    { seconds: 60, max: 20 },
+    { seconds: 3600, max: 200 },
+  ],
 } satisfies Record<string, RateWindow[]>;
 
 export type RateKind = keyof typeof RATE_LIMITS;

@@ -3,9 +3,12 @@
  *
  * Turns one chunk of the trainer's speech into audio, in the voice the delegate chose.
  *
- * The response is raw 16-bit PCM rather than MP3 on purpose. The client queues
- * these chunks through the Web Audio API, and raw PCM needs no decoding step, so
- * playback starts sooner and a barge-in can cut it off cleanly mid-sentence.
+ * The response is raw 16-bit PCM unless the body asks for `format: 'mp3'`. Raw PCM
+ * needs no decoding step, which is why it was the only format for a long time; the
+ * session player now asks for MP3, about eight times smaller, because on a weak
+ * connection the download, not the decoding, is what leaves the trainer silent between
+ * sentences. Either way the browser ends up with a Web Audio buffer, so a barge-in still
+ * cuts it off cleanly mid-sentence. The content type says which format came back.
  *
  * `voice` is optional. Without it this speaks in the deployment's default, exactly as
  * it did before there was a choice. A voice that is named but not offered is refused,
@@ -28,10 +31,14 @@ export async function POST(request: Request) {
 
   let text: string;
   let requested: unknown;
+  let compressed: boolean;
   try {
-    const body = (await request.json()) as { text?: unknown; voice?: unknown };
+    const body = (await request.json()) as { text?: unknown; voice?: unknown; format?: unknown };
     text = typeof body.text === 'string' ? body.text.trim() : '';
     requested = body.voice;
+    // The session player asks for MP3 to use less of a weak connection. Anything else
+    // that calls this, and anything that does not ask, still gets raw PCM.
+    compressed = body.format === 'mp3';
   } catch {
     return Response.json(
       { error: 'Request body must be JSON with a text field.' },
@@ -68,8 +75,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await synthesise(text, voice, request.signal);
-  if (!result.ok) return synthesisFailure(result);
+  const result = await synthesise(text, voice, request.signal, { compressed });
+  if (!result.ok) {
+    return synthesisFailure(result, {
+      route: '/api/tts',
+      person: gate.person,
+      language: voice.languageCode,
+    });
+  }
 
-  return new Response(result.audio, { headers: audioHeaders() });
+  return new Response(result.audio, { headers: audioHeaders('no-store', result.format) });
 }

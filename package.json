@@ -28,7 +28,8 @@
   },
   "overrides": {
     "jose": "^5.10.0",
-    "@grpc/grpc-js": "^1.14.6"
+    "@grpc/grpc-js": "^1.14.6",
+    "zod": "^4.6.6"
   },
   "dependencies": {
     "@deepgram/sdk": "^5.8.0",

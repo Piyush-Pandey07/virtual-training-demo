@@ -15,6 +15,8 @@ import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/confi
 import { listeningLanguage, sessionLanguage } from '@/lib/language';
 
 import { checkUser } from '@/lib/auth/guard';
+import { classifyHttp, classifyThrown } from '@/lib/failures/classify';
+import { failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -48,11 +50,13 @@ export async function POST(request: Request) {
   const gate = await checkUser();
   if (!gate.ok) return gate.response;
 
+  const context: FailureContext = { route: '/api/stt', person: gate.person };
+
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');
   } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 500 });
+    return failureResponse(classifyThrown('deepgram', error), context);
   }
 
   const audio = await request.arrayBuffer().catch(() => null);
@@ -87,8 +91,14 @@ export async function POST(request: Request) {
   url.searchParams.set('punctuate', 'true');
   // The session's language, from the browser and so narrowed: anything but Hindi is
   // English, which is what this route always listened for.
-  const language = sessionLanguage(new URL(request.url).searchParams.get('language'));
+  const query = new URL(request.url).searchParams;
+  const language = sessionLanguage(query.get('language'));
   url.searchParams.set('language', listeningLanguage(language));
+  // The deck's glossary acronyms, to listen hard for. From the browser, so each is checked
+  // to be a short code and the list is capped, well inside Deepgram's limit.
+  for (const term of query.getAll('keyterm').slice(0, 40)) {
+    if (/^[A-Za-z0-9&+-]{2,12}$/.test(term)) url.searchParams.append('keyterm', term);
+  }
   // Raw audio, so Deepgram needs to be told the format explicitly.
   url.searchParams.set('encoding', 'linear16');
   url.searchParams.set('sample_rate', String(CAPTURE_SAMPLE_RATE));
@@ -108,22 +118,15 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (request.signal.aborted) return new Response(null, { status: 499 });
-    return Response.json(
-      { error: `Could not reach Deepgram: ${(error as Error).message}` },
-      { status: 502 },
+    return failureResponse(
+      { provider: 'deepgram', kind: 'unreachable', detail: (error as Error).message },
+      context,
     );
   }
 
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => '');
-    const hint =
-      upstream.status === 401 || upstream.status === 403
-        ? ' Check that DEEPGRAM_API_KEY is correct.'
-        : '';
-    return Response.json(
-      { error: `Deepgram transcription failed (${upstream.status}).${hint} ${detail}`.trim() },
-      { status: 502 },
-    );
+    return failureResponse(classifyHttp('deepgram', upstream.status, detail), context);
   }
 
   const body = (await upstream.json()) as DeepgramListenResponse;
