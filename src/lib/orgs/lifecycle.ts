@@ -4,6 +4,7 @@ import { assetStore, deckStore, forgetDeckStores } from '../decks/registry';
 import { DECK_COLLECTIONS } from '../decks/store-documents';
 import { firestoreDocuments } from '../firebase/firestore';
 import { revokeSessions } from '../firebase/admin';
+import { deleteProfile } from '../profiles/store';
 import { forgetRosterStore, rosterStore } from '../roster/registry';
 import { orgStore, orgsConfigured } from './registry';
 import { scopedDocuments } from './scope';
@@ -37,6 +38,9 @@ const OWNED_COLLECTIONS = [
   // How fast each person has been calling the paid routes. Firestore expires these by
   // itself once its TTL policy is on, but a purge should not depend on a console setting.
   'ratelimits',
+  // Learner profiles: personal details somebody chose to give, so the last thing that
+  // should outlive the customer they were given to.
+  'profiles',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -127,6 +131,12 @@ export async function movePerson(
 
   await from.removePerson(personId);
   await orgs.remember({ uid: person.id, orgId: toOrgId, emailKey: person.emailKey });
+
+  // Their learner profile, if they gave one, is deleted rather than carried across. It
+  // was given to the customer they were in, under a notice that says it goes when they
+  // leave, and left behind it would sit where nobody can reach it, its owner included.
+  // Done whatever PROFILES_ENABLED says, since one saved while it was on still exists.
+  await deleteProfile({ id: personId, orgId: fromOrgId }).catch(() => undefined);
 
   // The claim in their cookie still says the old customer. Best effort: a failure here
   // costs them a stale session, not access to anything they should not have, because
@@ -228,6 +238,10 @@ function documentIdOf(
 ): string | undefined {
   if (collection === 'usage') {
     return typeof row.month === 'string' ? row.month : undefined;
+  }
+  // A profile is keyed on its owner alone, one per person.
+  if (collection === 'profiles') {
+    return typeof row.personId === 'string' ? row.personId : undefined;
   }
   // A rate count is keyed on the person and the kind of call it counts.
   if (collection === 'ratelimits') {

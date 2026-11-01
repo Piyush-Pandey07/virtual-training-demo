@@ -29,6 +29,7 @@ const PAGES: { path: string; current?: string }[] = [
   { path: 'src/app/people/page.tsx', current: '"/people"' },
   { path: 'src/app/people/[id]/page.tsx' },
   { path: 'src/app/platform/page.tsx', current: '"/platform"' },
+  { path: 'src/app/profile/page.tsx', current: '"/profile"' },
 ];
 
 describe('the header on every page', () => {

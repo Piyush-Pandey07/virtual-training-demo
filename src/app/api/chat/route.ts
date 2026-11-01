@@ -30,6 +30,7 @@ import { checkAssignedDeck } from '@/lib/auth/guard';
 import { classifyThrown } from '@/lib/failures/classify';
 import { failurePayload, failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
+import { profileForTrainer } from '@/lib/profiles/for-trainer';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -112,9 +113,14 @@ export async function POST(request: Request) {
   // Run alongside loading the deck rather than before it. Both are a round trip to
   // the database and neither needs the other, and this route is waited on before the
   // trainer says a word, so doing them one after the other would add to every turn.
-  const [limited, deck] = await Promise.all([
+  //
+  // The learner's profile is the third, for the same reason. It is read for the person
+  // the guard signed in, never from the body, and with PROFILES_ENABLED off it is not
+  // read at all: see src/lib/profiles/for-trainer.ts.
+  const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
+    profileForTrainer(gate.person),
   ]);
   if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
@@ -275,7 +281,12 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(deck, traineeName, { language, speaksAs }),
+        systemInstruction: buildSystemInstruction(
+          deck,
+          traineeName,
+          { language, speaksAs },
+          profile,
+        ),
         /**
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.
