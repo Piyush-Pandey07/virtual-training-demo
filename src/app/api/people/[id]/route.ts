@@ -12,6 +12,7 @@
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { revokeSessions } from '@/lib/firebase/admin';
+import { deleteProfile } from '@/lib/profiles/store';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 import type { Role } from '@/lib/roster/types';
@@ -89,6 +90,12 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     // live refresh token behind for somebody who has been removed is not tidy, and
     // this is the moment to spend one call on it.
     await revokeSessions(id).catch(() => undefined);
+
+    // And their learner profile, if they gave one. The notice they agreed to says it
+    // goes when they leave, and nobody could reach it afterwards to delete it, not even
+    // them. Deleted unread, and whatever PROFILES_ENABLED says, since one saved while it
+    // was on still exists. The administrator removing them never sees it.
+    await deleteProfile({ id, orgId: admin.orgId }).catch(() => undefined);
 
     return Response.json({ ok: true });
   } catch (error) {

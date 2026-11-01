@@ -15,6 +15,7 @@ import { currentPerson } from '@/lib/auth/session';
 import { toClientView } from '@/lib/deck';
 import { DeckProvider } from '@/lib/deck-context';
 import { DEFAULT_DECK_ID, loadStoredDeck } from '@/lib/decks/registry';
+import { profileOfferFor } from '@/lib/profiles/offer';
 import { coverageOf, percentComplete } from '@/lib/roster/completion';
 import { rosterStore } from '@/lib/roster/registry';
 import { SessionScreen } from './SessionScreen';
@@ -72,9 +73,16 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
 
   // What an earlier sitting left behind. Slide ids and one percentage: the weighting
   // that produced it stays on this side of the wire.
-  const attempt = await rosterStore(person.orgId)
-    .getAttempt(person.id, deckId)
-    .catch(() => undefined);
+  //
+  // Beside it, whether to offer the learner profile form, which is null without a read
+  // whenever PROFILES_ENABLED is off. Only which questions are open crosses to the
+  // browser, never what the profile says.
+  const [attempt, profileOffer] = await Promise.all([
+    rosterStore(person.orgId)
+      .getAttempt(person.id, deckId)
+      .catch(() => undefined),
+    profileOfferFor(person, deckId),
+  ]);
 
   const resume = attempt
     ? {
@@ -86,7 +94,11 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
 
   return (
     <DeckProvider deck={toClientView(stored.record)}>
-      <SessionScreen reviewed={stored.status === 'published'} resume={resume} />
+      <SessionScreen
+        reviewed={stored.status === 'published'}
+        resume={resume}
+        profileOffer={profileOffer}
+      />
     </DeckProvider>
   );
 }

@@ -129,9 +129,10 @@ describe('what the trainer is told', () => {
       CHAT_ROUTE,
       /const speaksAs = language === 'hi' \? speaksAsFor\(body\.voice\) : undefined;/,
     );
+    // The learner's profile now follows as a fourth argument, which wraps the call.
     assert.match(
       CHAT_ROUTE,
-      /buildSystemInstruction\(deck, traineeName, \{ language, speaksAs \}\)/,
+      /buildSystemInstruction\(\s*deck,\s*traineeName,\s*\{ language, speaksAs \},/,
     );
     assert.match(CHAT_ROUTE, /coveredSlideIds,\s*learner,\s*language,\s*\}\)/);
   });

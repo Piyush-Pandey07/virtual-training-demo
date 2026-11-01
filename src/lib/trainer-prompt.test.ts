@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { getSlide, totalSlides } from './deck';
 import { ISMS_DECK } from './decks/isms';
 import { syntheticDeck } from './__fixtures__/synthetic-deck';
+import type { LearnerProfileRecord } from './profiles/types';
 import { ANSWER_WORD_BUDGET, buildSystemInstruction, buildTurnPrompt } from './trainer-prompt';
 import type { TurnKind } from './types';
 
@@ -66,6 +67,38 @@ describe('prompt size stays bounded as the deck grows', () => {
     });
   }
 
+  it('stays under the ceiling with the longest learner profile the form allows', () => {
+    // The profile goes into the system instruction of every turn, so it is measured on
+    // the same worst case as the deck: the biggest deck, every turn kind.
+    const big = syntheticDeck(60);
+    const longest: LearnerProfileRecord = {
+      personId: 'p',
+      city: 'c'.repeat(60),
+      domainInterest: 'd'.repeat(200),
+      interests: 'i'.repeat(200),
+      expertise: { [big.meta.id]: 'expert' },
+      consent: { version: 'v', at: '2026-11-01T00:00:00.000Z' },
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    };
+    const instruction = buildSystemInstruction(big, 'Asha', undefined, longest);
+    const added = instruction.length - buildSystemInstruction(big, 'Asha').length;
+    assert.ok(added < 750, `the profile added ${added} characters`);
+
+    for (const kind of ['narrate', 'answer', 'quiz', 'recap'] as TurnKind[]) {
+      const chars =
+        instruction.length +
+        buildTurnPrompt({
+          deck: big,
+          kind,
+          slide: getSlide(big, 30)!,
+          history: [],
+          question: kind === 'answer' ? 'how do I classify a document' : undefined,
+          coveredSlideIds: Array.from({ length: 30 }, (_, i) => i + 1),
+        }).length;
+      assert.ok(Math.round(chars / 4) < CEILING, `${kind} is ~${Math.round(chars / 4)} tokens`);
+    }
+  });
+
   it('grows sub-linearly, so doubling the deck does not double the prompt', () => {
     const size = (slideCount: number) => {
       const big = syntheticDeck(slideCount);
@@ -81,6 +114,24 @@ describe('prompt size stays bounded as the deck grows', () => {
 
     const growth = size(60) / size(20);
     assert.ok(growth < 2, `tripling the deck grew the recap prompt ${growth.toFixed(1)}x`);
+  });
+});
+
+/**
+ * A learner profile changes the instruction only when there is one.
+ *
+ * The same discipline as Hindi: an English session's instruction stayed exactly what it
+ * was, and a session without a profile, which is every session while PROFILES_ENABLED is
+ * off, must too. profiles.test.ts proves it through the chat route's own loader.
+ */
+describe('the instruction without a learner profile', () => {
+  it('is exactly the instruction it always was', () => {
+    for (const name of [undefined, 'Asha']) {
+      const before = buildSystemInstruction(deck, name);
+      assert.equal(buildSystemInstruction(deck, name, undefined, undefined), before);
+      assert.equal(buildSystemInstruction(deck, name, { language: 'en' }, null), before);
+      assert.doesNotMatch(before, /ABOUT THIS TRAINEE/);
+    }
   });
 });
 

@@ -112,6 +112,23 @@ export const OPENAI_TRANSCRIBE_MODEL = () => envOr('OPENAI_TRANSCRIBE_MODEL', 'g
 export const openAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim());
 
 /**
+ * Learner profiles: the city, interests and experience a participant may tell the
+ * trainer about, so it can pitch and illustrate its teaching for them.
+ *
+ * Off unless the variable is exactly "true", and it must stay off until Technavious has
+ * approved the privacy notice the profile form shows. The DPDP Act 2023 applies, and
+ * nobody may be asked for personal data under a notice that has not been signed off.
+ *
+ * Off means absent, not hidden. The profile routes answer 404 as any other route that
+ * is not there does, no page offers a form or a link, nothing is read or written, and
+ * the trainer's instructions are byte for byte what they were before profiles existed.
+ *
+ * Exactly "true" rather than anything truthy, so a stray "1", "yes" or "false" left in
+ * a deployment's settings cannot switch on a feature that collects personal data.
+ */
+export const profilesEnabled = () => process.env.PROFILES_ENABLED === 'true';
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.
