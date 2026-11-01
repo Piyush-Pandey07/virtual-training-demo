@@ -12,6 +12,7 @@ import { VoicePicker } from '@/components/VoicePicker';
 import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
+import { describeFailure } from '@/lib/failures/codes';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { SessionLanguage } from '@/lib/types';
 
@@ -178,8 +179,7 @@ export function SessionScreen({
    *
    * `busy` is still right for dimming the slide, which is exactly what it means.
    */
-  const navLocked =
-    session.phase === 'connecting' || session.phase === 'ended' || session.paused;
+  const navLocked = session.phase === 'connecting' || session.phase === 'ended' || session.paused;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -219,9 +219,9 @@ export function SessionScreen({
           className="border-logo-red/40 bg-logo-red/10 flex flex-wrap items-center gap-3 border-b px-5 py-3 sm:px-8"
         >
           <p className="text-mist flex-1 text-sm">
-            <span className="text-logo-red font-semibold">You will not hear the trainer.</span>{' '}
-            Your browser is holding back the sound. Nothing you do from here will be marked as
-            completed until it plays, because a slide only counts once you have heard it.
+            <span className="text-logo-red font-semibold">You will not hear the trainer.</span> Your
+            browser is holding back the sound. Nothing you do from here will be marked as completed
+            until it plays, because a slide only counts once you have heard it.
           </p>
           <button
             type="button"
@@ -229,6 +229,34 @@ export function SessionScreen({
             className="bg-azure text-mist hover:bg-teal hover:text-charcoal shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
           >
             Turn the sound on
+          </button>
+        </div>
+      )}
+
+      {/*
+        The trainer is held on a sentence it could not fetch, almost always because the
+        connection dropped. It tries again on its own and carries on from the same
+        sentence, so this says so and offers a way to try now, rather than an error to
+        dismiss. Hidden while paused: the trainee's own pause says enough.
+      */}
+      {session.speechHeld && !session.paused && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="border-azure/40 bg-azure/10 flex flex-wrap items-center gap-3 border-b px-5 py-3 sm:px-8"
+        >
+          <p className="text-mist flex-1 text-sm">
+            <span className="text-teal font-semibold">
+              {session.speechHeld.retry ? 'Reconnecting.' : 'Nova has stopped.'}
+            </span>{' '}
+            {describeFailure(session.speechHeld)}
+          </p>
+          <button
+            type="button"
+            onClick={session.carryOn}
+            className="bg-azure text-mist hover:bg-teal hover:text-charcoal shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+          >
+            {session.speechHeld.retry ? 'Try now' : 'Try again'}
           </button>
         </div>
       )}

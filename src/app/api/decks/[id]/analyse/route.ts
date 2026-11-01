@@ -30,6 +30,8 @@ import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
 import { checkAdmin } from '@/lib/auth/guard';
+import { classifyThrown } from '@/lib/failures/classify';
+import { failurePayload } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -238,9 +240,15 @@ export async function POST(request: Request, { params }: RouteContext) {
     });
   } catch (error) {
     // The model's own failures are the common case here: a rate limit, a safety
-    // block, or malformed JSON despite the schema. Reporting the message rather
-    // than a generic failure is what makes a retry an informed decision.
-    const message = error instanceof Error ? error.message : 'The analysis step failed.';
-    return Response.json({ error: message, step }, { status: 502 });
+    // block, or malformed JSON despite the schema. The admin gets the standard message
+    // and the step to retry; what the model actually said is in the developer log under
+    // the reference, where Technavious staff can tell a passing limit from an empty
+    // account.
+    const failure = await failurePayload(classifyThrown('gemini', error), {
+      route: '/api/decks/analyse',
+      person: gate.person,
+      deckId: id,
+    });
+    return Response.json({ ...failure, step }, { status: failure.code === 'busy' ? 503 : 502 });
   }
 }

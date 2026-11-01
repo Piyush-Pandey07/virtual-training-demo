@@ -15,6 +15,8 @@ import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/confi
 import { listeningLanguage, sessionLanguage } from '@/lib/language';
 
 import { checkUser } from '@/lib/auth/guard';
+import { classifyHttp, classifyThrown } from '@/lib/failures/classify';
+import { failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
 import { recordQuietly } from '@/lib/usage/store';
 
@@ -48,11 +50,13 @@ export async function POST(request: Request) {
   const gate = await checkUser();
   if (!gate.ok) return gate.response;
 
+  const context: FailureContext = { route: '/api/stt', person: gate.person };
+
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');
   } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 500 });
+    return failureResponse(classifyThrown('deepgram', error), context);
   }
 
   const audio = await request.arrayBuffer().catch(() => null);
@@ -108,22 +112,15 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (request.signal.aborted) return new Response(null, { status: 499 });
-    return Response.json(
-      { error: `Could not reach Deepgram: ${(error as Error).message}` },
-      { status: 502 },
+    return failureResponse(
+      { provider: 'deepgram', kind: 'unreachable', detail: (error as Error).message },
+      context,
     );
   }
 
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => '');
-    const hint =
-      upstream.status === 401 || upstream.status === 403
-        ? ' Check that DEEPGRAM_API_KEY is correct.'
-        : '';
-    return Response.json(
-      { error: `Deepgram transcription failed (${upstream.status}).${hint} ${detail}`.trim() },
-      { status: 502 },
-    );
+    return failureResponse(classifyHttp('deepgram', upstream.status, detail), context);
   }
 
   const body = (await upstream.json()) as DeepgramListenResponse;

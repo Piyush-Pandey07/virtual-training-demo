@@ -310,11 +310,42 @@ would be exposing a full-power speech key to every page load, which is why the b
 You can tell which one is live: batch mode shows a short note under the microphone level, and the
 status line reads "Getting that down" while an utterance is being transcribed.
 
-### Why raw PCM for playback
+### Why MP3 for playback, and what happens when the connection drops
 
-Text to speech comes back as headerless 16-bit PCM rather than MP3. No decode step means playback
-starts sooner, and because every chunk sits on one shared `AudioContext` timeline, sentences join
-without a gap and an interruption can cut playback off at an exact point.
+Text to speech used to come back as headerless 16-bit PCM, which needs no decoding. On a weak mobile
+connection that was the problem: PCM is about 384 kbps, and the trainer fell silent between sentences
+while the next one downloaded. The session player now asks for MP3 at 48 kbps, about eight times
+smaller (one measured sentence: 267 KB of PCM, 32 KB of MP3) and no slower for Deepgram to produce.
+Every sentence is still decoded into a buffer on one shared `AudioContext` timeline, so sentences join
+cleanly and an interruption cuts off at an exact point. Hindi from Sarvam stays PCM. Voice samples and
+the staff test page still take PCM, because they do not ask for MP3.
+
+The player is built for connections that do not hold:
+
+- English sentences are fetched up to two ahead of the one playing. Hindi stays paced to playback, to
+  protect Sarvam's prepaid credit.
+- Every sentence request has a 12 second deadline and one quick retry.
+- A sentence that still cannot be fetched **holds the trainer on that sentence** rather than skipping
+  it. The screen says "Reconnecting", and the player tries again on its own, backing off from 3 to 15
+  seconds and at once when the browser comes back online. "Try now" retries straight away. It carries
+  on from the same sentence, word for word, with nothing generated again.
+- A slide is marked taught only when every sentence of it has played.
+- A turn that fails before any of it is heard is asked for again, up to three times. One that breaks
+  off partway cannot be resumed mid-stream, so the trainee is told to press Explain again.
+- Live transcription that drops falls back to short bursts without alarming the trainee, and tries to
+  reconnect after 20 seconds or when the browser comes back online.
+
+### What trainees see when something fails, and the developer log
+
+Providers fail in their own words, and those words never reach a trainee. Every failure becomes one
+of a few standard messages (`src/lib/failures/codes.ts`) that name no provider, with a short reference.
+What actually happened, the provider, its status and its own message, goes to the **developer log**:
+Technavious staff read it at `/platform/errors`, a day at a time. The browser also reports what only it
+can see, such as dropped connections and timeouts, with what it knows about its network.
+
+The log is the `devlog` Firestore collection, outside every customer's data. Entries carry `expireAt`
+90 days ahead. **Enable a TTL policy on `devlog` / `expireAt` in the Firebase console**, as for
+`ratelimits` / `expireAt`, or entries are never deleted.
 
 ### Why sentence chunking
 

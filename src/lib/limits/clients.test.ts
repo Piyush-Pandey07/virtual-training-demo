@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
  * limit. Two clients call them in loops, and both used to treat that answer like any
  * other failure. The deck analysis abandoned its run, so "Analyse again" started from
  * the first step. The speech player sent every sentence still queued into the same
- * limit and raised the same message for each.
+ * limit and raised the same message for each; it now holds on the refused sentence.
  *
  * Read from source, like the tests in src/hooks, because what matters is which step is
  * asked for again and which requests are never made, and a rendering test would need
@@ -17,7 +17,7 @@ import { describe, it } from 'node:test';
  */
 
 const REVIEW = readFileSync('src/app/decks/[id]/DeckReview.tsx', 'utf8');
-const PLAYER = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8');
+const PLAYER = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8').replace(/\r\n/g, '\n');
 
 /** One hook-level function, from its declaration to the next. See inaudible.test.ts. */
 function bodyOf(source: string, name: string): string {
@@ -94,44 +94,31 @@ describe('analysing a deck when rate limited', () => {
 });
 
 describe('speaking a turn when rate limited', () => {
-  const speak = bodyOf(PLAYER.replace(/\r\n/g, '\n'), 'speakChunk');
+  // The player used to drop the rest of a refused turn, which left a slide marked taught
+  // with half its narration unheard. A refusal now holds the trainer on that sentence
+  // until the limit has passed, like any other failure that waiting can clear.
+  const speak = bodyOf(PLAYER, 'speakChunk');
+  const fetcher = readFileSync('src/lib/voice/fetch-speech.ts', 'utf8').replace(/\r\n/g, '\n');
 
-  it('marks the turn as refused when a sentence is answered 429', () => {
-    assert.match(
-      speak,
-      /if \(response\.status === 429\) limitedGenerationRef\.current = generation;/,
-    );
-    // Before the throw that raises the message, so the mark is in place before any
-    // later sentence of the turn is looked at.
-    assert.ok(
-      speak.indexOf('limitedGenerationRef.current = generation') < speak.indexOf('throw new Error'),
-    );
+  it('holds on the refused sentence rather than skipping it', () => {
+    assert.match(speak, /const retry = await holdOn\(loaded\.failure, generation, stalls\);/);
+    assert.match(speak, /item\.audio = null;/);
+    assert.doesNotMatch(PLAYER, /limitedGenerationRef/, 'the turn is still dropped on a 429');
   });
 
-  it('asks for nothing more in a turn that has been refused', () => {
-    // Before the Hindi lookahead wait as well as before the request, so a refused
-    // Hindi turn does not sit polling the clock for sentences it will never fetch.
-    const skip = speak.indexOf('if (generation === limitedGenerationRef.current) return;');
-    assert.ok(skip >= 0, 'a refused turn still sends its other sentences');
-    assert.ok(skip < speak.indexOf("fetch('/api/tts'"));
-    assert.ok(skip < speak.indexOf('waitForRoom(generation)'));
+  it('waits as long as the server asked before trying again', () => {
+    assert.match(fetcher, /if \(failure\.retryAfter\) return failure\.retryAfter \* 1000;/);
   });
 
-  it('raises the message once, because only the refused request reaches it', () => {
-    // The message is raised in the one catch. Every later sentence of the turn
-    // returns before the request, so it never gets there.
-    assert.equal(speak.match(/setError\(/g)?.length, 1);
-    assert.equal(speak.match(/onError\?\.\(/g)?.length, 1);
+  it('reads the Retry-After header into the failure', () => {
+    const codes = readFileSync('src/lib/failures/codes.ts', 'utf8');
+    assert.match(codes, /response\.headers\.get\('Retry-After'\)/);
   });
 
-  it('lets the next turn speak, since every turn moves the generation on', () => {
-    // The mark is only ever compared with, never cleared. That is safe because
-    // interrupt, which starts every turn, makes a generation no refused turn had.
-    const interrupt = bodyOf(PLAYER.replace(/\r\n/g, '\n'), 'interrupt');
+  it('lets the next turn speak, since every turn releases the hold', () => {
+    const interrupt = bodyOf(PLAYER, 'interrupt');
     assert.match(interrupt, /generationRef\.current \+= 1;/);
-    assert.match(PLAYER, /const limitedGenerationRef = useRef\(-1\);/);
-    const writes = PLAYER.match(/limitedGenerationRef\.current = /g) ?? [];
-    assert.equal(writes.length, 1, 'the refused turn is set from somewhere else too');
+    assert.match(interrupt, /releaseStallRef\.current\?\.\(false\);/);
 
     const session = readFileSync('src/hooks/useTrainingSession.ts', 'utf8');
     assert.match(bodyOf(session.replace(/\r\n/g, '\n'), 'runTurn'), /player\.interrupt\(\);/);

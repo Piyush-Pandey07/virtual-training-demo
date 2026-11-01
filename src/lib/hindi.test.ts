@@ -190,7 +190,12 @@ describe('asking Sarvam only for what is about to be heard', () => {
       speak.slice(wait),
       /^if \(languageRef\.current === 'hi'\) \{\s*await waitForRoom\(generation\);/,
     );
-    assert.ok(wait < speak.indexOf("fetch('/api/tts'"), 'the wait comes after the request');
+    assert.ok(wait < speak.indexOf('startLoading(item)'), 'the wait comes after the request');
+    // And Hindi is never fetched ahead of the sentence playing, which would bypass it.
+    assert.match(
+      bodyOf(PLAYER, 'fetchAhead'),
+      /^const fetchAhead = useCallback\(\(\) => \{\s*if \(languageRef\.current === 'hi'\) return;/,
+    );
   });
 
   it('stops waiting the moment the trainee interrupts', () => {

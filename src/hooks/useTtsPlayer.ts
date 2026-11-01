@@ -9,16 +9,28 @@
  * Audio is scheduled back to back on a single AudioContext timeline, which keeps
  * the joins between sentences inaudible.
  *
- * Because it is raw PCM on a shared timeline, a barge-in is exact: stop the
- * scheduled sources, drop the queue, and abort any synthesis still in flight.
+ * Because every sentence becomes a Web Audio buffer on a shared timeline, a barge-in
+ * is exact: stop the scheduled sources, drop the queue, and abort any synthesis still
+ * in flight.
+ *
+ * Built for connections that do not hold (AI-10). Speech is fetched as MP3, about an
+ * eighth of the size of raw PCM; English is fetched up to SPEECH_AHEAD sentences ahead
+ * of the one playing; every request has a deadline and one quick retry; and a sentence
+ * that still cannot be fetched pauses the trainer on that sentence instead of skipping
+ * it. The pause shows as `stall`, retries on its own as the connection allows, and
+ * carries on from the same sentence, word for word, with nothing generated again. A
+ * turn is only finished, and so a slide only taught, once every sentence has played.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
+import type { Failure } from '@/lib/failures/codes';
+import { reportFailure } from '@/lib/failures/report-client';
 import { pcmToFloat } from '@/lib/pcm';
 import { nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
 import type { SessionLanguage } from '@/lib/types';
+import { fetchSpeech, stallRetryDelayMs } from '@/lib/voice/fetch-speech';
 
 /** Small lead time so the first buffer is queued before the clock reaches it. */
 const SCHEDULE_LEAD_SECONDS = 0.08;
@@ -43,6 +55,29 @@ const SCHEDULE_LEAD_SECONDS = 0.08;
  */
 const HINDI_LOOKAHEAD_SECONDS = 6;
 
+/**
+ * How many English sentences may be downloading at once.
+ *
+ * One at a time meant the next sentence only started downloading when the one before it
+ * had arrived, so on a slow link any sentence that took longer to fetch than its
+ * predecessor took to say was heard as a gap. Two in flight gives a sentence of slack.
+ * Not more: synthesis is billed whether or not it is heard, and a trainee who presses
+ * Next throws away whatever was fetched ahead.
+ */
+const SPEECH_AHEAD = 2;
+
+/** A sentence waiting to be heard, and its audio once asked for. */
+interface QueuedSpeech {
+  text: string;
+  generation: number;
+  audio: Promise<LoadedSpeech> | null;
+}
+
+type LoadedSpeech =
+  | { ok: true; buffer: AudioBuffer }
+  | { ok: false; aborted: true }
+  | { ok: false; aborted: false; failure: Failure; kind: string };
+
 export interface UseTtsPlayerResult {
   /** True from the first scheduled buffer until the last one finishes. */
   speaking: boolean;
@@ -65,6 +100,13 @@ export interface UseTtsPlayerResult {
    * because everything else looks normal.
    */
   inaudible: boolean;
+  /**
+   * Set while the trainer is held on a sentence it could not fetch, with the standard
+   * message to show. Null otherwise. See the comment at the top of this file.
+   */
+  stall: Failure | null;
+  /** Tries the held sentence again now, from a click. Does nothing when not held. */
+  carryOn: () => void;
   /** Retries playback from a user gesture. Resolves true if audio can now be heard. */
   ensureAudible: () => Promise<boolean>;
   /**
@@ -87,12 +129,12 @@ export interface UseTtsPlayerResult {
 }
 
 interface Options {
-  onError?: (message: string) => void;
+  /** Named in reports to the developer log, so a dropout can be tied to a deck. */
+  deckId?: string;
 }
 
 export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const [speaking, setSpeaking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   /**
    * True when audio was scheduled that nobody can hear.
    *
@@ -107,6 +149,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
    * a button: a click is the gesture, and resuming on one works.
    */
   const [inaudible, setInaudible] = useState(false);
+  const [stall, setStall] = useState<Failure | null>(null);
 
   /**
    * Suspended because the trainee asked, as opposed to held back by the browser.
@@ -138,22 +181,31 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const bufferRef = useRef('');
   /** Serialises synthesis so sentences are spoken in order. */
   const chainRef = useRef<Promise<void>>(Promise.resolve());
+  /** Cancels every download of the current generation at once. */
   const abortRef = useRef<AbortController | null>(null);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   /** Incremented on every interrupt, so in-flight work knows it is stale. */
   const generationRef = useRef(0);
   const pendingCountRef = useRef(0);
   const doneWaitersRef = useRef<Array<() => void>>([]);
+  /** Sentences enqueued and not yet scheduled, in order, for fetching ahead. */
+  const queueRef = useRef<QueuedSpeech[]>([]);
+  const inFlightRef = useRef(0);
   /**
-   * The generation, and so the turn, that the server has rate limited.
+   * How the current hold ends: `true` to try the sentence again, `false` because the turn
+   * was interrupted. Null when nothing is held.
    *
-   * A turn is ten or so sentences queued behind one another. Treating a 429 like any
-   * other failure sent every one of them into the same limit, each one refused and each
-   * one raising the same message. Once one sentence is refused the rest of that turn is
-   * dropped without asking, and the message is shown once. Every turn starts with an
-   * interrupt, which moves the generation on, so the next turn asks again as normal.
+   * There is only ever one hold. Sentences play in order, so the first that cannot be
+   * fetched holds everything behind it, which is what keeps a slide from carrying on
+   * with a gap in it.
    */
-  const limitedGenerationRef = useRef(-1);
+  const releaseStallRef = useRef<((retry: boolean) => void) | null>(null);
+  /**
+   * Whether to ask for MP3. Cleared for the rest of the session if a browser cannot
+   * decode it, which no current browser should, but a silent session is the failure
+   * this file exists to prevent, so raw PCM is kept as the way back.
+   */
+  const compressedRef = useRef(true);
 
   const optionsRef = useRef(options);
   useEffect(() => {
@@ -245,9 +297,16 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     pendingCountRef.current = 0;
     bufferRef.current = '';
     chainRef.current = Promise.resolve();
+    queueRef.current = [];
+    inFlightRef.current = 0;
 
     abortRef.current?.abort();
     abortRef.current = null;
+
+    // A held sentence belongs to the turn being thrown away, so the hold goes with it.
+    releaseStallRef.current?.(false);
+    releaseStallRef.current = null;
+    setStall(null);
 
     sourcesRef.current.forEach((source) => {
       source.onended = null;
@@ -296,12 +355,142 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     }
   }, []);
 
-  /** Fetches audio for one fragment and schedules it on the timeline. */
+  /** The cancel switch for this generation's downloads, made on first use. */
+  const downloadSignal = useCallback((): AbortSignal => {
+    if (!abortRef.current || abortRef.current.signal.aborted) {
+      abortRef.current = new AbortController();
+    }
+    return abortRef.current.signal;
+  }, []);
+
+  /** Fetches one sentence and turns it into a buffer the timeline can play. */
+  const loadSpeech = useCallback(
+    async (text: string, generation: number): Promise<LoadedSpeech> => {
+      const voice = voiceRef.current;
+      const compressed = compressedRef.current;
+      const fetched = await fetchSpeech(
+        {
+          text,
+          // No voice field at all when none was chosen, so the server's default applies
+          // exactly as it did before there was a choice.
+          ...(voice ? { voice } : {}),
+          ...(compressed ? { format: 'mp3' as const } : {}),
+        },
+        downloadSignal(),
+      );
+      if (!fetched.ok) return fetched;
+      if (generation !== generationRef.current) return { ok: false, aborted: true };
+
+      const context = getContext();
+      if (fetched.format === 'pcm') {
+        // Convert signed 16-bit PCM into the float buffer Web Audio expects.
+        const samples = pcmToFloat(fetched.bytes);
+        const buffer = context.createBuffer(1, Math.max(1, samples.length), AUDIO_SAMPLE_RATE);
+        buffer.copyToChannel(samples, 0);
+        return { ok: true, buffer };
+      }
+      try {
+        // Resampled to the context's rate as it is decoded, so it joins the timeline
+        // exactly as PCM does.
+        return { ok: true, buffer: await context.decodeAudioData(fetched.bytes) };
+      } catch (error) {
+        compressedRef.current = false;
+        reportFailure({
+          area: 'speech',
+          kind: 'mp3-decode',
+          code: 'unavailable',
+          detail: `Could not decode MP3, so PCM from now on: ${(error as Error).message}`,
+          deckId: optionsRef.current.deckId,
+          language: languageRef.current,
+        });
+        return loadSpeech(text, generation);
+      }
+    },
+    [downloadSignal, getContext],
+  );
+
+  /** Fetching ahead runs from a finished download, so it is reached through a ref. */
+  const fetchAheadRef = useRef<() => void>(() => undefined);
+
+  /** Starts a sentence downloading if it is not already, and returns its result. */
+  const startLoading = useCallback(
+    (item: QueuedSpeech): Promise<LoadedSpeech> => {
+      if (item.audio) return item.audio;
+      inFlightRef.current += 1;
+      item.audio = loadSpeech(item.text, item.generation).finally(() => {
+        // A download from a turn already thrown away was not counted in this one.
+        if (item.generation === generationRef.current) {
+          inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+        }
+        fetchAheadRef.current();
+      });
+      return item.audio;
+    },
+    [loadSpeech],
+  );
+
+  /**
+   * Starts English sentences downloading ahead of the one playing, up to SPEECH_AHEAD.
+   *
+   * Hindi never fetches ahead: it is paced to playback by waitForRoom to protect Sarvam's
+   * prepaid credit, and its next sentence is asked for only when there is room for it.
+   */
+  const fetchAhead = useCallback(() => {
+    if (languageRef.current === 'hi') return;
+    for (const item of queueRef.current) {
+      if (inFlightRef.current >= SPEECH_AHEAD) return;
+      if (item.generation === generationRef.current && !item.audio) void startLoading(item);
+    }
+  }, [startLoading]);
+
+  useEffect(() => {
+    fetchAheadRef.current = fetchAhead;
+  }, [fetchAhead]);
+
+  /**
+   * Holds the trainer on a sentence that could not be fetched, until it is worth trying
+   * again: on a timer that backs off, the moment the browser says it is back online, or
+   * when the trainee presses Try now. Resolves false if the turn is interrupted instead.
+   */
+  const holdOn = useCallback(
+    (failure: Failure, generation: number, stalls: number): Promise<boolean> =>
+      new Promise((resolve) => {
+        if (generation !== generationRef.current) {
+          resolve(false);
+          return;
+        }
+        setStall(failure);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const release = (retry: boolean) => {
+          clearTimeout(timer);
+          window.removeEventListener('online', onOnline);
+          if (releaseStallRef.current === release) releaseStallRef.current = null;
+          resolve(retry);
+        };
+        const onOnline = () => release(true);
+        releaseStallRef.current = release;
+        window.addEventListener('online', onOnline);
+        const delay = stallRetryDelayMs(stalls, failure);
+        if (delay !== null) timer = setTimeout(() => release(true), delay);
+      }),
+    [],
+  );
+
+  const carryOn = useCallback(() => {
+    releaseStallRef.current?.(true);
+  }, []);
+
+  /**
+   * Gets one sentence's audio, holding on it until it arrives, and schedules it.
+   *
+   * Sentences reach here one at a time and in order, through the chain in enqueue, so
+   * while one is held nothing behind it can play, and the turn does not finish. That is
+   * what makes "taught" mean every sentence was heard.
+   */
   const speakChunk = useCallback(
-    async (text: string, generation: number) => {
+    async (item: QueuedSpeech) => {
+      const { generation } = item;
       if (generation !== generationRef.current) return;
-      // This turn has already been refused, and asking again would only be refused too.
-      if (generation === limitedGenerationRef.current) return;
 
       // Hindi only, and see HINDI_LOOKAHEAD_SECONDS for why. English goes straight on.
       if (languageRef.current === 'hi') {
@@ -309,41 +498,48 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         if (generation !== generationRef.current) return;
       }
 
-      const controller = new AbortController();
-      abortRef.current = controller;
+      let loaded: LoadedSpeech;
+      let stalls = 0;
+      const startedAt = Date.now();
+      for (;;) {
+        loaded = await startLoading(item);
+        if (generation !== generationRef.current) return;
+        if (loaded.ok || loaded.aborted) break;
 
-      let pcm: ArrayBuffer;
-      try {
-        const voice = voiceRef.current;
-        const response = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // No voice field at all when none was chosen, so the server's default applies
-          // exactly as it did before there was a choice.
-          body: JSON.stringify(voice ? { text, voice } : { text }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          const body = (await response.json().catch(() => ({}))) as { error?: string };
-          // Marked before the message is raised below, so that message is this turn's
-          // only one. See limitedGenerationRef.
-          if (response.status === 429) limitedGenerationRef.current = generation;
-          throw new Error(body.error ?? `Text to speech failed with ${response.status}.`);
+        if (stalls === 0) {
+          // Reported when the hold starts, which is usually while the connection is
+          // down, so the report waits in the browser and goes when it comes back.
+          reportFailure({
+            area: 'speech',
+            kind: loaded.kind,
+            code: loaded.failure.code,
+            detail: `Held on a sentence of ${item.text.length} characters (${compressedRef.current ? 'MP3' : 'PCM'}).`,
+            deckId: optionsRef.current.deckId,
+            language: languageRef.current,
+          });
         }
+        const retry = await holdOn(loaded.failure, generation, stalls);
+        stalls += 1;
+        if (!retry || generation !== generationRef.current) return;
+        item.audio = null;
+      }
+      if (!loaded.ok) return;
 
-        pcm = await response.arrayBuffer();
-      } catch (caught) {
-        if ((caught as Error).name === 'AbortError') return;
-        const message = (caught as Error).message;
-        setError(message);
-        optionsRef.current.onError?.(message);
-        return;
+      if (stalls > 0) {
+        setStall(null);
+        const held = Math.round((Date.now() - startedAt) / 1000);
+        reportFailure({
+          area: 'speech',
+          kind: 'recovered',
+          code: 'connection',
+          detail: `Carried on after ${held} s and ${stalls} ${stalls === 1 ? 'hold' : 'holds'}.`,
+          deckId: optionsRef.current.deckId,
+          language: languageRef.current,
+        });
       }
 
-      // The listener interrupted while this was downloading.
-      if (generation !== generationRef.current) return;
-      if (pcm.byteLength < 2) return;
+      queueRef.current = queueRef.current.filter((queued) => queued !== item);
+      fetchAhead();
 
       const context = getContext();
       // Checked before scheduling rather than after. Scheduling into a suspended
@@ -351,21 +547,16 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       // at the moment the audio would have been heard and was not.
       await ensureAudible();
 
-      // Convert signed 16-bit PCM into the float buffer Web Audio expects.
-      const samples = pcmToFloat(pcm);
-      const audioBuffer = context.createBuffer(1, samples.length, AUDIO_SAMPLE_RATE);
-      audioBuffer.copyToChannel(samples, 0);
-
       if (generation !== generationRef.current) return;
 
       const source = context.createBufferSource();
-      source.buffer = audioBuffer;
+      source.buffer = loaded.buffer;
       source.connect(context.destination);
 
       // Never schedule in the past, or the browser drops the buffer silently.
       const startAt = Math.max(playheadRef.current, context.currentTime + SCHEDULE_LEAD_SECONDS);
       source.start(startAt);
-      playheadRef.current = startAt + audioBuffer.duration;
+      playheadRef.current = startAt + loaded.buffer.duration;
 
       sourcesRef.current.add(source);
       setSpeaking(true);
@@ -376,7 +567,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         settleIfIdle();
       };
     },
-    [ensureAudible, getContext, settleIfIdle, waitForRoom],
+    [ensureAudible, fetchAhead, getContext, holdOn, settleIfIdle, startLoading, waitForRoom],
   );
 
   const enqueue = useCallback(
@@ -394,11 +585,14 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (!trimmed) return;
 
       const generation = generationRef.current;
+      const item: QueuedSpeech = { text: trimmed, generation, audio: null };
+      queueRef.current.push(item);
       pendingCountRef.current += 1;
       setSpeaking(true);
+      fetchAhead();
 
       chainRef.current = chainRef.current
-        .then(() => speakChunk(trimmed, generation))
+        .then(() => speakChunk(item))
         .catch(() => undefined)
         .finally(() => {
           if (generation === generationRef.current) {
@@ -407,7 +601,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
           }
         });
     },
-    [speakChunk, settleIfIdle],
+    [fetchAhead, speakChunk, settleIfIdle],
   );
 
   /**
@@ -456,6 +650,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     () => () => {
       generationRef.current += 1;
       abortRef.current?.abort();
+      releaseStallRef.current?.(false);
       sourcesRef.current.forEach((source) => {
         try {
           source.stop();
@@ -477,8 +672,11 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     interrupt,
     waitUntilDone,
     unlock,
-    error,
+    // What `error` always meant, nothing to play, is now a hold with a message.
+    error: stall?.message ?? null,
     inaudible,
+    stall,
+    carryOn,
     ensureAudible,
     pause,
     resume,

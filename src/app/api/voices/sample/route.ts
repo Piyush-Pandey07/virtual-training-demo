@@ -36,7 +36,13 @@ export async function GET(request: Request) {
   }
 
   const result = await synthesise(sampleTextFor(voice), voice, request.signal);
-  if (!result.ok) return synthesisFailure(result);
+  if (!result.ok) {
+    return synthesisFailure(result, {
+      route: '/api/voices/sample',
+      person: gate.person,
+      language: voice.languageCode,
+    });
+  }
 
   // The same few seconds for every delegate, so a replay need not pay for synthesis
   // again. Private, because the route is behind sign-in.

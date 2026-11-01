@@ -13,6 +13,8 @@
 import 'server-only';
 
 import { AUDIO_SAMPLE_RATE, SARVAM_TTS_MODEL, requireEnv } from '../config';
+import { classifyHttp, classifyThrown, type ProviderFailure } from '../failures/classify';
+import { failureResponse, type FailureContext } from '../failures/respond';
 import type { SpokenVoice } from './catalogue';
 import { pcmFromWav } from './wav';
 
@@ -23,33 +25,79 @@ import { pcmFromWav } from './wav';
 export const MAX_SYNTHESIS_CHARS = 1800;
 
 export type Synthesis =
-  | { ok: true; audio: ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer> }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: true;
+      audio: ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer>;
+      /** Raw PCM unless MP3 was asked for and the provider could give it. */
+      format?: 'pcm' | 'mp3';
+    }
+  | {
+      ok: false;
+      status: number;
+      /** For whoever reads the log or the staff test page, not for a trainee. */
+      error: string;
+      /** What kind of failure it was, for the standard message. Absent on a cancel. */
+      failure?: ProviderFailure;
+    };
+
+export interface SynthesisOptions {
+  /**
+   * Ask for MP3 rather than raw PCM where the provider can give it.
+   *
+   * Raw PCM at 24 kHz is 48 KB for every second of speech, about 384 kbps, which is more
+   * than a weak mobile connection carries, so the trainer falls silent between sentences
+   * while the next one downloads. MP3 at 48 kbps is about eight times smaller for the same
+   * sentence (measured: 267 KB of PCM against 32 KB of MP3) and takes Deepgram no longer
+   * to produce. The cost is a decoding step in the browser, which is why it is asked for
+   * rather than assumed: the voice samples and the staff test page still take PCM.
+   *
+   * Deepgram only. Sarvam's WAV is converted to PCM as before, and Hindi is paced to
+   * playback anyway, so its downloads are already spread out.
+   */
+  compressed?: boolean;
+}
 
 export function synthesise(
   text: string,
   voice: SpokenVoice,
   signal?: AbortSignal,
+  options: SynthesisOptions = {},
 ): Promise<Synthesis> {
   return voice.provider === 'sarvam'
     ? sarvam(text, voice, signal)
-    : deepgram(text, voice.model, signal);
+    : deepgram(text, voice.model, signal, options.compressed === true);
 }
 
-async function deepgram(text: string, model: string, signal?: AbortSignal): Promise<Synthesis> {
+async function deepgram(
+  text: string,
+  model: string,
+  signal?: AbortSignal,
+  compressed = false,
+): Promise<Synthesis> {
   let apiKey: string;
   try {
     apiKey = requireEnv('DEEPGRAM_API_KEY');
   } catch (error) {
-    return { ok: false, status: 500, error: (error as Error).message };
+    return {
+      ok: false,
+      status: 500,
+      error: (error as Error).message,
+      failure: classifyThrown('deepgram', error),
+    };
   }
 
   const url = new URL('https://api.deepgram.com/v1/speak');
   url.searchParams.set('model', model);
-  url.searchParams.set('encoding', 'linear16');
-  url.searchParams.set('sample_rate', String(AUDIO_SAMPLE_RATE));
-  // No container, so the body is a bare PCM stream with no WAV header to skip.
-  url.searchParams.set('container', 'none');
+  if (compressed) {
+    // Deepgram fixes the MP3 sample rate itself; the browser resamples when it decodes.
+    url.searchParams.set('encoding', 'mp3');
+    url.searchParams.set('bit_rate', '48000');
+  } else {
+    url.searchParams.set('encoding', 'linear16');
+    url.searchParams.set('sample_rate', String(AUDIO_SAMPLE_RATE));
+    // No container, so the body is a bare PCM stream with no WAV header to skip.
+    url.searchParams.set('container', 'none');
+  }
 
   let upstream: Response;
   try {
@@ -70,6 +118,7 @@ async function deepgram(text: string, model: string, signal?: AbortSignal): Prom
       ok: false,
       status: 502,
       error: `Could not reach Deepgram: ${(error as Error).message}`,
+      failure: { provider: 'deepgram', kind: 'unreachable', detail: (error as Error).message },
     };
   }
 
@@ -85,10 +134,11 @@ async function deepgram(text: string, model: string, signal?: AbortSignal): Prom
       ok: false,
       status: 502,
       error: `Deepgram text to speech failed (${upstream.status}).${hint} ${detail}`.trim(),
+      failure: classifyHttp('deepgram', upstream.status, detail),
     };
   }
 
-  return { ok: true, audio: upstream.body };
+  return { ok: true, audio: upstream.body, format: compressed ? 'mp3' : 'pcm' };
 }
 
 const SARVAM_URL = 'https://api.sarvam.ai/text-to-speech';
@@ -166,7 +216,12 @@ async function sarvam(text: string, voice: SpokenVoice, signal?: AbortSignal): P
   try {
     apiKey = requireEnv('SARVAM_API_KEY');
   } catch (error) {
-    return { ok: false, status: 500, error: (error as Error).message };
+    return {
+      ok: false,
+      status: 500,
+      error: (error as Error).message,
+      failure: classifyThrown('sarvam', error),
+    };
   }
 
   const request = () =>
@@ -205,12 +260,24 @@ async function sarvam(text: string, voice: SpokenVoice, signal?: AbortSignal): P
     }
   } catch (error) {
     if (signal?.aborted) return { ok: false, status: 499, error: '' };
-    return { ok: false, status: 502, error: `Could not reach Sarvam: ${(error as Error).message}` };
+    return {
+      ok: false,
+      status: 502,
+      error: `Could not reach Sarvam: ${(error as Error).message}`,
+      failure: { provider: 'sarvam', kind: 'unreachable', detail: (error as Error).message },
+    };
   }
 
   if (!upstream.ok) {
     if (!detail) detail = await upstream.text().catch(() => '');
-    return { ok: false, status: 502, error: sarvamFailure(upstream.status, detail) };
+    return {
+      ok: false,
+      status: 502,
+      error: sarvamFailure(upstream.status, detail),
+      // Sarvam reports an empty account as `insufficient_quota_error`, sometimes on a
+      // 429, which the classifier reads as credit before it reads it as busy.
+      failure: classifyHttp('sarvam', upstream.status, detail),
+    };
   }
 
   try {
@@ -237,22 +304,44 @@ async function sarvam(text: string, voice: SpokenVoice, signal?: AbortSignal): P
       ok: false,
       status: 502,
       error: `Sarvam text to speech returned audio the player cannot use: ${(error as Error).message}`,
+      failure: { provider: 'sarvam', kind: 'bad_output', detail: (error as Error).message },
     };
   }
 }
 
-/** The headers every speaking route sends with its audio. */
-export function audioHeaders(cacheControl = 'no-store'): HeadersInit {
+/**
+ * The headers every speaking route sends with its audio.
+ *
+ * The content type is how the browser tells MP3 from raw PCM, so an MP3 is labelled as
+ * one and everything else stays the plain byte stream it always was.
+ */
+export function audioHeaders(
+  cacheControl = 'no-store',
+  format: 'pcm' | 'mp3' = 'pcm',
+): HeadersInit {
   return {
-    'Content-Type': 'application/octet-stream',
+    'Content-Type': format === 'mp3' ? 'audio/mpeg' : 'application/octet-stream',
     'Cache-Control': cacheControl,
     'X-Sample-Rate': String(AUDIO_SAMPLE_RATE),
     'X-Accel-Buffering': 'no',
   };
 }
 
-/** A failed synthesis as a response, keeping a cancelled request silent. */
-export function synthesisFailure(result: Extract<Synthesis, { ok: false }>): Response {
+/**
+ * A failed synthesis as a response, keeping a cancelled request silent.
+ *
+ * The trainee gets the standard message for the kind of failure, and the provider's own
+ * words go to the developer log under the reference the message carries.
+ */
+export function synthesisFailure(
+  result: Extract<Synthesis, { ok: false }>,
+  context: FailureContext,
+): Promise<Response> | Response {
   if (result.status === 499) return new Response(null, { status: 499 });
-  return Response.json({ error: result.error }, { status: result.status });
+  const failure = result.failure ?? {
+    provider: 'deepgram' as const,
+    kind: 'other' as const,
+    detail: result.error,
+  };
+  return failureResponse({ ...failure, detail: failure.detail || result.error }, context);
 }
