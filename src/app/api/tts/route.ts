@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const limited = await rateLimited(gate.person, 'speech', weight);
   if (limited) return limited;
 
-  const voice = voiceFor(requested);
+  const voice = voiceFor(requested, gate.person);
   if (!voice) {
     return Response.json(
       { error: 'That voice is not one this deployment offers.' },

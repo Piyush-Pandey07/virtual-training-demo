@@ -128,10 +128,14 @@ export function VoicePicker({
               );
             })}
           </div>
-          {current.code === 'hi' && (
+          {current.note && (
             <p className="text-muted mt-2 text-xs leading-relaxed">
-              {TRAINER_NAME} will teach and answer in Hindi, keeping technical terms in English. The
-              slides stay in English. Speak Hindi, English or a mix of the two.
+              {current.note.replace('The trainer', TRAINER_NAME)}
+            </p>
+          )}
+          {current.testing && (
+            <p className="text-muted mt-1 text-xs leading-relaxed">
+              In testing: offered to Technavious only until a speaker of it has checked it.
             </p>
           )}
         </fieldset>

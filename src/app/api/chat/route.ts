@@ -24,7 +24,8 @@ import { bestSlideForQuestion } from '@/lib/knowledge';
 import { sessionLanguage } from '@/lib/language';
 import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
-import { speaksAsFor } from '@/lib/voice/catalogue';
+import { languageInfo, pacedToPlayback } from '@/lib/languages';
+import { languagesFor, speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
 import { classifyThrown } from '@/lib/failures/classify';
@@ -138,10 +139,18 @@ export async function POST(request: Request) {
   const traineeName =
     typeof body.traineeName === 'string' ? body.traineeName.trim().slice(0, 80) : undefined;
 
-  // Anything but Hindi is English, which is what every session was before there was a
-  // choice. The voice matters only to Hindi, whose verbs agree with whoever is speaking.
-  const language = sessionLanguage(body.language);
-  const speaksAs = language === 'hi' ? speaksAsFor(body.voice) : undefined;
+  // Anything not offered to this person is English, which is what every session was
+  // before there was a choice: a language still in testing, asked for by a customer's
+  // trainee, falls back rather than being taught. The voice matters only where the
+  // language's verbs agree with whoever is speaking.
+  const requestedLanguage = sessionLanguage(body.language);
+  const language = languagesFor(gate.person).some((offered) => offered.code === requestedLanguage)
+    ? requestedLanguage
+    : 'en';
+  const speaksAs =
+    languageInfo(language).register?.gendered || language === 'hi'
+      ? speaksAsFor(body.voice, gate.person)
+      : undefined;
 
   const coveredSlideIds = Array.isArray(body.coveredSlideIds)
     ? [...new Set(body.coveredSlideIds.map((id) => clampSlideId(deck, Number(id))))].sort(
@@ -369,7 +378,8 @@ export async function POST(request: Request) {
           ttsCharacters: finalText.length,
           // Counted again on its own line, because Sarvam bills it, from a prepaid
           // credit, and the question of how much of that a session uses needs an answer.
-          hindiCharacters: language === 'hi' ? finalText.length : 0,
+          // Every Sarvam language, under the field's original name; see usage/types.ts.
+          hindiCharacters: pacedToPlayback(language) ? finalText.length : 0,
         });
         if (!finalText) {
           // Usually a passing upstream issue, so it is marked as worth asking again.

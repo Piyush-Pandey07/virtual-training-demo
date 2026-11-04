@@ -24,10 +24,13 @@ export interface Usage {
   ttsCharacters: number;
 
   /**
-   * Of `ttsCharacters`, how many were spoken in Hindi.
+   * Of `ttsCharacters`, how many were spoken by Sarvam.
    *
-   * Hindi is spoken by Sarvam, which bills separately and from a prepaid credit, so it is
-   * worth seeing apart from the rest. Absent from months recorded before Hindi existed.
+   * Sarvam bills separately and from a prepaid credit, so it is worth seeing apart from
+   * the rest. Named for Hindi, the only Sarvam language until November 2026; from then it
+   * counts every Sarvam language (Indian English, Marathi, Tamil and the rest) as well.
+   * Kept under the old name so a month's figures still line up with the months before.
+   * Absent from months recorded before Hindi existed.
    */
   hindiCharacters?: number;
 

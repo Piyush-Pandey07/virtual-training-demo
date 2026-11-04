@@ -210,7 +210,7 @@ export function CustomerList({ customers, viewing, home }: CustomerListProps) {
                   {' · '}
                   {compact(customer.usage.ttsCharacters)} spoken
                   {customer.usage.hindiCharacters > 0 &&
-                    ` (${compact(customer.usage.hindiCharacters)} in Hindi)`}
+                    ` (${compact(customer.usage.hindiCharacters)} by Sarvam)`}
                   {' · '}
                   {minutes(customer.usage.sttSeconds)} heard
                   {' · '}

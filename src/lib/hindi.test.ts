@@ -124,11 +124,10 @@ describe('what the trainer is told', () => {
   });
 
   it('is told by the chat route, with the voice it is speaking in', () => {
-    assert.match(CHAT_ROUTE, /const language = sessionLanguage\(body\.language\);/);
-    assert.match(
-      CHAT_ROUTE,
-      /const speaksAs = language === 'hi' \? speaksAsFor\(body\.voice\) : undefined;/,
-    );
+    assert.match(CHAT_ROUTE, /const requestedLanguage = sessionLanguage\(body\.language\);/);
+    // Only a language offered to this person; anything else is taught in English.
+    assert.match(CHAT_ROUTE, /languagesFor\(gate\.person\)\.some\(/);
+    assert.match(CHAT_ROUTE, /language === 'hi'\s*\?\s*speaksAsFor\(body\.voice, gate\.person\)/);
     // The learner's profile now follows as a fourth argument, which wraps the call.
     assert.match(
       CHAT_ROUTE,
@@ -138,7 +137,11 @@ describe('what the trainer is told', () => {
   });
 
   it('counts Hindi on its own line, for the Sarvam credit', () => {
-    assert.match(CHAT_ROUTE, /hindiCharacters: language === 'hi' \? finalText\.length : 0,/);
+    // Every Sarvam language now, Hindi among them, under the field's original name.
+    assert.match(
+      CHAT_ROUTE,
+      /hindiCharacters: pacedToPlayback\(language\) \? finalText\.length : 0,/,
+    );
   });
 });
 
@@ -185,17 +188,17 @@ describe('cutting Hindi into sentences to speak', () => {
 describe('asking Sarvam only for what is about to be heard', () => {
   it('waits for room before synthesising Hindi, and only Hindi', () => {
     const speak = bodyOf(PLAYER, 'speakChunk');
-    const wait = speak.indexOf("if (languageRef.current === 'hi') {");
+    const wait = speak.indexOf('if (pacedToPlayback(languageRef.current)) {');
     assert.ok(wait > 0, 'Hindi is synthesised without waiting');
     assert.match(
       speak.slice(wait),
-      /^if \(languageRef\.current === 'hi'\) \{\s*await waitForRoom\(generation\);/,
+      /^if \(pacedToPlayback\(languageRef\.current\)\) \{\s*await waitForRoom\(generation\);/,
     );
     assert.ok(wait < speak.indexOf('startLoading(item)'), 'the wait comes after the request');
     // And Hindi is never fetched ahead of the sentence playing, which would bypass it.
     assert.match(
       bodyOf(PLAYER, 'fetchAhead'),
-      /^const fetchAhead = useCallback\(\(\) => \{\s*if \(languageRef\.current === 'hi'\) return;/,
+      /^const fetchAhead = useCallback\(\(\) => \{\s*if \(pacedToPlayback\(languageRef\.current\)\) return;/,
     );
   });
 
