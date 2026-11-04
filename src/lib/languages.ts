@@ -45,6 +45,12 @@ export interface SpokenRegister {
   you: string;
   /** A comprehension check that does not mark the trainee's gender. */
   check: string;
+  /**
+   * English words spelled in the language's own script, which the trainer must not write.
+   * Naming them is what stopped Hindi doing it: on production, Marathi narration still
+   * wrote "डेटा सेंटर्स" and "ट्रेनिंग सेशन" until they were named.
+   */
+  transliterated: string;
   /** Whether a speaker's own verbs mark their gender, as in Hindi and Marathi. */
   gendered: boolean;
   /** Ends a sentence that finishes in the language, where that is not a full stop. */
@@ -57,7 +63,13 @@ export interface LanguageInfo {
   name: string;
   /** The same in English, for everybody else. */
   englishName: string;
-  /** What Deepgram is told: code-switching where people mix English in. */
+  /**
+   * What Deepgram is told. Hindi uses Nova-3's code-switching mode. The other Indian
+   * languages use their own monolingual model: tested on production with Sarvam's own
+   * audio, code-switching wrote Malayalam in Telugu script and spelled English words in
+   * each language's script, while the monolingual models got the script right and kept
+   * "training session" in English letters.
+   */
   listen: string;
   /** Spoken by Sarvam, from prepaid credit, so synthesised just ahead of playback. */
   sarvam?: { code: SarvamLanguageCode; speakers: readonly SarvamSpeaker[]; sample: string };
@@ -129,7 +141,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'mr',
     name: 'मराठी',
     englishName: 'Marathi',
-    listen: 'multi',
+    listen: 'mr',
     sarvam: {
       code: 'mr-IN',
       speakers: [
@@ -141,10 +153,11 @@ export const LANGUAGES: readonly LanguageInfo[] = [
         'नमस्कार, या training session मध्ये तुमचं स्वागत आहे. काही प्रश्न असेल, तर मध्येच नक्की विचारा.',
     },
     register: {
-      good: 'या slide वर आपण data centre चा power path पाहणार आहोत. Utility कडून power आधी HV/MV substation ला येते, मग UPS मधून racks पर्यंत पोहोचते.',
+      good: 'या virtual training session मध्ये तुमचं स्वागत आहे. या slide वर आपण data centre चा power path पाहणार आहोत. Utility कडून power आधी HV/MV substation ला येते, मग UPS मधून racks पर्यंत पोहोचते.',
       bad: 'या स्लाइडवर आपण डेटा सेंटरच्या विद्युत मार्गाचे अवलोकन करू.',
       you: 'तुम्ही',
       check: 'हे स्पष्ट आहे का?',
+      transliterated: 'डेटा, सेंटर, ट्रेनिंग, सेशन, व्हर्च्युअल, सर्व्हर',
       gendered: true,
     },
     note: indianNote('Marathi'),
@@ -153,7 +166,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'ta',
     name: 'தமிழ்',
     englishName: 'Tamil',
-    listen: 'multi',
+    listen: 'ta',
     sarvam: {
       code: 'ta-IN',
       speakers: [
@@ -170,6 +183,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'இந்த ஸ்லைடில் தரவு மையத்தின் மின் பாதையை ஆய்வு செய்வோம்.',
       you: 'நீங்கள்',
       check: 'இது தெளிவாக இருக்கிறதா?',
+      transliterated: 'டேட்டா, சென்டர், ட்ரைனிங், செஷன், சர்வர்',
       gendered: false,
     },
     note: indianNote('Tamil'),
@@ -178,7 +192,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'te',
     name: 'తెలుగు',
     englishName: 'Telugu',
-    listen: 'multi',
+    listen: 'te',
     sarvam: {
       code: 'te-IN',
       speakers: [
@@ -194,6 +208,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'ఈ స్లైడ్‌లో డేటా సెంటర్ యొక్క విద్యుత్ మార్గాన్ని పరిశీలిద్దాం.',
       you: 'మీరు',
       check: 'ఇది స్పష్టంగా ఉందా?',
+      transliterated: 'డేటా, సెంటర్, ట్రైనింగ్, సెషన్, సర్వర్',
       gendered: false,
     },
     note: indianNote('Telugu'),
@@ -202,7 +217,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'kn',
     name: 'ಕನ್ನಡ',
     englishName: 'Kannada',
-    listen: 'multi',
+    listen: 'kn',
     sarvam: {
       code: 'kn-IN',
       speakers: [
@@ -218,6 +233,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'ಈ ಸ್ಲೈಡ್‌ನಲ್ಲಿ ದತ್ತಾಂಶ ಕೇಂದ್ರದ ವಿದ್ಯುತ್ ಮಾರ್ಗವನ್ನು ಪರಿಶೀಲಿಸೋಣ.',
       you: 'ನೀವು',
       check: 'ಇದು ಸ್ಪಷ್ಟವಾಗಿದೆಯೇ?',
+      transliterated: 'ಡೇಟಾ, ಸೆಂಟರ್, ಟ್ರೈನಿಂಗ್, ಸೆಷನ್, ಸರ್ವರ್',
       gendered: false,
     },
     note: indianNote('Kannada'),
@@ -226,7 +242,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'ml',
     name: 'മലയാളം',
     englishName: 'Malayalam',
-    listen: 'multi',
+    listen: 'ml',
     sarvam: {
       code: 'ml-IN',
       speakers: [
@@ -241,6 +257,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'ഈ സ്ലൈഡിൽ ഡാറ്റാ സെന്ററിന്റെ വൈദ്യുത പാത പരിശോധിക്കാം.',
       you: 'നിങ്ങൾ',
       check: 'ഇത് വ്യക്തമാണോ?',
+      transliterated: 'ഡാറ്റ, സെന്റർ, ട്രെയിനിംഗ്, സെഷൻ, സെർവർ',
       gendered: false,
     },
     note: indianNote('Malayalam'),
@@ -249,7 +266,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'bn',
     name: 'বাংলা',
     englishName: 'Bengali',
-    listen: 'multi',
+    listen: 'bn',
     sarvam: {
       code: 'bn-IN',
       speakers: [
@@ -265,6 +282,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'এই স্লাইডে আমরা ডেটা সেন্টারের বিদ্যুৎ পথ পর্যালোচনা করব।',
       you: 'আপনি',
       check: 'এটা কি পরিষ্কার?',
+      transliterated: 'ডেটা, সেন্টার, ট্রেনিং, সেশন, সার্ভার',
       gendered: false,
       sentenceEnd: '।',
     },
@@ -274,7 +292,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
     code: 'gu',
     name: 'ગુજરાતી',
     englishName: 'Gujarati',
-    listen: 'multi',
+    listen: 'gu',
     sarvam: {
       code: 'gu-IN',
       speakers: [
@@ -290,6 +308,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       bad: 'આ સ્લાઇડ પર આપણે ડેટા સેન્ટરના વિદ્યુત માર્ગનું અવલોકન કરીશું.',
       you: 'તમે',
       check: 'શું આ સ્પષ્ટ છે?',
+      transliterated: 'ડેટા, સેન્ટર, ટ્રેનિંગ, સેશન, સર્વર',
       gendered: true,
     },
     note: indianNote('Gujarati'),

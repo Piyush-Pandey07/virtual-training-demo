@@ -73,12 +73,20 @@ describe('the language registry', () => {
     }
   });
 
-  it('listens in code-switching mode for every Indian language, as for Hindi', () => {
+  it('listens to Hindi in code-switching mode and the others in their own model', () => {
     assert.equal(listeningLanguage('en'), 'en');
     assert.equal(listeningLanguage('en-IN'), 'en-IN');
-    for (const code of ['hi', 'mr', 'ta', 'te', 'kn', 'ml', 'bn', 'gu'] as SessionLanguage[]) {
-      assert.equal(listeningLanguage(code), 'multi', code);
+    assert.equal(listeningLanguage('hi'), 'multi');
+    // Code-switching wrote Malayalam in Telugu script on production.
+    for (const code of ['mr', 'ta', 'te', 'kn', 'ml', 'bn', 'gu'] as SessionLanguage[]) {
+      assert.equal(listeningLanguage(code), code, code);
     }
+  });
+
+  it("names the transliterations each language must avoid, in that language's script", () => {
+    const marathi = languageInfo('mr').register!.transliterated;
+    assert.ok(marathi.includes('डेटा') && marathi.includes('ट्रेनिंग'));
+    assert.ok(languageInfo('ml').register!.transliterated.includes('ഡാറ്റ'));
   });
 
   it('treats anything unknown as English', () => {
