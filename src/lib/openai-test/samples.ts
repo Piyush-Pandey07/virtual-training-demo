@@ -236,13 +236,23 @@ export function todaysVoiceFor(language: TestLanguage, hindi: boolean): TodaysVo
             reason:
               "Today's Hindi voice is not switched on in this deployment, so there is nothing to compare against.",
           };
+    // Sarvam speaks these for the trainer too, for Technavious while they are in testing.
+    // The voice is Sarvam's recommended female voice for each.
     case 'ta':
     case 'te':
-    case 'mr':
-      return {
-        ok: false,
-        reason: `Nothing the trainer uses today speaks ${languageName(language)}. Sarvam could, but this app uses it for Hindi only, and Deepgram's voices are English.`,
-      };
+    case 'mr': {
+      const speaker = { ta: 'ishita', te: 'neha', mr: 'priya' }[language];
+      return hindi
+        ? {
+            ok: true,
+            voice: `sarvam-${language}-${speaker}`,
+            label: `Sarvam ${speaker.charAt(0).toUpperCase()}${speaker.slice(1)}`,
+          }
+        : {
+            ok: false,
+            reason: `Today's ${languageName(language)} voice is not switched on in this deployment, so there is nothing to compare against.`,
+          };
+    }
     default:
       return {
         ok: false,

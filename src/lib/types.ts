@@ -56,7 +56,12 @@ export interface LearnerProfile {
  * choice. Hindi is spoken by Sarvam, because Deepgram has no Hindi voice at all and
  * reads Devanagari with English phonetics rather than refusing it.
  */
-export type SessionLanguage = 'en' | 'hi';
+/**
+ * The languages a session can be held in. What each one means for the voice, the
+ * listening and the prompt is in languages.ts.
+ */
+export type SessionLanguage =
+  'en' | 'en-IN' | 'hi' | 'mr' | 'ta' | 'te' | 'kn' | 'ml' | 'bn' | 'gu';
 
 /** Who said a given line. */
 export type Speaker = 'trainer' | 'trainee';

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
   // Required here, unlike /api/tts: a sample of no voice in particular means nothing.
   const requested = new URL(request.url).searchParams.get('voice');
-  const voice = requested ? voiceFor(requested) : null;
+  const voice = requested ? voiceFor(requested, gate.person) : null;
   if (!voice) {
     return Response.json({ error: 'Name a voice this deployment offers.' }, { status: 400 });
   }

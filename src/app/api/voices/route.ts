@@ -18,9 +18,10 @@ export async function GET() {
   const gate = await checkUser();
   if (!gate.ok) return gate.response;
 
-  return Response.json(voiceCatalogue(), {
-    // The same for everybody and changes only with a release, but it is behind sign-in,
-    // so private: a shared cache must not answer for a signed-out visitor.
+  // Per person: a language still in testing is listed for Technavious's own people only.
+  return Response.json(voiceCatalogue(gate.person), {
+    // Changes only with a release or a setting, and differs by person, so private: a
+    // shared cache must not answer for a signed-out visitor or for somebody else.
     headers: { 'Cache-Control': 'private, max-age=300' },
   });
 }

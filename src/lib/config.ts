@@ -100,6 +100,22 @@ export const SARVAM_TTS_MODEL = () => envOr('SARVAM_TTS_MODEL', 'bulbul:v3');
 export const hindiAvailable = () => Boolean(process.env.SARVAM_API_KEY?.trim());
 
 /**
+ * The languages offered to every trainee, as codes separated by commas.
+ *
+ * A language goes to everyone once somebody who speaks it has checked it in UAT, which
+ * is Shafi's decision under the BRD. Until then it is offered to Technavious's own
+ * people only, so it can be tested on production without a customer meeting it. English
+ * and Hindi were live before this existed, so they are the default.
+ */
+export const languagesForEveryone = (): ReadonlySet<string> =>
+  new Set(
+    envOr('LANGUAGES_FOR_EVERYONE', 'en,hi')
+      .split(',')
+      .map((code) => code.trim())
+      .filter(Boolean),
+  );
+
+/**
  * OpenAI, for the OpenAI test only.
  *
  * Nothing a trainee uses touches OpenAI. The test page lets Technavious staff hear its

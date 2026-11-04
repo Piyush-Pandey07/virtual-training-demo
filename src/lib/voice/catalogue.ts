@@ -16,7 +16,9 @@
  * that decides.
  */
 
-import { DEEPGRAM_TTS_MODEL, hindiAvailable } from '../config';
+import { DEEPGRAM_TTS_MODEL, hindiAvailable, languagesForEveryone } from '../config';
+import { LANGUAGES, languageInfo, type LanguageInfo, type SarvamLanguageCode } from '../languages';
+import { HOME_ORG_ID } from '../orgs/types';
 import type { SessionLanguage } from '../types';
 
 export interface VoiceOption {
@@ -38,10 +40,14 @@ export interface LanguageOption {
   voices: VoiceOption[];
   /** Selected before the delegate chooses, so starting straight away still works. */
   defaultVoiceId: string;
+  /** Shown under the choice: what to expect in this language. */
+  note?: string;
+  /** Offered to Technavious's own people only, until a speaker of it has checked it. */
+  testing?: boolean;
 }
 
 export interface VoiceCatalogue {
-  /** English first and always. Hindi only where it can actually be spoken. */
+  /** English first and always. The others only where they can actually be spoken. */
   languages: LanguageOption[];
 }
 
@@ -54,7 +60,7 @@ export interface SpokenVoice {
   /** The provider's own name for the voice: an Aura model, or a Sarvam speaker. */
   model: string;
   /** The language the provider is told the text is in. Sarvam requires one. */
-  languageCode?: 'hi-IN';
+  languageCode?: SarvamLanguageCode;
 }
 
 interface ProvidedVoice extends VoiceOption, SpokenVoice {
@@ -114,39 +120,38 @@ const DEEPGRAM_VOICES: readonly ProvidedVoice[] = [
 ].map((voice) => ({ ...voice, provider: 'deepgram' as const, model: voice.id }));
 
 /**
- * Four of Bulbul v3's speakers, the four Sarvam itself recommends for Hindi.
+ * The Sarvam voices, built from the speakers languages.ts names for each language.
  *
- * Its guidance ranks every speaker per language by measured pronunciation accuracy, and
- * names Priya and Suhani as the female voices and Shubh and Ashutosh as the male ones
- * for Hindi. Choosing from that rather than by ear keeps away from voices it warns
- * against, such as Varun, which it describes as a villain's voice for suspense.
+ * Sarvam ranks its speakers per language by measured pronunciation accuracy and names
+ * the ones to use for each; those are the ones offered. Choosing from that rather than
+ * by ear keeps away from voices it warns against, such as Varun, which it describes as a
+ * villain's voice for suspense.
  *
- * `speaksAs` is what the trainer's Hindi has to agree with. "मैं बताती हूँ" is a woman
- * speaking and "मैं बताता हूँ" a man; a voice and a verb that disagree are heard
- * immediately by anybody who speaks the language.
+ * `speaksAs` is what the trainer's grammar has to agree with in a language whose verbs
+ * mark the speaker's gender. "मैं बताती हूँ" is a woman speaking and "मैं बताता हूँ" a man;
+ * a voice and a verb that disagree are heard immediately by anybody who speaks it.
+ *
+ * Hindi's ids are what they were before there were other languages, so a session that
+ * started on one is not refused partway.
  */
-const SARVAM_HINDI_VOICES: readonly ProvidedVoice[] = [
-  {
-    name: 'Priya',
-    speaksAs: 'feminine' as const,
-    description: "Female. Sarvam's first choice for Hindi",
-  },
-  {
-    name: 'Shubh',
-    speaksAs: 'masculine' as const,
-    description: "Male. Sarvam's first choice for Hindi",
-  },
-  { name: 'Suhani', speaksAs: 'feminine' as const, description: 'Female. Recommended for Hindi' },
-  { name: 'Ashutosh', speaksAs: 'masculine' as const, description: 'Male. Recommended for Hindi' },
-].map((voice) => ({
-  ...voice,
-  id: `sarvam-hi-${voice.name.toLowerCase()}`,
-  accent: 'Hindi',
-  provider: 'sarvam' as const,
-  // Sarvam's speaker names are case-sensitive and lowercase.
-  model: voice.name.toLowerCase(),
-  languageCode: 'hi-IN' as const,
-}));
+interface SarvamVoice extends ProvidedVoice {
+  language: SessionLanguage;
+}
+
+const SARVAM_VOICES: readonly SarvamVoice[] = LANGUAGES.flatMap((language) =>
+  (language.sarvam?.speakers ?? []).map((speaker) => ({
+    id: `sarvam-${language.code.toLowerCase()}-${speaker.speaker}`,
+    name: speaker.speaker.charAt(0).toUpperCase() + speaker.speaker.slice(1),
+    accent: language.code === 'en-IN' ? 'Indian' : language.englishName,
+    description: speaker.description,
+    provider: 'sarvam' as const,
+    // Sarvam's speaker names are case-sensitive and lowercase.
+    model: speaker.speaker,
+    languageCode: language.sarvam!.code,
+    speaksAs: speaker.speaksAs,
+    language: language.code,
+  })),
+);
 
 /** What each voice says when a delegate plays its sample. Short, and what Nova sounds like. */
 export const VOICE_SAMPLE_TEXT =
@@ -155,41 +160,71 @@ export const VOICE_SAMPLE_TEXT =
 /**
  * The Hindi sample, written to Sarvam's own guidance: Hindi in Devanagari, the English
  * word in English, and a danda to end each sentence. It says nothing about the speaker,
- * so the same line is right in a male voice and a female one.
+ * so the same line is right in a male voice and a female one. The other languages'
+ * samples follow the same rules, in languages.ts.
  */
-export const HINDI_SAMPLE_TEXT =
-  'नमस्ते, इस training session में आपका स्वागत है। कोई भी सवाल हो, तो बीच में ज़रूर पूछिए।';
+export const HINDI_SAMPLE_TEXT = languageInfo('hi').sarvam!.sample;
 
 /** Only what the screen may see. The provider and its names for things stay here. */
 function shown({ id, name, accent, description }: ProvidedVoice): VoiceOption {
   return { id, name, accent, description };
 }
 
-function offeredVoices(): readonly ProvidedVoice[] {
-  return hindiAvailable() ? [...DEEPGRAM_VOICES, ...SARVAM_HINDI_VOICES] : DEEPGRAM_VOICES;
+/** Who is asking, as far as which languages they may have goes. */
+export interface LanguageAudience {
+  platform: boolean;
+  /** The customer this person belongs to, as opposed to one they are looking inside. */
+  homeOrgId?: string;
 }
 
-export function voiceCatalogue(): VoiceCatalogue {
+/**
+ * The languages this person may hold a session in.
+ *
+ * English always. A Sarvam language only where the Sarvam key is set, so a deployment
+ * without one has no option that fails on its first sentence. And a language nobody has
+ * yet checked only for Technavious's own people, who test it; everybody else sees the
+ * languages in LANGUAGES_FOR_EVERYONE.
+ */
+export function languagesFor(person?: LanguageAudience): readonly LanguageInfo[] {
+  const everyone = languagesForEveryone();
+  const staff = Boolean(person && (person.platform || person.homeOrgId === HOME_ORG_ID));
+  return LANGUAGES.filter((language) => {
+    if (language.code === 'en') return true;
+    if (language.sarvam && !hindiAvailable()) return false;
+    return staff || everyone.has(language.code);
+  });
+}
+
+function offeredVoices(person?: LanguageAudience): readonly ProvidedVoice[] {
+  const offered = new Set(languagesFor(person).map((language) => language.code));
+  return [...DEEPGRAM_VOICES, ...SARVAM_VOICES.filter((voice) => offered.has(voice.language))];
+}
+
+export function voiceCatalogue(person?: LanguageAudience): VoiceCatalogue {
   const configured = DEEPGRAM_TTS_MODEL();
   const offered = DEEPGRAM_VOICES.some((voice) => voice.id === configured);
-  const languages: LanguageOption[] = [
-    {
-      code: 'en',
-      name: 'English',
-      englishName: 'English',
-      voices: DEEPGRAM_VOICES.map(shown),
-      defaultVoiceId: offered ? configured : DEEPGRAM_VOICES[0]!.id,
-    },
-  ];
-  if (hindiAvailable()) {
-    languages.push({
-      code: 'hi',
-      name: 'हिन्दी',
-      englishName: 'Hindi',
-      voices: SARVAM_HINDI_VOICES.map(shown),
-      defaultVoiceId: SARVAM_HINDI_VOICES[0]!.id,
-    });
-  }
+  const everyone = languagesForEveryone();
+  const languages: LanguageOption[] = languagesFor(person).map((language) => {
+    if (language.code === 'en') {
+      return {
+        code: 'en',
+        name: 'English',
+        englishName: 'English',
+        voices: DEEPGRAM_VOICES.map(shown),
+        defaultVoiceId: offered ? configured : DEEPGRAM_VOICES[0]!.id,
+      };
+    }
+    const voices = SARVAM_VOICES.filter((voice) => voice.language === language.code);
+    return {
+      code: language.code,
+      name: language.name,
+      englishName: language.englishName,
+      voices: voices.map(shown),
+      defaultVoiceId: voices[0]!.id,
+      ...(language.note ? { note: language.note } : {}),
+      ...(everyone.has(language.code) ? {} : { testing: true }),
+    };
+  });
   return { languages };
 }
 
@@ -198,16 +233,17 @@ export function voiceCatalogue(): VoiceCatalogue {
  *
  * No voice at all means the deployment's default English voice, exactly as every request
  * behaved before there was a choice, so nothing already in flight changes. A voice that
- * is named but not offered is refused rather than quietly replaced: a request asking for
- * something specific should hear that it cannot have it, not get something else. That
- * includes a Hindi voice on a deployment with no Sarvam key.
+ * is named but not offered to this person is refused rather than quietly replaced: a
+ * request asking for something specific should hear that it cannot have it, not get
+ * something else. That includes a Sarvam voice on a deployment with no Sarvam key, and a
+ * language still in testing asked for by a customer's trainee.
  */
-export function voiceFor(requested: unknown): SpokenVoice | null {
+export function voiceFor(requested: unknown, person?: LanguageAudience): SpokenVoice | null {
   if (requested === undefined || requested === null) {
     return { provider: 'deepgram', model: DEEPGRAM_TTS_MODEL() };
   }
   if (typeof requested !== 'string') return null;
-  const voice = offeredVoices().find((candidate) => candidate.id === requested);
+  const voice = offeredVoices(person).find((candidate) => candidate.id === requested);
   if (!voice) return null;
   const { provider, model, languageCode } = voice;
   return languageCode ? { provider, model, languageCode } : { provider, model };
@@ -215,37 +251,39 @@ export function voiceFor(requested: unknown): SpokenVoice | null {
 
 /** The line a voice's sample says, in the language the voice speaks. */
 export function sampleTextFor(voice: SpokenVoice): string {
-  return voice.languageCode === 'hi-IN' ? HINDI_SAMPLE_TEXT : VOICE_SAMPLE_TEXT;
+  const language = LANGUAGES.find((candidate) => candidate.sarvam?.code === voice.languageCode);
+  return language?.sarvam?.sample ?? VOICE_SAMPLE_TEXT;
 }
 
 /**
- * Whether the trainer, speaking in this voice, is a woman or a man to Hindi grammar.
+ * Whether the trainer, speaking in this voice, is a woman or a man to the language's
+ * grammar.
  *
  * Undefined for an English voice, where nothing turns on it, and for anything not
  * offered. The prompt then falls back to phrasing that avoids the question.
  */
-export function speaksAsFor(requested: unknown): SpeaksAs | undefined {
+export function speaksAsFor(requested: unknown, person?: LanguageAudience): SpeaksAs | undefined {
   if (typeof requested !== 'string') return undefined;
-  return offeredVoices().find((voice) => voice.id === requested)?.speaksAs;
+  return offeredVoices(person).find((voice) => voice.id === requested)?.speaksAs;
 }
 
 /** Letters only, so a vowel sign is not counted as a second letter beside its consonant. */
-const DEVANAGARI_LETTER = /(?=\p{L})\p{Script=Devanagari}/gu;
+const LATIN_LETTER = /(?=\p{L})\p{Script=Latin}/gu;
 const LETTER = /\p{L}/gu;
 
 /**
  * Whether a voice can say this text, as opposed to producing sound from it.
  *
- * Deepgram's voices are English. Handed Hindi they do not refuse: they return audio of
- * the Devanagari read with English phonetics, which plays, sounds like nonsense, and
- * looks from every log like a success. So text that is mostly Devanagari is refused for
- * them up front. Mostly, rather than any, so that a trainee who types their name in
- * Hindi still gets an English session that greets them.
+ * Deepgram's voices are English. Handed Hindi or Tamil they do not refuse: they return
+ * audio of the script read with English phonetics, which plays, sounds like nonsense,
+ * and looks from every log like a success. So text that is mostly not in Latin letters
+ * is refused for them up front. Mostly, rather than any, so that a trainee who types
+ * their name in their own script still gets an English session that greets them.
  */
 export function canSpeak(voice: SpokenVoice, text: string): boolean {
   if (voice.provider !== 'deepgram') return true;
   const letters = text.match(LETTER)?.length ?? 0;
   if (letters === 0) return true;
-  const devanagari = text.match(DEVANAGARI_LETTER)?.length ?? 0;
-  return devanagari / letters <= 0.5;
+  const latin = text.match(LATIN_LETTER)?.length ?? 0;
+  return (letters - latin) / letters <= 0.5;
 }

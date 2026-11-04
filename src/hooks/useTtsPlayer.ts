@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AUDIO_SAMPLE_RATE } from '@/lib/config';
 import type { Failure } from '@/lib/failures/codes';
 import { reportFailure } from '@/lib/failures/report-client';
+import { pacedToPlayback } from '@/lib/languages';
 import { pcmToFloat } from '@/lib/pcm';
 import { nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
 import type { SessionLanguage } from '@/lib/types';
@@ -36,7 +37,8 @@ import { fetchSpeech, stallRetryDelayMs } from '@/lib/voice/fetch-speech';
 const SCHEDULE_LEAD_SECONDS = 0.08;
 
 /**
- * How far ahead of the listener Hindi is synthesised, in seconds of audio.
+ * How far ahead of the listener Hindi, and every other language Sarvam speaks, is
+ * synthesised, in seconds of audio.
  *
  * English is synthesised as fast as the text arrives, as it always was. Hindi is held
  * back until what is already queued runs this low, for two reasons that both come from
@@ -438,11 +440,12 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   /**
    * Starts English sentences downloading ahead of the one playing, up to SPEECH_AHEAD.
    *
-   * Hindi never fetches ahead: it is paced to playback by waitForRoom to protect Sarvam's
-   * prepaid credit, and its next sentence is asked for only when there is room for it.
+   * Hindi and the other Sarvam languages never fetch ahead: they are paced to playback by
+   * waitForRoom to protect Sarvam's prepaid credit, and the next sentence is asked for
+   * only when there is room for it.
    */
   const fetchAhead = useCallback(() => {
-    if (languageRef.current === 'hi') return;
+    if (pacedToPlayback(languageRef.current)) return;
     // Nothing is fetched ahead while the trainer is held or the browser knows it is
     // offline. It would only fail, and the held sentence is the one that matters.
     if (releaseStallRef.current || !navigator.onLine) return;
@@ -504,8 +507,9 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       const { generation } = item;
       if (generation !== generationRef.current) return;
 
-      // Hindi only, and see HINDI_LOOKAHEAD_SECONDS for why. English goes straight on.
-      if (languageRef.current === 'hi') {
+      // Sarvam's languages only, and see HINDI_LOOKAHEAD_SECONDS for why. English goes
+      // straight on.
+      if (pacedToPlayback(languageRef.current)) {
         await waitForRoom(generation);
         if (generation !== generationRef.current) return;
       }

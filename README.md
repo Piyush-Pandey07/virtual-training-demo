@@ -335,6 +335,24 @@ The player is built for connections that do not hold:
 - Live transcription that drops falls back to short bursts without alarming the trainee, and tries to
   reconnect after 20 seconds or when the browser comes back online.
 
+### Languages
+
+Every language is one entry in `src/lib/languages.ts`: its name, how Deepgram listens to it, the
+Sarvam speakers that say it, its sample line, and for the Indian languages the register the trainer
+should speak in. English is Deepgram's. Indian English, Hindi, Marathi, Tamil, Telugu, Kannada,
+Malayalam, Bengali and Gujarati are Sarvam's Bulbul v3, using the speakers Sarvam recommends for each
+language, and need `SARVAM_API_KEY`.
+
+- **Who sees which:** `LANGUAGES_FOR_EVERYONE` (default `en,hi`) lists the languages every trainee is
+  offered. The rest are offered to Technavious's own people only, marked "in testing", so they can be
+  checked on production. Add a language's code once a speaker of it has signed it off.
+- **Listening:** the Indian languages use Nova-3's code-switching mode, as Hindi does, so English
+  terms and "next slide" come back as English.
+- **Pacing:** every Sarvam language is synthesised just ahead of playback, to protect the prepaid
+  credit. Usage counts all Sarvam characters in the existing `hindiCharacters` field.
+- **Prompt:** Hindi keeps its own tuned block. The others share one template with their own
+  examples, which each need a native speaker's check.
+
 ### The data centre glossary
 
 The Benchmark team's glossary (`docs/DC Glossary List.docx`, 296 rows) is imported into

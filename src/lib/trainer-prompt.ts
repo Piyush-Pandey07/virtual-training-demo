@@ -32,6 +32,7 @@ import {
 } from './trainee-read';
 import { renderGlossary, termsForTurn } from './glossary';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
+import { languageInfo, type LanguageInfo } from './languages';
 import {
   type ExpertiseLevel,
   isExpertiseLevel,
@@ -193,7 +194,7 @@ function deckReferenceFor({
 /** The language the trainer speaks in, and how it refers to itself in it. */
 export interface SpokenLanguage {
   language: SessionLanguage;
-  /** Hindi only. Undefined phrases things so that nothing turns on it. */
+  /** For languages whose verbs mark the speaker's gender. Undefined avoids the question. */
   speaksAs?: SpeaksAs;
 }
 
@@ -239,6 +240,63 @@ Never this, which is formal Hindi and spells English words in Devanagari:
 /** Closes every Hindi turn, nearest the point where the reply is written. */
 const HINDI_TURN_REMINDER = `IN HINDI
 Say all of this in everyday spoken Hindi, as your instructions set out: Hindi words in Devanagari, and every English word and technical term in English letters. Any example above is in English only to show its shape.`;
+
+/**
+ * How the trainer speaks one of the other Indian languages.
+ *
+ * The same rules as the Hindi block above, which was tuned against real output: the
+ * everyday register people use at work, the language's own script for its words and
+ * English letters for English ones, technical terms kept in English, and a form of "you"
+ * that does not mark gender. Each language's examples are in languages.ts, and each
+ * needs a native speaker's check before the language goes to everyone. Hindi keeps its
+ * own block, byte for byte, because it has been measured and every other one has not.
+ */
+function indianLanguageInstruction(info: LanguageInfo, speaksAs: SpeaksAs | undefined): string {
+  const register = info.register!;
+  const name = info.englishName;
+  const ending = register.sentenceEnd
+    ? `End a sentence that finishes on a ${name} word with ${register.sentenceEnd}, and a sentence that finishes on an English word with a full stop.`
+    : 'End every sentence with a full stop.';
+  const self = !register.gendered
+    ? ''
+    : speaksAs === 'feminine'
+      ? `\n- Your voice in this session is a woman's. Where ${name} marks the speaker's gender in a verb, use the feminine form whenever you speak of yourself.`
+      : speaksAs === 'masculine'
+        ? `\n- Your voice in this session is a man's. Where ${name} marks the speaker's gender in a verb, use the masculine form whenever you speak of yourself.`
+        : `\n- Phrase what you say about yourself so that it does not mark your gender, for example by saying "we" and "let us".`;
+
+  return `SPEAK ${name.toUpperCase()}
+This session is in ${name}. Everything you say is played to the trainee in a ${name} voice, so every reply you give is in ${name}, even though these instructions, the deck and every example in them are in English. If the trainee speaks or types in English, still reply in ${name}.
+
+Speak the ${name} people actually speak at work in India: simple, conversational, and full of the English words they use every day. This is the register:
+"${register.good}"
+Never this, which is formal ${name} and spells English words in ${name} script:
+"${register.bad}"
+
+- Where people at work would say the English word, say it. Do not reach for a formal ${name} word instead.
+- Write ${name} words in ${name} script and English words in English letters, always. Never write an English word in ${name} script, and never write ${name} in English letters, because the voice reads each script in its own language.
+- Keep technical terms, acronyms, the names of standards and products, and job titles in English, exactly as the deck writes them. Do not translate them. Write a symbol as the words you would say, in English letters: "N plus one" rather than "N+1".
+- ${ending}${self}
+- You do not know the trainee's gender. Address them as ${register.you}, and prefer phrasing that does not mark their gender, such as "${register.check}"
+- Write figures as digits, and put commas in any number longer than four digits: 10,000.
+- What the rest of these instructions say about British English applies to the English words you keep.`;
+}
+
+/** The language block for the system instruction, or empty for English. */
+function languageInstruction(spoken: SpokenLanguage): string {
+  if (spoken.language === 'hi') return hindiInstruction(spoken.speaksAs);
+  const info = languageInfo(spoken.language);
+  return info.register ? indianLanguageInstruction(info, spoken.speaksAs) : '';
+}
+
+/** Closes every turn in a language other than English, nearest where the reply is written. */
+function turnReminderFor(language: SessionLanguage): string {
+  if (language === 'hi') return HINDI_TURN_REMINDER;
+  const info = languageInfo(language);
+  if (!info.register) return '';
+  return `IN ${info.englishName.toUpperCase()}
+Say all of this in everyday spoken ${info.englishName}, as your instructions set out: ${info.englishName} words in ${info.englishName} script, and every English word and technical term in English letters. Any example above is in English only to show its shape.`;
+}
 
 /**
  * The most characters the trainee's own details may take up in the instruction.
@@ -365,8 +423,10 @@ export function buildSystemInstruction(
   const addressed = traineeName?.trim()
     ? `The trainee is called ${traineeName.trim()}. Use their first name occasionally, not in every sentence.`
     : "You do not know the trainee's name. Do not invent one and do not ask for it more than once.";
-  // Empty for English, so an English session's instruction is exactly what it was.
-  const language = spoken?.language === 'hi' ? `\n\n${hindiInstruction(spoken.speaksAs)}` : '';
+  // Empty for English, so an English session's instruction is exactly what it was, and
+  // for English with an Indian voice, which is the same English said differently.
+  const spokenBlock = spoken ? languageInstruction(spoken) : '';
+  const language = spokenBlock ? `\n\n${spokenBlock}` : '';
   // Empty without a profile, for the same reason. Beside the name because it is the
   // same kind of thing: who is in the room.
   const about = traineeProfileBlock(profile, meta.id);
@@ -649,7 +709,8 @@ interface TurnPromptArgs {
 /** Builds the user-role prompt for a single turn. */
 export function buildTurnPrompt(args: TurnPromptArgs): string {
   const prompt = turnPromptFor(args);
-  return args.language === 'hi' ? `${prompt}\n\n${HINDI_TURN_REMINDER}` : prompt;
+  const reminder = args.language ? turnReminderFor(args.language) : '';
+  return reminder ? `${prompt}\n\n${reminder}` : prompt;
 }
 
 function turnPromptFor({

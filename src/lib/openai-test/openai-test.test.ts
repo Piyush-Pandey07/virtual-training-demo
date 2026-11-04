@@ -284,7 +284,7 @@ describe("today's voice", () => {
   });
 
   it('is unavailable for every other language, with a plain reason rather than an error', () => {
-    for (const code of ['id', 'ar', 'ms', 'tl', 'vi', 'ta', 'te', 'mr'] as const) {
+    for (const code of ['id', 'ar', 'ms', 'tl', 'vi'] as const) {
       for (const hindi of [true, false]) {
         const today = todaysVoiceFor(code, hindi);
         assert.ok(!today.ok, `${code} should have no voice today`);
@@ -294,9 +294,18 @@ describe("today's voice", () => {
         assert.ok(!today.reason.includes(dash), `${code} reason has a long dash`);
       }
     }
-    // The Indian languages say why Sarvam, which could speak them, does not here.
-    assert.match((todaysVoiceFor('ta', true) as { reason: string }).reason, /Hindi only/);
     assert.match((todaysVoiceFor('ar', true) as { reason: string }).reason, /Indian languages/);
+  });
+
+  it('compares Tamil, Telugu and Marathi with the Sarvam voice the trainer now uses', () => {
+    assert.deepEqual(todaysVoiceFor('ta', true), {
+      ok: true,
+      voice: 'sarvam-ta-ishita',
+      label: 'Sarvam Ishita',
+    });
+    assert.equal((todaysVoiceFor('te', true) as { voice: string }).voice, 'sarvam-te-neha');
+    assert.equal((todaysVoiceFor('mr', true) as { voice: string }).voice, 'sarvam-mr-priya');
+    assert.equal(todaysVoiceFor('mr', false).ok, false);
   });
 });
 
