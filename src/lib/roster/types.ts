@@ -7,7 +7,17 @@
  * safe to render, with one exception noted on `PersonRow`.
  */
 
-export type Role = 'admin' | 'trainee';
+/**
+ * What somebody may do inside their company.
+ *
+ * `admin` is the company administrator: their company's whole setup, but not learner
+ * profiles. `facilitator` runs trainer-led sessions for their own batches and nothing
+ * else (BRD v2.3, section 6). `trainee` attends. Technavious's own administrators are
+ * not a role on a row; see auth/permissions.ts.
+ */
+export type Role = 'admin' | 'facilitator' | 'trainee';
+
+export const ROLES: readonly Role[] = ['admin', 'facilitator', 'trainee'];
 
 /** Somebody who can sign in. Created on first sign-in, or by an admin assigning work. */
 export interface Person {

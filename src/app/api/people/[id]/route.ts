@@ -15,7 +15,7 @@ import { revokeSessions } from '@/lib/firebase/admin';
 import { deleteProfile } from '@/lib/profiles/store';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
-import type { Role } from '@/lib/roster/types';
+import { ROLES, type Role } from '@/lib/roster/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,8 +36,11 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       return Response.json({ error: 'Request body must be JSON.' }, { status: 400 });
     }
 
-    if (body.role !== 'admin' && body.role !== 'trainee') {
-      return Response.json({ error: "role must be 'admin' or 'trainee'." }, { status: 400 });
+    if (!body.role || !ROLES.includes(body.role)) {
+      return Response.json(
+        { error: "role must be 'admin', 'facilitator' or 'trainee'." },
+        { status: 400 },
+      );
     }
 
     if (id === admin.id && body.role !== 'admin') {
@@ -51,7 +54,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const person = await store.getPerson(id);
     if (!person) return Response.json({ error: 'No such person.' }, { status: 404 });
 
-    if (body.role === 'trainee' && isPlatformAdmin(person.email)) {
+    if (body.role !== 'admin' && isPlatformAdmin(person.email)) {
       // Their address is in AUTH_ADMIN_EMAILS, so the stored role is not what decides
       // it. Saying so beats a click that appears to work and changes nothing.
       return Response.json(

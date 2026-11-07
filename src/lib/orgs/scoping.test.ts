@@ -60,6 +60,9 @@ const STORES = [
   'purge',
   'suspend',
   'resume',
+  // Batches and trainer-led sessions, with their attendance.
+  'trainingStore',
+  'trainingDocuments',
 ] as const;
 
 /**

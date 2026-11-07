@@ -16,6 +16,7 @@ import 'server-only';
 
 import { cert, getApp, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import type { Role } from '../roster/types';
 
 /** How long a session cookie lasts. Firebase allows up to fourteen days. */
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -126,11 +127,7 @@ export async function findAccountByEmail(email: string): Promise<string | null> 
 }
 
 /** Sets the role claim, so an authorisation check costs no database round trip. */
-export async function setRoleClaim(
-  uid: string,
-  role: 'admin' | 'trainee',
-  orgId?: string,
-): Promise<void> {
+export async function setRoleClaim(uid: string, role: Role, orgId?: string): Promise<void> {
   // Both claims are written together, because they are written together: the one call
   // that sets them is sign-in, and a claim set without the other would leave a session
   // that knows a role and not which customer it applies to.

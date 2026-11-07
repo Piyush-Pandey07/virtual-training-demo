@@ -41,6 +41,9 @@ const OWNED_COLLECTIONS = [
   // Learner profiles: personal details somebody chose to give, so the last thing that
   // should outlive the customer they were given to.
   'profiles',
+  // Batches and trainer-led sessions, with their attendance.
+  'batches',
+  'trainingSessions',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
