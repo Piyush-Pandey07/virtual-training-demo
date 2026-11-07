@@ -1,7 +1,7 @@
 /**
  * PATCH, DELETE /api/people/{id}
  *
- * Promoting somebody to HR, demoting them, or removing them.
+ * Changing somebody's role (company administrator, facilitator or employee), or removing them.
  *
  * An administrator cannot demote themselves. That is not politeness: with one admin
  * role and no seat above it, the last administrator demoting themselves would leave
@@ -11,7 +11,8 @@
 
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
-import { revokeSessions } from '@/lib/firebase/admin';
+import { deleteAccount, revokeSessions } from '@/lib/firebase/admin';
+import { removeFromTraining } from '@/lib/training/service';
 import { deleteProfile } from '@/lib/profiles/store';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
@@ -88,11 +89,15 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
 
     await rosterStore(admin.orgId).removePerson(id);
 
-    // Their session ends at Firebase as well. Losing the roster row is already enough
-    // — every request re-reads it, so they are refused on the next one — but leaving a
-    // live refresh token behind for somebody who has been removed is not tidy, and
-    // this is the moment to spend one call on it.
-    await revokeSessions(id).catch(() => undefined);
+    // Their login goes too (AI-42, RUL-8), not only their sessions. Losing the roster
+    // row is already enough to refuse them on the next request, since every request
+    // re-reads it, but the BRD asks for the account itself to be deleted. If deleting
+    // fails, their tokens are at least revoked, so nothing they hold keeps working.
+    await deleteAccount(id).catch(() => revokeSessions(id).catch(() => undefined));
+
+    // Out of every batch, and every session that has not happened yet. A session that
+    // ran keeps them on its list: attendance is a record kept for five years (RUL-7).
+    await removeFromTraining(admin, id).catch(() => undefined);
 
     // And their learner profile, if they gave one. The notice they agreed to says it
     // goes when they leave, and nobody could reach it afterwards to delete it, not even

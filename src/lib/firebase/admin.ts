@@ -82,6 +82,19 @@ export async function revokeSessions(uid: string): Promise<void> {
 }
 
 /**
+ * Deletes the sign-in account itself (BRD v2.3, RUL-8: removing a person removes their
+ * login, not only their sessions). An account that is already gone is not an error.
+ */
+export async function deleteAccount(uid: string): Promise<void> {
+  try {
+    await getAuth(adminApp()).deleteUser(uid);
+  } catch (error) {
+    if ((error as { code?: string }).code === 'auth/user-not-found') return;
+    throw error;
+  }
+}
+
+/**
  * Creates an account, server-side.
  *
  * Deliberately not `createUserWithEmailAndPassword` in the browser. That call goes
