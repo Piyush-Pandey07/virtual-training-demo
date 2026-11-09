@@ -13,10 +13,19 @@
  * Nova-3. English with an Indian accent is a language here too, because a trainee
  * chooses it the same way, though it is English to everything except the voice.
  *
+ * Arabic for the UAE, Malay, Indonesian, Filipino and Vietnamese are spoken by OpenAI's
+ * gpt-4o-mini-tts, whose voices are not tied to a language: the accent is asked for in
+ * words, the same words the staff OpenAI test page suggests, so what that page plays is
+ * what a session sounds like. Deepgram's Nova-3 listens to them, as it does to the rest.
+ *
  * A language is offered to every trainee only once somebody who speaks it has checked
  * it. Until then it is offered to Technavious staff, for UAT. See `languagesFor`.
+ *
+ * Besides types, the one thing taken from elsewhere is the OpenAI test's suggested
+ * instructions: plain strings, from a file that is itself safe in the browser.
  */
 
+import { SUGGESTED_INSTRUCTIONS, type OpenAiVoice } from './openai-test/samples';
 import type { SessionLanguage } from './types';
 
 export type SarvamLanguageCode =
@@ -28,6 +37,41 @@ export interface SarvamSpeaker {
   speaksAs: 'feminine' | 'masculine';
   /** Shown under the name in the picker. */
   description: string;
+}
+
+/** One of OpenAI's built-in voices, as offered for one language. */
+export interface OpenAiSpeaker {
+  voice: OpenAiVoice;
+  /** How the voice sounds. OpenAI does not say, so this is by ear. */
+  speaksAs: 'feminine' | 'masculine';
+  /** Shown under the name in the picker. */
+  description: string;
+}
+
+/**
+ * How a language from outside India is spoken at work and written, for the prompt.
+ *
+ * The Indian languages' prompt says "at work in India" and assumes each language has a
+ * script of its own. Neither holds here. Malay, Indonesian, Filipino and Vietnamese are
+ * written in Latin letters, as English is, so the rule there is to keep English terms
+ * spelled as English and untranslated. Arabic has its own script, written right to left.
+ */
+export interface OutsideIndia {
+  /** Where the trainee works, as the prompt says it: "the UAE", "the Philippines". */
+  country: string;
+  script: 'latin' | 'arabic';
+  /**
+   * How the trainer describes itself in each voice, where the language marks the
+   * speaker's gender outside the verb. Arabic's first-person verbs do not mark it, but the
+   * words a speaker uses about themselves do: سعيد is a man saying he is glad, سعيدة a
+   * woman.
+   */
+  self?: { feminine: string; masculine: string };
+  /**
+   * The word for "I" that marks neither gender nor age, where the everyday ones do. A
+   * Vietnamese speaker who calls themselves anh, chị or em has said both.
+   */
+  me?: string;
 }
 
 /**
@@ -49,12 +93,20 @@ export interface SpokenRegister {
    * English words spelled in the language's own script, which the trainer must not write.
    * Naming them is what stopped Hindi doing it: on production, Marathi narration still
    * wrote "डेटा सेंटर्स" and "ट्रेनिंग सेशन" until they were named.
+   *
+   * For a language written in Latin letters, the English terms respelled or translated
+   * the local way instead, which the trainer must not say either.
    */
   transliterated: string;
-  /** Whether a speaker's own verbs mark their gender, as in Hindi and Marathi. */
+  /**
+   * Whether the speaker's gender shows in what they say about themselves: in their own
+   * verbs, as in Hindi and Marathi, or in the words that describe them, as in Arabic.
+   */
   gendered: boolean;
   /** Ends a sentence that finishes in the language, where that is not a full stop. */
   sentenceEnd?: '।';
+  /** For a language from outside India. Absent for every Indian language. */
+  outsideIndia?: OutsideIndia;
 }
 
 export interface LanguageInfo {
@@ -73,6 +125,17 @@ export interface LanguageInfo {
   listen: string;
   /** Spoken by Sarvam, from prepaid credit, so synthesised just ahead of playback. */
   sarvam?: { code: SarvamLanguageCode; speakers: readonly SarvamSpeaker[]; sample: string };
+  /**
+   * Spoken by OpenAI's gpt-4o-mini-tts, billed as it is used, so fetched ahead as English
+   * is. Every request carries the instructions, which are what give it the accent.
+   */
+  openai?: {
+    voices: readonly OpenAiSpeaker[];
+    /** Shown beside each voice's name in the picker. */
+    accent: string;
+    instructions: string;
+    sample: string;
+  };
   /** Absent for English and Indian English, whose prompt is the English one. */
   register?: SpokenRegister;
   /** Under the language choice in the lobby. */
@@ -90,8 +153,19 @@ const male = (speaker: string, description: string): SarvamSpeaker => ({
   description,
 });
 
-const indianNote = (name: string) =>
+const languageNote = (name: string) =>
   `The trainer will teach and answer in ${name}, keeping technical terms in English. The slides stay in English. Speak ${name}, English or a mix of the two.`;
+
+/**
+ * The OpenAI voices offered in each OpenAI language. Marin and Cedar because OpenAI's own
+ * guide recommends them for the best quality, and Coral as a second woman's voice. Which
+ * of them carries each accent best is for the UAT to say, language by language.
+ */
+const OPENAI_SPEAKERS: readonly OpenAiSpeaker[] = [
+  { voice: 'marin', speaksAs: 'feminine', description: "Female. OpenAI's recommended voice" },
+  { voice: 'cedar', speaksAs: 'masculine', description: "Male. OpenAI's recommended voice" },
+  { voice: 'coral', speaksAs: 'feminine', description: 'Female. Warm and clear' },
+];
 
 /**
  * In the order the picker shows them. English first and always.
@@ -100,6 +174,10 @@ const indianNote = (name: string) =>
  * Hindi block uses, so a reviewer comparing languages compares like with like. Every
  * non-Hindi line here needs a native speaker's check before its language goes to
  * everyone: that check is what `LANGUAGES_FOR_EVERYONE` records.
+ *
+ * The samples say what the English one does, a welcome and an invitation to interrupt,
+ * without saying anything about the speaker, so one line suits a man's voice and a
+ * woman's alike.
  */
 export const LANGUAGES: readonly LanguageInfo[] = [
   { code: 'en', name: 'English', englishName: 'English', listen: 'en' },
@@ -160,7 +238,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'डेटा, सेंटर, ट्रेनिंग, सेशन, व्हर्च्युअल, सर्व्हर',
       gendered: true,
     },
-    note: indianNote('Marathi'),
+    note: languageNote('Marathi'),
   },
   {
     code: 'ta',
@@ -186,7 +264,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'டேட்டா, சென்டர், ட்ரைனிங், செஷன், சர்வர்',
       gendered: false,
     },
-    note: indianNote('Tamil'),
+    note: languageNote('Tamil'),
   },
   {
     code: 'te',
@@ -211,7 +289,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'డేటా, సెంటర్, ట్రైనింగ్, సెషన్, సర్వర్',
       gendered: false,
     },
-    note: indianNote('Telugu'),
+    note: languageNote('Telugu'),
   },
   {
     code: 'kn',
@@ -236,7 +314,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'ಡೇಟಾ, ಸೆಂಟರ್, ಟ್ರೈನಿಂಗ್, ಸೆಷನ್, ಸರ್ವರ್',
       gendered: false,
     },
-    note: indianNote('Kannada'),
+    note: languageNote('Kannada'),
   },
   {
     code: 'ml',
@@ -260,7 +338,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'ഡാറ്റ, സെന്റർ, ട്രെയിനിംഗ്, സെഷൻ, സെർവർ',
       gendered: false,
     },
-    note: indianNote('Malayalam'),
+    note: languageNote('Malayalam'),
   },
   {
     code: 'bn',
@@ -286,7 +364,7 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       gendered: false,
       sentenceEnd: '।',
     },
-    note: indianNote('Bengali'),
+    note: languageNote('Bengali'),
   },
   {
     code: 'gu',
@@ -311,7 +389,152 @@ export const LANGUAGES: readonly LanguageInfo[] = [
       transliterated: 'ડેટા, સેન્ટર, ટ્રેનિંગ, સેશન, સર્વર',
       gendered: true,
     },
-    note: indianNote('Gujarati'),
+    note: languageNote('Gujarati'),
+  },
+  {
+    code: 'ar',
+    name: 'العربية',
+    englishName: 'Arabic',
+    // Plain Arabic, as the OpenAI test page compares it. Nova-3 also takes ar-AE, which
+    // may hear UAE trainees better and is worth a run in UAT.
+    listen: 'ar',
+    openai: {
+      voices: OPENAI_SPEAKERS,
+      accent: 'Gulf Arabic',
+      instructions: SUGGESTED_INSTRUCTIONS.ar,
+      // Needs a native speaker's check. "I will accompany you" rather than "I will be your
+      // trainer", because مدربكم and مدربتكم would say which voice is speaking.
+      sample:
+        'مرحبًا، سأرافقكم في هذه الـ training session. إذا كان لديكم أي سؤال، أوقفوني في أي وقت.',
+    },
+    // Every line needs a native speaker's check. Modern Standard Arabic, kept simple,
+    // because that is how Arabic is written in the Gulf as anywhere else; the Gulf accent
+    // is the voice's, from its instructions.
+    register: {
+      good: 'في هذه الـ slide سنرى الـ power path في الـ data centre. تصل الـ power من الـ utility أولًا إلى الـ HV/MV substation، ثم تمر عبر الـ UPS حتى تصل إلى الـ racks.',
+      bad: 'في هذه السلايد سنستعرض مسار الطاقة الكهربائية في الداتا سنتر.',
+      // The plural of respect, which marks no gender. A singular second-person verb would
+      // say whether the trainee is a man or a woman.
+      you: 'أنتم',
+      check: 'هل هذا واضح؟',
+      transliterated: 'سلايد، داتا سنتر، سيرفر، ترينينغ، سيشن',
+      gendered: true,
+      outsideIndia: {
+        country: 'the UAE',
+        script: 'arabic',
+        self: { feminine: 'أنا سعيدة، أنا متأكدة', masculine: 'أنا سعيد، أنا متأكد' },
+      },
+    },
+    note: languageNote('Arabic'),
+  },
+  {
+    code: 'ms',
+    name: 'Bahasa Melayu',
+    englishName: 'Malay',
+    listen: 'ms',
+    openai: {
+      voices: OPENAI_SPEAKERS,
+      accent: 'Malaysian',
+      instructions: SUGGESTED_INSTRUCTIONS.ms,
+      // Needs a native speaker's check.
+      sample:
+        'Helo, saya jurulatih anda untuk training session ini. Kalau ada soalan, jangan segan untuk hentikan saya pada bila-bila masa.',
+    },
+    // Every line needs a native speaker's check. Malaysian words where Indonesian differs,
+    // such as "tengok", so a voice drifting into Indonesian is easier to hear.
+    register: {
+      good: 'Dalam slide ini kita akan tengok power path sebuah data centre. Power dari utility masuk dulu ke HV/MV substation, kemudian melalui UPS sampai ke racks.',
+      bad: 'Dalam slaid ini kita akan meneliti laluan kuasa elektrik di pusat data.',
+      you: 'anda',
+      check: 'Adakah ini jelas?',
+      transliterated: 'slaid, pusat data, pelayan, sesi latihan',
+      gendered: false,
+      outsideIndia: { country: 'Malaysia', script: 'latin' },
+    },
+    note: languageNote('Malay'),
+  },
+  {
+    code: 'id',
+    name: 'Bahasa Indonesia',
+    englishName: 'Indonesian',
+    listen: 'id',
+    openai: {
+      voices: OPENAI_SPEAKERS,
+      accent: 'Indonesian',
+      instructions: SUGGESTED_INSTRUCTIONS.id,
+      // Needs a native speaker's check.
+      sample:
+        'Halo, saya akan menjadi trainer Anda untuk training session ini. Kalau ada pertanyaan, silakan hentikan saya kapan saja.',
+    },
+    // Every line needs a native speaker's check.
+    register: {
+      good: 'Di slide ini kita akan melihat power path sebuah data centre. Power dari utility masuk dulu ke HV/MV substation, lalu lewat UPS sampai ke racks.',
+      bad: 'Pada salindia ini kita akan menelaah jalur daya listrik pada pusat data.',
+      // Not Bapak or Ibu, which a trainer says to somebody whose gender they know.
+      you: 'Anda',
+      check: 'Apakah ini sudah jelas?',
+      transliterated: 'salindia, pusat data, peladen, sesi pelatihan',
+      gendered: false,
+      outsideIndia: { country: 'Indonesia', script: 'latin' },
+    },
+    note: languageNote('Indonesian'),
+  },
+  {
+    // `tl`, as the OpenAI test page has it: OpenAI, Whisper and Deepgram all know
+    // Filipino as Tagalog.
+    code: 'tl',
+    name: 'Filipino',
+    englishName: 'Filipino',
+    listen: 'tl',
+    openai: {
+      voices: OPENAI_SPEAKERS,
+      accent: 'Filipino',
+      instructions: SUGGESTED_INSTRUCTIONS.tl,
+      // Needs a native speaker's check. Taglish, as a trainer in Manila would say it.
+      sample:
+        'Hello, ako ang magiging trainer ninyo para sa training session na ito. Kung may tanong kayo, huwag po kayong mahiyang pigilan ako anumang oras.',
+    },
+    // Every line needs a native speaker's check.
+    register: {
+      good: 'Sa slide na ito, titingnan natin ang power path ng isang data centre. Galing sa utility, dumadaan muna ang power sa HV/MV substation, tapos sa UPS, bago umabot sa racks.',
+      bad: 'Sa islayd na ito, susuriin natin ang daanan ng kuryente sa sentro ng datos.',
+      // With po, the respect a trainer shows anybody, which marks no gender.
+      you: 'kayo',
+      check: 'Malinaw po ba ito?',
+      transliterated: 'islayd, sentro ng datos, serbidor, sesyon ng pagsasanay',
+      gendered: false,
+      outsideIndia: { country: 'the Philippines', script: 'latin' },
+    },
+    note: languageNote('Filipino'),
+  },
+  {
+    code: 'vi',
+    name: 'Tiếng Việt',
+    englishName: 'Vietnamese',
+    listen: 'vi',
+    openai: {
+      voices: OPENAI_SPEAKERS,
+      // Northern, the accent of Hanoi and of national broadcasting, as the test page asks
+      // for. A customer in Ho Chi Minh City may prefer the Southern one.
+      accent: 'Northern Vietnamese',
+      instructions: SUGGESTED_INSTRUCTIONS.vi,
+      // Needs a native speaker's check.
+      sample:
+        'Xin chào, tôi là giảng viên của bạn trong training session này. Nếu có câu hỏi, bạn cứ ngắt lời tôi bất cứ lúc nào nhé.',
+    },
+    // Every line needs a native speaker's check. "Điện" in the second sentence, because it
+    // is the everyday word for power; "power path" is the term.
+    register: {
+      good: 'Trong slide này, chúng ta sẽ xem power path của một data centre. Điện từ utility vào HV/MV substation trước, sau đó qua UPS rồi mới đến các racks.',
+      bad: 'Trong trang trình chiếu này, chúng ta sẽ phân tích đường dẫn năng lượng điện của trung tâm dữ liệu.',
+      // Not anh or chị, which say whether the trainee is a man or a woman, and how old.
+      you: 'bạn',
+      check: 'Phần này đã rõ chưa?',
+      transliterated: 'trang trình chiếu, trung tâm dữ liệu, máy chủ, buổi đào tạo',
+      gendered: false,
+      outsideIndia: { country: 'Vietnam', script: 'latin', me: 'tôi' },
+    },
+    note: languageNote('Vietnamese'),
   },
 ];
 
@@ -330,10 +553,21 @@ export function isPlainEnglish(code: SessionLanguage): boolean {
   return code === 'en';
 }
 
+/** Whether Sarvam speaks this language, and so whether it draws on the Sarvam credit. */
+export function spokenBySarvam(code: SessionLanguage): boolean {
+  return languageInfo(code).sarvam !== undefined;
+}
+
 /**
- * Whether speech in this language comes from prepaid credit, and so is synthesised just
- * ahead of playback rather than as fast as the text arrives. Every Sarvam language.
+ * Whether speech in this language is synthesised just ahead of playback rather than as
+ * fast as the text arrives.
+ *
+ * Every Sarvam language, because Sarvam bills every character from a small prepaid
+ * credit, heard or not, and its starter plan allows thirty requests a minute. Nothing
+ * else: Deepgram's English and OpenAI's languages are billed as they are used, with
+ * limits a session comes nowhere near, so they fetch ahead and a slow sentence is not
+ * heard as a gap. An interruption there wastes at most the sentences fetched ahead.
  */
 export function pacedToPlayback(code: SessionLanguage): boolean {
-  return languageInfo(code).sarvam !== undefined;
+  return spokenBySarvam(code);
 }

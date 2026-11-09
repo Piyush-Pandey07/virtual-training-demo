@@ -137,11 +137,13 @@ describe('what the trainer is told', () => {
   });
 
   it('counts Hindi on its own line, for the Sarvam credit', () => {
-    // Every Sarvam language now, Hindi among them, under the field's original name.
+    // Every Sarvam language now, Hindi among them, under the field's original name, and
+    // none of OpenAI's, which are not drawn from the Sarvam credit.
     assert.match(
       CHAT_ROUTE,
-      /hindiCharacters: pacedToPlayback\(language\) \? finalText\.length : 0,/,
+      /hindiCharacters: spokenBySarvam\(language\) \? finalText\.length : 0,/,
     );
+    assert.match(CHAT_ROUTE, /ttsCharacters: finalText\.length,/);
   });
 });
 

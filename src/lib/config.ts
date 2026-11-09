@@ -116,12 +116,15 @@ export const languagesForEveryone = (): ReadonlySet<string> =>
   );
 
 /**
- * OpenAI, for the OpenAI test only.
+ * OpenAI: the staff OpenAI test, and the voice of Arabic, Malay, Indonesian, Filipino and
+ * Vietnamese sessions.
  *
- * Nothing a trainee uses touches OpenAI. The test page lets Technavious staff hear its
- * voices and compare its transcription with Deepgram's, which is the comparison the
- * feedback of September asked for before choosing between Deepgram with Sarvam and
- * OpenAI alone. Without the key the page says what is missing and does nothing else.
+ * The test page lets Technavious staff hear its voices and compare its transcription with
+ * Deepgram's, which is the comparison the feedback of September asked for before choosing
+ * between Deepgram with Sarvam and OpenAI alone. Sessions use its speech only, for the
+ * languages neither Deepgram nor Sarvam speaks; listening stays with Deepgram. Without the
+ * key the page says what is missing and does nothing else, and those languages are not
+ * offered, as the Sarvam languages are not without Sarvam's.
  */
 export const OPENAI_TTS_MODEL = () => envOr('OPENAI_TTS_MODEL', 'gpt-4o-mini-tts');
 export const OPENAI_TRANSCRIBE_MODEL = () => envOr('OPENAI_TRANSCRIBE_MODEL', 'gpt-4o-transcribe');

@@ -58,7 +58,8 @@ const SCHEDULE_LEAD_SECONDS = 0.08;
 const HINDI_LOOKAHEAD_SECONDS = 6;
 
 /**
- * How many English sentences may be downloading at once.
+ * How many sentences may be downloading at once, in English and in the languages OpenAI
+ * speaks, which are billed as they are used and fetched ahead in the same way.
  *
  * One at a time meant the next sentence only started downloading when the one before it
  * had arrived, so on a slow link any sentence that took longer to fetch than its
@@ -438,7 +439,8 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   );
 
   /**
-   * Starts English sentences downloading ahead of the one playing, up to SPEECH_AHEAD.
+   * Starts sentences downloading ahead of the one playing, up to SPEECH_AHEAD: English,
+   * and the OpenAI languages.
    *
    * Hindi and the other Sarvam languages never fetch ahead: they are paced to playback by
    * waitForRoom to protect Sarvam's prepaid credit, and the next sentence is asked for

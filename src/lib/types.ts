@@ -61,7 +61,21 @@ export interface LearnerProfile {
  * listening and the prompt is in languages.ts.
  */
 export type SessionLanguage =
-  'en' | 'en-IN' | 'hi' | 'mr' | 'ta' | 'te' | 'kn' | 'ml' | 'bn' | 'gu';
+  | 'en'
+  | 'en-IN'
+  | 'hi'
+  | 'mr'
+  | 'ta'
+  | 'te'
+  | 'kn'
+  | 'ml'
+  | 'bn'
+  | 'gu'
+  | 'ar'
+  | 'ms'
+  | 'id'
+  | 'tl'
+  | 'vi';
 
 /** Who said a given line. */
 export type Speaker = 'trainer' | 'trainee';

@@ -216,15 +216,21 @@ export function deepgramLanguageFor(choice: ListeningChoice): DeepgramLanguage {
  * The voice the trainer would use today for a language, so the page can play it beside
  * OpenAI's, or the plain reason there is none.
  *
- * Deepgram's Aura-2 voices speak English and a handful of European languages and
- * Japanese, and this app uses them for English only. Sarvam speaks Indian languages, but
- * the app is wired for its Hindi alone. So everything else has nothing to compare with,
- * and says so rather than sending text to a voice that would read it as nonsense.
+ * Deepgram's Aura-2 voices speak English, and this app uses them for English only. Sarvam
+ * speaks the Indian languages. Arabic, Malay, Indonesian, Filipino and Vietnamese are
+ * spoken in a session by OpenAI itself, in Marin's voice with the instructions suggested
+ * here, so the comparison for those is between the session as it stands and whatever
+ * voice and instructions are being tried. Where the provider is not switched on, the page
+ * says so rather than sending text to a voice that would read it as nonsense.
  */
 export type TodaysVoice =
   { ok: true; voice: string; label: string } | { ok: false; reason: string };
 
-export function todaysVoiceFor(language: TestLanguage, hindi: boolean): TodaysVoice {
+export function todaysVoiceFor(
+  language: TestLanguage,
+  hindi: boolean,
+  openai: boolean,
+): TodaysVoice {
   switch (language) {
     case 'en':
       return { ok: true, voice: 'aura-2-thalia-en', label: 'Deepgram Thalia' };
@@ -253,11 +259,20 @@ export function todaysVoiceFor(language: TestLanguage, hindi: boolean): TodaysVo
             reason: `Today's ${languageName(language)} voice is not switched on in this deployment, so there is nothing to compare against.`,
           };
     }
-    default:
-      return {
-        ok: false,
-        reason: `Nothing the trainer uses today can speak ${languageName(language)}: Deepgram's voices are English and Sarvam's are Indian languages.`,
-      };
+    // OpenAI speaks these for the trainer, for Technavious while they are in testing, in
+    // the first voice languages.ts offers for each. The id is the session's own, so this
+    // plays through the session's speech route with the session's instructions.
+    case 'ar':
+    case 'ms':
+    case 'id':
+    case 'tl':
+    case 'vi':
+      return openai
+        ? { ok: true, voice: `openai-${language}-marin`, label: 'OpenAI Marin, as in a session' }
+        : {
+            ok: false,
+            reason: `Today's ${languageName(language)} voice is OpenAI's, which is not connected in this deployment, so there is nothing to compare against.`,
+          };
   }
 }
 
