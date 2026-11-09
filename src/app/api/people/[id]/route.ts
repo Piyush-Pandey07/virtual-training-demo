@@ -87,7 +87,11 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       return Response.json({ error: 'You cannot remove yourself.' }, { status: 409 });
     }
 
-    await rosterStore(admin.orgId).removePerson(id);
+    // Read first for their address, which finds a profile uploaded before they signed
+    // in and still filed under the placeholder id they had then.
+    const roster = rosterStore(admin.orgId);
+    const leaving = await roster.getPerson(id).catch(() => undefined);
+    await roster.removePerson(id);
 
     // Their login goes too (AI-42, RUL-8), not only their sessions. Losing the roster
     // row is already enough to refuse them on the next request, since every request
@@ -103,7 +107,9 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     // goes when they leave, and nobody could reach it afterwards to delete it, not even
     // them. Deleted unread, and whatever PROFILES_ENABLED says, since one saved while it
     // was on still exists. The administrator removing them never sees it.
-    await deleteProfile({ id, orgId: admin.orgId }).catch(() => undefined);
+    await deleteProfile({ id, orgId: admin.orgId, emailKey: leaving?.emailKey }).catch(
+      () => undefined,
+    );
 
     return Response.json({ ok: true });
   } catch (error) {

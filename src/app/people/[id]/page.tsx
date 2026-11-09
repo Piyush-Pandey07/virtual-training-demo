@@ -13,8 +13,10 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { roleLabel } from '@/lib/auth/labels';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { currentPerson } from '@/lib/auth/session';
+import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { trainingFor } from '@/lib/roster/report';
@@ -94,6 +96,18 @@ export default async function PersonPage({ params }: PersonPageProps) {
           {rows.length === 0 ? 'nothing assigned' : `${complete} of ${rows.length} complete`}
           {person.lastSeenAt === null ? ' · has never signed in' : ''}
         </p>
+        {/* The learner profile, for the administrator only: a company administrator may
+            not see it (AI-06), so they are not offered a link to a page that refuses them. */}
+        {isAdministrator(admin) &&
+          profilesEnabledFor(admin) &&
+          profilesEnabledInOrg(admin.orgId) && (
+            <Link
+              href={`/people/${encodeURIComponent(person.id)}/profile`}
+              className="text-teal hover:text-mist mt-3 inline-block text-sm font-semibold transition-colors"
+            >
+              Learner profile
+            </Link>
+          )}
 
         <div className="mt-10 space-y-8">
           <EmployeeStats

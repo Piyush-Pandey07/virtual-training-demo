@@ -92,6 +92,8 @@ const ORG_FIRST_BUT_NOT_A_READER: Record<string, string> = {
   emptyUsage: 'Constructs a zeroed counter record. Reads nothing.',
   forgetDeckStores: 'Evicts a cache entry. Reads no rows.',
   forgetRosterStore: 'Evicts a cache entry. Reads no rows.',
+  profilesEnabledInOrg:
+    'Compares an id with the home organisation to read a setting. Reads nothing.',
 };
 
 /**

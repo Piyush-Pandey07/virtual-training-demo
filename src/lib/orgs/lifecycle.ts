@@ -41,6 +41,9 @@ const OWNED_COLLECTIONS = [
   // Learner profiles: personal details somebody chose to give, so the last thing that
   // should outlive the customer they were given to.
   'profiles',
+  // Who agreed to which privacy notice, and who withdrew. Kept when a person leaves, as
+  // the notice promises, but not past the customer: closing the account takes them too.
+  'consents',
   // Batches and trainer-led sessions, with their attendance.
   'batches',
   'trainingSessions',
@@ -143,7 +146,9 @@ export async function movePerson(
   // was given to the customer they were in, under a notice that says it goes when they
   // leave, and left behind it would sit where nobody can reach it, its owner included.
   // Done whatever PROFILES_ENABLED says, since one saved while it was on still exists.
-  await deleteProfile({ id: personId, orgId: fromOrgId }).catch(() => undefined);
+  await deleteProfile({ id: personId, orgId: fromOrgId, emailKey: person.emailKey }).catch(
+    () => undefined,
+  );
 
   // The claim in their cookie still says the old customer. Best effort: a failure here
   // costs them a stale session, not access to anything they should not have, because
@@ -256,8 +261,8 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks, the seed marker, batches, trainer-led sessions and the assessment
-  // records all carry their own id.
+  // people, decks, the seed marker, consent records, batches, trainer-led sessions and
+  // the assessment records all carry their own id.
   if (
     collection === 'people' ||
     collection === 'decks' ||
@@ -266,7 +271,8 @@ function documentIdOf(
     collection === 'trainingSessions' ||
     collection === 'questionBanks' ||
     collection === 'assessmentResults' ||
-    collection === 'feedback'
+    collection === 'feedback' ||
+    collection === 'consents'
   ) {
     return typeof row.id === 'string' ? row.id : undefined;
   }

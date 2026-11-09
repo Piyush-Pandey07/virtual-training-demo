@@ -2,9 +2,10 @@ import Link from 'next/link';
 
 import { SignOutButton } from './SignOutButton';
 import { roleLabel } from '@/lib/auth/labels';
-import { profilesEnabled } from '@/lib/config';
+import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
 import { mayRunSessions } from '@/lib/auth/permissions';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
+import { mayUploadParticipants } from '@/lib/profiles/access';
 import type { Role } from '@/lib/roster/types';
 
 /**
@@ -27,12 +28,22 @@ export interface NavPerson {
   platform: boolean;
   /** Their own customer. Technavious's own administrators also get the OpenAI test. */
   homeOrgId?: string;
+  /** The customer they are looking at, which decides whether uploads are on there. */
+  orgId?: string;
 }
 
 interface MainNavProps {
   person: NavPerson;
   /** The page the viewer is on, so it is not offered as somewhere to go. */
-  current?: '/' | '/decks' | '/people' | '/sessions' | '/platform' | '/openai-test' | '/profile';
+  current?:
+    | '/'
+    | '/decks'
+    | '/people'
+    | '/sessions'
+    | '/platform'
+    | '/openai-test'
+    | '/profile'
+    | '/profiles/upload';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -48,9 +59,14 @@ export function MainNav({ person, current }: MainNavProps) {
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
-  // Everybody's own, so offered to everybody, but only while learner profiles are
-  // switched on. Off, the page is a 404 and the link would be an invitation to one.
-  if (profilesEnabled()) links.push({ href: '/profile', label: 'My profile' });
+  // Everybody's own, so offered to everybody, but only where learner profiles are
+  // switched on for them. Off, the page is a 404 and the link would be an invitation to one.
+  if (profilesEnabledFor(person)) {
+    links.push({ href: '/profile', label: 'My profile' });
+    if (person.orgId && profilesEnabledInOrg(person.orgId) && mayUploadParticipants(person)) {
+      links.push({ href: '/profiles/upload', label: 'Upload participants' });
+    }
+  }
 
   return (
     <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">

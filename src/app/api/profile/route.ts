@@ -1,71 +1,78 @@
 /**
  * GET, PUT, DELETE /api/profile
  *
- * The signed-in person's own learner profile: read it, change it, or delete it.
+ * The signed-in person's own learner profile: read it, change it, or withdraw consent,
+ * which deletes it.
  *
- * Only ever their own. The person comes from the session and never from the request,
- * so there is no id to send and no way to name somebody else's profile. Administrators
- * and Technavious staff get nothing more than anybody else does here, which is their
- * own profile: who else may ever see one is an open decision, so nothing is built for it.
+ * Only ever their own. The person comes from the session and never from the request, so
+ * there is no id to send and no way to name somebody else's profile. The views a
+ * facilitator or the administrator are allowed are a separate route, under the person
+ * they are about, with their own rule: /api/people/{id}/profile.
  *
  * With PROFILES_ENABLED off every method answers 404, the same body any hidden route
  * gives, before anything else is looked at, including who is asking. Off is meant to
- * look exactly like a deployment where this route was never written.
+ * look exactly like a deployment where this route was never written. With it on for
+ * Technavious only, everybody else gets the same 404.
  */
 
 import { checkUser } from '@/lib/auth/guard';
-import { profilesEnabled } from '@/lib/config';
-import { deleteProfile, getProfile, saveProfile } from '@/lib/profiles/store';
-import { parseProfileChange, ProfileTooLarge } from '@/lib/profiles/validate';
+import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
+import { consentHistory, latestDecision, recordConsent } from '@/lib/profiles/consent';
+import { notFound, reply, signedOut } from '@/lib/profiles/responses';
+import { deleteProfile, findProfile, saveProfile } from '@/lib/profiles/store';
+import { parseSubmission } from '@/lib/profiles/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/** One small read or write. Nothing here waits on a model. */
+/** A few small reads and writes. Nothing here waits on a model. */
 export const maxDuration = 15;
-
-/**
- * Personal data, so nothing between here and the browser may keep a copy. Built per
- * call: a Response shared between requests can only be read once.
- */
-function reply(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
-}
-
-function notFound(): Response {
-  return Response.json({ error: 'Not found.' }, { status: 404 });
-}
 
 export async function GET() {
   if (!profilesEnabled()) return notFound();
   const gate = await checkUser();
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) return signedOut(gate.response);
+  if (!profilesEnabledFor(gate.person)) return notFound();
 
-  const profile = await getProfile(gate.person);
-  return reply({ profile: profile ?? null });
+  const [profile, history] = await Promise.all([
+    findProfile(gate.person),
+    consentHistory(gate.person),
+  ]);
+  return reply({ profile: profile ?? null, consent: latestDecision(history) ?? null });
 }
 
+/**
+ * Saves the profile and records agreement to the notice with it. Every save asks for the
+ * box to be ticked again, so every stored profile records agreement to the notice that
+ * was on screen when it was last changed.
+ */
 export async function PUT(request: Request) {
   if (!profilesEnabled()) return notFound();
   const gate = await checkUser();
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) return signedOut(gate.response);
+  if (!profilesEnabledFor(gate.person)) return notFound();
 
-  const parsed = parseProfileChange(await request.json().catch(() => null));
+  const parsed = parseSubmission(await request.json().catch(() => null), {
+    profileRequired: true,
+  });
   if (!parsed.ok) return reply({ error: parsed.error }, 400);
 
-  try {
-    const profile = await saveProfile(gate.person, parsed.change);
-    return reply({ profile });
-  } catch (error) {
-    if (error instanceof ProfileTooLarge) return reply({ error: error.message }, 400);
-    throw error;
-  }
+  const profile = await saveProfile(gate.person, parsed.value.details ?? {});
+  await recordConsent(gate.person, 'given', true);
+  return reply({ profile });
 }
 
+/**
+ * Withdraws consent (AI-27). The profile is deleted at once, including a copy their
+ * organisation uploaded, and the withdrawal is recorded. Their training carries on: the
+ * agreement that let them attend stands, and the trainer simply has no profile to read.
+ */
 export async function DELETE() {
   if (!profilesEnabled()) return notFound();
   const gate = await checkUser();
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) return signedOut(gate.response);
+  if (!profilesEnabledFor(gate.person)) return notFound();
 
   await deleteProfile(gate.person);
+  await recordConsent(gate.person, 'withdrawn', false);
   return reply({ ok: true });
 }

@@ -1,203 +1,89 @@
 'use client';
 
 /**
- * Viewing, changing and deleting one's own profile.
+ * Viewing and changing one's own profile, or withdrawing consent.
  *
- * Saving asks for the consent box every time, as the lobby does, so every stored
- * profile records agreement to the notice that was on screen when it was last changed.
- * Deleting asks once more before it acts, because it cannot be undone.
+ * Saving asks for the consent box every time, so every stored profile records agreement
+ * to the notice that was on screen when it was last changed. Withdrawing asks once more
+ * before it acts, because the profile it deletes cannot be brought back.
  */
 
 import { useId, useState } from 'react';
 
 import { ProfileConsent } from '@/components/ProfileConsent';
-import { deleteProfile, saveProfile } from '@/lib/profiles/client';
-import {
-  EXPERTISE_LABELS,
-  EXPERTISE_LEVELS,
-  type ExpertiseLevel,
-  isExpertiseLevel,
-  type LearnerDetails,
-  PERSONAL_FIELDS,
-} from '@/lib/profiles/types';
-import { TRAINER_NAME } from '@/lib/trainer';
+import { ProfileFields } from '@/components/ProfileFields';
+import { saveProfile, withdrawConsent, type ProfileFormValues } from '@/lib/profiles/client';
+import { describeMissing, readDetails } from '@/lib/profiles/validate';
 
-/** One course the profile holds a level for. A null title is a course they cannot see. */
-export interface CourseLevel {
-  deckId: string;
-  title: string | null;
-  level: ExpertiseLevel;
-}
-
-type Status = 'idle' | 'saving' | 'confirming' | 'deleting';
+type Status = 'idle' | 'saving' | 'confirming' | 'withdrawing';
 
 export function ProfileEditor({
   initial,
-  courses,
   exists,
+  withdrawn,
 }: {
-  initial: LearnerDetails;
-  courses: CourseLevel[];
+  initial: ProfileFormValues;
   exists: boolean;
+  withdrawn: boolean;
 }) {
   const id = useId();
-  const [details, setDetails] = useState<LearnerDetails>(initial);
-  const [levels, setLevels] = useState<CourseLevel[]>(courses);
-  const [removed, setRemoved] = useState<string[]>([]);
+  const [values, setValues] = useState<ProfileFormValues>(initial);
   const [stored, setStored] = useState(exists);
+  const [hasWithdrawn, setHasWithdrawn] = useState(withdrawn);
   const [consented, setConsented] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const busy = status === 'saving' || status === 'deleting';
+  const busy = status === 'saving' || status === 'withdrawing';
 
   const save = async () => {
-    setStatus('saving');
     setError(null);
     setMessage(null);
+    const read = readDetails(values);
+    if (!read.ok) return setError(read.error);
+    const missing = describeMissing(read.details);
+    if (missing) return setError(missing);
 
-    const expertise: Record<string, ExpertiseLevel | null> = {};
-    for (const deckId of removed) expertise[deckId] = null;
-    for (const course of levels) expertise[course.deckId] = course.level;
-
-    // Every field is sent, an empty one as null, so clearing a box clears it.
-    const sent: { [K in keyof LearnerDetails]?: string | null } = {};
-    for (const field of PERSONAL_FIELDS) sent[field.key] = details[field.key]?.trim() || null;
-
-    const result = await saveProfile({ details: sent, expertise }, consented);
+    setStatus('saving');
+    const result = await saveProfile(values, consented);
     setStatus('idle');
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    setRemoved([]);
+    if (!result.ok) return setError(result.error);
     setConsented(false);
-    setStored(result.profile !== null);
-    setMessage(
-      result.profile
-        ? 'Saved. The trainer will use this from your next turn.'
-        : 'There was nothing left in your profile, so it has been deleted.',
-    );
+    setStored(true);
+    setHasWithdrawn(false);
+    setMessage('Saved. The trainer will use this from your next turn.');
   };
 
-  const remove = async () => {
-    setStatus('deleting');
+  const withdraw = async () => {
+    setStatus('withdrawing');
     setError(null);
     setMessage(null);
-    const result = await deleteProfile();
+    const result = await withdrawConsent();
     if (!result.ok) {
       setStatus('confirming');
       setError(result.error);
       return;
     }
     setStatus('idle');
-    setDetails({});
-    setLevels([]);
-    setRemoved([]);
+    setValues({});
     setConsented(false);
     setStored(false);
-    setMessage('Your profile has been deleted. Nothing about you is kept for the trainer now.');
+    setHasWithdrawn(true);
+    setMessage(
+      'Your consent is withdrawn and your profile is deleted. Your training carries on without it.',
+    );
   };
 
   return (
-    <div className="mt-8">
-      <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5">
-        <h2 className="text-lg font-semibold">About you</h2>
-        <p className="text-muted mt-1 text-sm">Used in every course. Leave any of them blank.</p>
-
-        {PERSONAL_FIELDS.map((field) => (
-          <div key={field.key} className="mt-5">
-            <label htmlFor={`${id}-${field.key}`} className="block text-sm font-semibold">
-              {field.label}
-            </label>
-            <p className="text-muted mt-0.5 text-xs">{field.hint}</p>
-            <input
-              id={`${id}-${field.key}`}
-              type="text"
-              value={details[field.key] ?? ''}
-              maxLength={field.max}
-              onChange={(event) =>
-                setDetails((current) => ({ ...current, [field.key]: event.target.value }))
-              }
-              placeholder={field.placeholder}
-              disabled={busy}
-              className="bg-charcoal text-mist placeholder:text-muted ring-charcoal-line focus:ring-teal mt-2 w-full rounded-md px-3.5 py-2.5 text-sm ring-1 ring-inset"
-            />
-          </div>
-        ))}
-      </section>
-
-      <section className="border-charcoal-line bg-charcoal-soft mt-6 rounded-xl border p-5">
-        <h2 className="text-lg font-semibold">Your experience, course by course</h2>
-        {levels.length === 0 ? (
-          <p className="text-muted mt-1 text-sm leading-relaxed">
-            You have not said how experienced you are in any course yet. {TRAINER_NAME} asks before
-            each session, and you can skip it there too.
-          </p>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {levels.map((course) => (
-              <li
-                key={course.deckId}
-                className="flex flex-wrap items-center justify-between gap-3 text-sm"
-              >
-                <span className="min-w-0 flex-1">
-                  {course.title ?? (
-                    <span className="text-muted">A course you are no longer assigned</span>
-                  )}
-                </span>
-                <span className="flex items-center gap-3">
-                  <label className="sr-only" htmlFor={`${id}-level-${course.deckId}`}>
-                    Experience with {course.title ?? 'this course'}
-                  </label>
-                  <select
-                    id={`${id}-level-${course.deckId}`}
-                    value={course.level}
-                    disabled={busy}
-                    onChange={(event) => {
-                      const level = event.target.value;
-                      if (!isExpertiseLevel(level)) return;
-                      setLevels((current) =>
-                        current.map((entry) =>
-                          entry.deckId === course.deckId ? { ...entry, level } : entry,
-                        ),
-                      );
-                    }}
-                    className="bg-charcoal text-mist ring-charcoal-line focus:ring-teal rounded-md px-3 py-2 text-sm ring-1 ring-inset"
-                  >
-                    {EXPERTISE_LEVELS.map((option) => (
-                      <option key={option} value={option}>
-                        {EXPERTISE_LABELS[option]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setLevels((current) =>
-                        current.filter((entry) => entry.deckId !== course.deckId),
-                      );
-                      setRemoved((current) => [...current, course.deckId]);
-                    }}
-                    className="text-muted hover:text-mist text-sm font-semibold transition-colors disabled:opacity-60"
-                  >
-                    Remove
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <div className="mt-6">
+      <ProfileFields idPrefix={id} values={values} onChange={setValues} disabled={busy} />
 
       <ProfileConsent
         id={`${id}-consent`}
         checked={consented}
         onChange={setConsented}
         disabled={busy}
-        open
       />
 
       {error && (
@@ -220,31 +106,33 @@ export function ProfileEditor({
         {status === 'saving' ? 'Saving' : 'Save my profile'}
       </button>
 
-      {stored && (
+      {(stored || !hasWithdrawn) && (
         <section className="border-logo-red/30 mt-12 rounded-xl border p-5">
-          <h2 className="text-lg font-semibold">Delete my profile</h2>
+          <h2 className="text-lg font-semibold">Withdraw consent and delete my profile</h2>
           <p className="text-muted mt-1 text-sm leading-relaxed">
-            Removes everything on this page at once and completely. Your training records are not
-            affected, and you can fill it in again later if you want to.
+            Deletes your profile at once and completely, including anything your organisation
+            uploaded, and records that you withdrew. You keep access to your training, which carries
+            on without the personalisation. You can fill in a profile again later.
           </p>
-          {status === 'confirming' || status === 'deleting' ? (
+          {status === 'confirming' || status === 'withdrawing' ? (
             <div role="alertdialog" aria-labelledby={`${id}-confirm`} className="mt-4">
               <p id={`${id}-confirm`} className="text-mist text-sm leading-relaxed">
-                <span className="font-semibold">Delete your profile?</span> This cannot be undone.
+                <span className="font-semibold">Withdraw and delete your profile?</span> The profile
+                cannot be brought back.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => void remove()}
-                  disabled={status === 'deleting'}
+                  onClick={() => void withdraw()}
+                  disabled={status === 'withdrawing'}
                   className="bg-logo-red text-mist hover:bg-logo-red/80 rounded-md px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-wait disabled:opacity-60"
                 >
-                  {status === 'deleting' ? 'Deleting' : 'Yes, delete it'}
+                  {status === 'withdrawing' ? 'Withdrawing' : 'Yes, withdraw'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setStatus('idle')}
-                  disabled={status === 'deleting'}
+                  disabled={status === 'withdrawing'}
                   className="text-muted hover:text-mist ring-charcoal-line rounded-md px-4 py-2 text-sm font-semibold ring-1 transition-colors ring-inset disabled:opacity-60"
                 >
                   Keep it
@@ -258,7 +146,7 @@ export function ProfileEditor({
               disabled={busy}
               className="text-logo-red ring-logo-red/40 hover:bg-logo-red/10 mt-4 rounded-md px-4 py-2 text-sm font-semibold ring-1 transition-colors ring-inset"
             >
-              Delete my profile
+              Withdraw consent and delete my profile
             </button>
           )}
         </section>

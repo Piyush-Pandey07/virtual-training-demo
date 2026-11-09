@@ -1,24 +1,28 @@
 /**
- * What the profile route will accept, decided before anything is stored.
+ * What the profile routes and the bulk upload will accept, decided before anything is
+ * stored.
  *
- * Every text field here is typed by a participant and later read by a language model,
- * in every session they attend. So it is treated the way any other untrusted input that
- * reaches a prompt is: cleaned of anything that is not ordinary text, kept short, and
- * refused rather than guessed at when it does not fit. The prompt renders it again
- * through `cleanText` as well, because a document can reach storage by other routes
- * than this one.
+ * Every text field here is typed by a participant, or by whoever filled in an upload,
+ * and later read by a language model in every session the participant attends. So it is
+ * treated the way any other untrusted input that reaches a prompt is: cleaned of anything
+ * that is not ordinary text, kept short, and refused rather than guessed at when it does
+ * not fit. The prompt renders it again through `cleanText` as well, because a document
+ * can reach storage by other routes than these.
  *
- * Pure, with no imports beyond the shared types, so the tests drive it directly.
+ * Pure, with no imports beyond the shared types, so the tests drive it directly and the
+ * forms can run the same checks before sending.
  */
 
 import { PROFILE_NOTICE_VERSION } from './notice';
 import {
-  type ExpertiseLevel,
-  isExpertiseLevel,
+  detailsOf,
+  isProficiency,
   type LearnerDetails,
   type LearnerProfileRecord,
-  MAX_EXPERTISE_ENTRIES,
-  PERSONAL_FIELDS,
+  MAX_YEARS_EXPERIENCE,
+  missingRequired,
+  PROFILE_FIELDS,
+  type ProfileFieldSpec,
 } from './types';
 
 /**
@@ -50,149 +54,203 @@ export function cleanText(value: string): string {
     .trim();
 }
 
-/**
- * The shape a deck id takes, the same rule the deck store enforces.
- *
- * Repeated rather than imported, because the deck store is server-only and this file
- * is not. A key that could not be a deck id is refused, so it cannot become a strange
- * field name in a stored document.
- */
-const DECK_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** Whole or decimal years, as typed: "6", "6.5", "0.5". Nothing else. */
+const YEARS = /^\d{1,2}(?:\.\d)?$/;
 
-export function isUsableDeckKey(value: string): boolean {
-  return DECK_ID.test(value);
+type FieldValue = string | number;
+
+export type FieldRead = { ok: true; value: FieldValue | null } | { ok: false; error: string };
+
+/**
+ * One field's value, cleaned and checked, or why it cannot be kept.
+ *
+ * Null means empty, which is a fact about the value rather than a refusal: whether an
+ * empty required field is acceptable depends on who is asking, and is decided by the
+ * caller. A form saving a profile refuses it; an upload keeps the row and asks the
+ * participant to finish it.
+ */
+export function readField(field: ProfileFieldSpec, raw: unknown): FieldRead {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+
+  if (field.kind === 'years') {
+    if (typeof raw === 'number') {
+      return yearsFrom(field, Number.isFinite(raw) ? String(raw) : 'x');
+    }
+    if (typeof raw !== 'string') return { ok: false, error: `${field.label} must be a number.` };
+    return yearsFrom(field, cleanText(raw));
+  }
+
+  if (typeof raw !== 'string') return { ok: false, error: `${field.label} must be text.` };
+  const cleaned = cleanText(raw);
+  if (!cleaned) return { ok: true, value: null };
+
+  if (field.kind === 'proficiency') {
+    const level = cleaned.toLowerCase();
+    return isProficiency(level)
+      ? { ok: true, value: level }
+      : { ok: false, error: `${field.label} must be Beginner, Intermediate or Advanced.` };
+  }
+
+  if (cleaned.length > field.max) {
+    return { ok: false, error: `${field.label} can be at most ${field.max} characters.` };
+  }
+  return { ok: true, value: cleaned };
+}
+
+function yearsFrom(field: ProfileFieldSpec, text: string): FieldRead {
+  if (!text) return { ok: true, value: null };
+  const years = Number(text);
+  if (!YEARS.test(text) || !Number.isFinite(years) || years > MAX_YEARS_EXPERIENCE) {
+    return {
+      ok: false,
+      error: `${field.label} must be a number of years from 0 to ${MAX_YEARS_EXPERIENCE}.`,
+    };
+  }
+  return { ok: true, value: years };
+}
+
+export type DetailsRead = { ok: true; details: LearnerDetails } | { ok: false; error: string };
+
+/**
+ * Every field read from one source: a form body keyed on field names, or a CSV row
+ * keyed on column names.
+ *
+ * Only the fields in the list are read, so a stray key in the source, a person id above
+ * all, never reaches a stored document. Empty fields are left out of what comes back.
+ */
+export function readDetails(
+  source: Record<string, unknown>,
+  keyOf: (field: ProfileFieldSpec) => string = (field) => field.key,
+): DetailsRead {
+  const details: LearnerDetails = {};
+  for (const field of PROFILE_FIELDS) {
+    const read = readField(field, source[keyOf(field)]);
+    if (!read.ok) return read;
+    if (read.value !== null) (details as Record<string, FieldValue>)[field.key] = read.value;
+  }
+  return { ok: true, details };
+}
+
+/** The required fields left empty, as a sentence a form can show. */
+export function describeMissing(details: LearnerDetails): string | null {
+  const missing = missingRequired(details);
+  if (missing.length === 0) return null;
+  const labels = missing.map((field) => field.label.toLowerCase());
+  const list =
+    labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
+  return `Fill in ${list}. ${missing.length === 1 ? 'It is' : 'They are'} required.`;
 }
 
 /**
- * A change to somebody's profile, as the form sends it.
+ * What a request to agree to the notice, with or without a profile, carries.
  *
- * A personal field that is absent is left as it is, and one sent empty is cleared. An
- * expertise entry set to null is removed. That lets the lobby send only what it asked
- * about without wiping what the person filled in on their profile page.
+ * `details` is null when no profile was sent at all, which is what an administrator or
+ * facilitator agreeing to the notice sends.
  */
-export interface ProfileChange {
-  details: { [K in keyof LearnerDetails]?: string | null };
-  expertise: Record<string, ExpertiseLevel | null>;
+export interface ConsentSubmission {
+  details: LearnerDetails | null;
 }
 
-export type Parsed = { ok: true; change: ProfileChange } | { ok: false; error: string };
+export type ParsedSubmission =
+  { ok: true; value: ConsentSubmission } | { ok: false; error: string };
 
 /**
- * Reads a save request, or says what is wrong with it.
+ * Reads a save from the consent page or My profile, or says what is wrong with it.
  *
- * Saving requires the consent box to have been ticked against the notice this server
- * is showing. A request naming another version was made against a notice that has
- * since changed, so the person has not agreed to the current one.
+ * Saving requires the consent box to have been ticked against the notice this server is
+ * showing. A request naming another version was made against a notice that has since
+ * changed, so the person has not agreed to the current one.
+ *
+ * A profile, once sent, must be complete: a required field cannot be left empty, and the
+ * optional ones can. `profileRequired` says whether one must be sent at all, which it
+ * must for a participant agreeing to the notice and for anybody saving My profile.
  */
-export function parseProfileChange(raw: unknown): Parsed {
+export function parseSubmission(
+  raw: unknown,
+  { profileRequired }: { profileRequired: boolean },
+): ParsedSubmission {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, error: 'Request body must be a JSON object.' };
   }
   const body = raw as Record<string, unknown>;
 
   if (body.consent !== true) {
-    return { ok: false, error: 'Tick the box to agree to how your profile is used, then save.' };
+    return { ok: false, error: 'Tick the box to agree to the privacy notice, then continue.' };
   }
   if (body.consentVersion !== PROFILE_NOTICE_VERSION) {
     return {
       ok: false,
-      error:
-        'The notice about how profiles are used has changed. Reload the page and read it again.',
+      error: 'The privacy notice has changed. Reload the page and read it again.',
     };
   }
 
-  const details: ProfileChange['details'] = {};
-  for (const field of PERSONAL_FIELDS) {
-    const value = body[field.key];
-    if (value === undefined) continue;
-    if (value === null) {
-      details[field.key] = null;
-      continue;
-    }
-    if (typeof value !== 'string') {
-      return { ok: false, error: `${field.label} must be text.` };
-    }
-    const cleaned = cleanText(value);
-    if (cleaned.length > field.max) {
-      return {
-        ok: false,
-        error: `${field.label} can be at most ${field.max} characters.`,
-      };
-    }
-    details[field.key] = cleaned || null;
+  if (body.profile === undefined || body.profile === null) {
+    if (profileRequired) return { ok: false, error: 'Fill in your profile, then continue.' };
+    return { ok: true, value: { details: null } };
+  }
+  if (typeof body.profile !== 'object' || Array.isArray(body.profile)) {
+    return { ok: false, error: 'profile must be an object of field names to values.' };
   }
 
-  const expertise: ProfileChange['expertise'] = {};
-  if (body.expertise !== undefined) {
-    if (!body.expertise || typeof body.expertise !== 'object' || Array.isArray(body.expertise)) {
-      return { ok: false, error: 'expertise must be an object of course ids to levels.' };
-    }
-    const entries = Object.entries(body.expertise as Record<string, unknown>);
-    if (entries.length > MAX_EXPERTISE_ENTRIES) {
-      return { ok: false, error: 'That is more courses than one profile can hold.' };
-    }
-    for (const [deckId, level] of entries) {
-      if (!isUsableDeckKey(deckId)) {
-        return { ok: false, error: `"${deckId.slice(0, 70)}" is not a course id.` };
-      }
-      if (level === null) {
-        expertise[deckId] = null;
-        continue;
-      }
-      if (!isExpertiseLevel(level)) {
-        return { ok: false, error: 'That is not one of the experience levels on offer.' };
-      }
-      expertise[deckId] = level;
-    }
-  }
-
-  return { ok: true, change: { details, expertise } };
+  const read = readDetails(body.profile as Record<string, unknown>);
+  if (!read.ok) return read;
+  const missing = describeMissing(read.details);
+  if (missing) return { ok: false, error: missing };
+  return { ok: true, value: { details: read.details } };
 }
 
 /**
- * The profile a change produces, or null when nothing would be left in it.
+ * The profile a participant's own save produces.
  *
- * A pure function of what it is handed, because the store runs it inside a transaction
- * that may retry it. Nothing left means the document is deleted rather than kept empty:
- * a record that somebody agreed to a notice and told us nothing is not worth holding.
+ * Replaces the details whole, because the forms always send every field: a field left
+ * out is a field cleared. Keeps where the profile first came from, so a profile that was
+ * uploaded and then confirmed still says so, and marks it confirmed against the notice
+ * agreed to just now. A pure function of what it is handed, so the tests drive it.
  */
-export function applyChange(
+export function confirmedProfile(
   current: LearnerProfileRecord | undefined,
-  change: ProfileChange,
+  details: LearnerDetails,
   personId: string,
   now: string,
-): LearnerProfileRecord | null {
+): LearnerProfileRecord {
   const next: LearnerProfileRecord = {
+    ...detailsOf(details),
     personId,
-    expertise: { ...(current?.expertise ?? {}) },
+    source: current?.source === 'upload' ? 'upload' : 'self',
+    confirmed: true,
     consent: { version: PROFILE_NOTICE_VERSION, at: now },
     updatedAt: now,
   };
-
-  for (const field of PERSONAL_FIELDS) {
-    const changed = change.details[field.key];
-    const value = changed === undefined ? current?.[field.key] : changed;
-    if (value) next[field.key] = value;
+  if (current?.source === 'upload') {
+    if (current.uploadedBy) next.uploadedBy = current.uploadedBy;
+    if (current.uploadedAt) next.uploadedAt = current.uploadedAt;
   }
-
-  for (const [deckId, level] of Object.entries(change.expertise)) {
-    if (level === null) delete next.expertise[deckId];
-    else next.expertise[deckId] = level;
-  }
-
-  // Checked after merging, so a client cannot grow a profile past the cap a few
-  // entries at a time.
-  if (Object.keys(next.expertise).length > MAX_EXPERTISE_ENTRIES) {
-    throw new ProfileTooLarge();
-  }
-
-  const empty =
-    Object.keys(next.expertise).length === 0 && PERSONAL_FIELDS.every((field) => !next[field.key]);
-  return empty ? null : next;
+  return next;
 }
 
-export class ProfileTooLarge extends Error {
-  constructor() {
-    super('That is more courses than one profile can hold.');
-  }
+/**
+ * The profile an upload produces, or null when the participant's own must be kept.
+ *
+ * A confirmed profile is the participant's, under a notice they agreed to, and an upload
+ * never overwrites it: their organisation's spreadsheet is not a reason to change what
+ * they said about themselves. An unconfirmed one is replaced whole, because it is the
+ * organisation's own earlier upload and the newer file is the better guess.
+ */
+export function uploadedProfile(
+  current: LearnerProfileRecord | undefined,
+  details: LearnerDetails,
+  owner: { personId: string; emailKey: string; uploadedBy: string },
+  now: string,
+): LearnerProfileRecord | null {
+  if (current?.confirmed) return null;
+  return {
+    ...detailsOf(details),
+    personId: owner.personId,
+    emailKey: owner.emailKey,
+    source: 'upload',
+    confirmed: false,
+    uploadedBy: owner.uploadedBy,
+    uploadedAt: now,
+    updatedAt: now,
+  };
 }
