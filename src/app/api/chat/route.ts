@@ -22,7 +22,15 @@ import { DEFAULT_DECK_ID, loadDeck } from '@/lib/decks/registry';
 import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
 import { bestSlideForQuestion } from '@/lib/knowledge';
 import { sessionLanguage } from '@/lib/language';
-import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
+import {
+  buildFacilitatedSystemInstruction,
+  buildFacilitatedTurnPrompt,
+  buildSystemInstruction,
+  buildTurnPrompt,
+  sanitiseForSpeech,
+} from '@/lib/trainer-prompt';
+import { checkFacilitated, parseFacilitated, type Room } from '@/lib/training/facilitation';
+import { trainingStore } from '@/lib/training/store';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
 import { languageInfo, pacedToPlayback } from '@/lib/languages';
 import { languagesFor, speaksAsFor } from '@/lib/voice/catalogue';
@@ -104,8 +112,15 @@ export async function POST(request: Request) {
   // whatever deck id its body names. A check on the page alone would protect
   // nothing: the browser could post another id and have the trainer read out a deck
   // the trainee was never assigned.
-  const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
+  //
+  // A hand-over in a trainer-led session is allowed by the session instead: the person
+  // asking runs it, it is for this deck, and it is not closed (AI-01).
+  const facilitated = parseFacilitated(body.facilitated);
+  const gate = facilitated
+    ? await checkFacilitated(facilitated, body.deckId)
+    : await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
   if (!gate.ok) return gate.response;
+  const room = 'room' in gate ? (gate as { room: Room }).room : null;
 
   // Before anything is billed. Every call here costs money upstream, and the session
   // cap counts sessions rather than calls, so this is what stops one account, or a
@@ -121,12 +136,19 @@ export async function POST(request: Request) {
   const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
-    profileForTrainer(gate.person),
+    // Never in a group: profile details are not spoken in front of others (AI-37).
+    room ? Promise.resolve(null) : profileForTrainer(gate.person),
   ]);
   if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
 
-  const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';
+  const kind = facilitated
+    ? facilitated.turn === 'answer'
+      ? 'answer'
+      : 'narrate'
+    : VALID_KINDS.includes(body.kind)
+      ? body.kind
+      : 'narrate';
   const slideId = clampSlideId(deck, Number(body.slideId));
   const slide = getSlide(deck, slideId);
   if (!slide) return badRequest(`slideId must be between 1 and ${totalSlides(deck)}.`);
@@ -165,7 +187,20 @@ export async function POST(request: Request) {
   //
   // Somebody who abandons a session and starts again counts twice. That is right: it
   // is twice the spend.
-  const startingASession = kind === 'narrate' && coveredSlideIds.length === 0;
+  const startingASession = room
+    ? room.session.status === 'scheduled'
+    : kind === 'narrate' && coveredSlideIds.length === 0;
+  if (room && startingASession) {
+    // The first hand-over opens a trainer-led session, which is when it starts
+    // counting, as the first narration does for a one-to-one session.
+    await trainingStore(gate.person.orgId)
+      .updateSession(room.session.id, (current) =>
+        current && current.status === 'scheduled'
+          ? { ...current, status: 'open', openedAt: new Date().toISOString() }
+          : current!,
+      )
+      .catch(() => undefined);
+  }
   if (startingASession) {
     const verdict = await mayStartSession(gate.person.orgId);
     if (!verdict.allowed) {
@@ -208,7 +243,10 @@ export async function POST(request: Request) {
   let effectiveSlide = slide;
   let coercedNav: number | null = null;
 
-  if (kind === 'answer' && isNavigationOnly(question)) {
+  // In a trainer-led session the facilitator moves the deck, never the trainer.
+  if (room) {
+    // Nothing to coerce.
+  } else if (kind === 'answer' && isNavigationOnly(question)) {
     const goingBack = classifyUtterance(question) === 'back';
     const target = slideId + (goingBack ? -1 : 1);
 
@@ -263,7 +301,32 @@ export async function POST(request: Request) {
     },
   ];
 
-  const contents = turnFor(effectiveKind, effectiveSlide);
+  const contents: Content[] = room
+    ? [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: buildFacilitatedTurnPrompt({
+                deck,
+                slide: effectiveSlide,
+                history,
+                turn: facilitated!.turn,
+                question: facilitated!.turn === 'answer' ? question : undefined,
+                askedBy: room.askedBy,
+                attendees: room.attendees,
+                language,
+              }),
+            },
+          ],
+        },
+      ]
+    : turnFor(effectiveKind, effectiveSlide);
+
+  // Built before the stream, so nothing inside it handles the profile.
+  const systemInstruction = room
+    ? buildFacilitatedSystemInstruction(deck, { attendees: room.attendees }, { language, speaksAs })
+    : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile);
 
   const encoder = new TextEncoder();
 
@@ -290,12 +353,7 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(
-          deck,
-          traineeName,
-          { language, speaksAs },
-          profile,
-        ),
+        systemInstruction,
         /**
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.

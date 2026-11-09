@@ -113,6 +113,16 @@ export interface ChatRequest {
    * speaks it, so the trainer has to know which voice it is speaking in.
    */
   voice?: string;
+  /**
+   * Present for a hand-over in a trainer-led session, absent for a one-to-one turn.
+   * Everything about the room is read from the session on the server; this only says
+   * which session, what the facilitator handed over for, and who asked.
+   */
+  facilitated?: {
+    sessionId: string;
+    turn: 'explain' | 'answer' | 'greet' | 'engage';
+    askedBy?: string;
+  };
 }
 
 /** Server sent events emitted by POST /api/chat. */

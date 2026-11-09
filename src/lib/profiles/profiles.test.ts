@@ -660,9 +660,13 @@ describe('who can reach a profile', () => {
     const chat = read('src/app/api/chat/route.ts');
     assert.match(
       chat,
-      /const \[limited, deck, profile\] = await Promise\.all\(\[\s*rateLimited\(gate\.person, 'chat'\),\s*loadDeck\(gate\.person\.orgId, body\.deckId\),\s*profileForTrainer\(gate\.person\),\s*\]\);/,
+      /const \[limited, deck, profile\] = await Promise\.all\(\[\s*rateLimited\(gate\.person, 'chat'\),\s*loadDeck\(gate\.person\.orgId, body\.deckId\),[\s\S]*?room \? Promise\.resolve\(null\) : profileForTrainer\(gate\.person\),\s*\]\);/,
     );
-    assert.match(chat, /\{ language, speaksAs \},\s*profile,\s*\)/);
+    // Only in a one-to-one turn: a trainer-led session never reads anybody's profile.
+    assert.match(
+      chat,
+      /buildSystemInstruction\(deck, traineeName, \{ language, speaksAs \}, profile\)/,
+    );
     assert.doesNotMatch(chat, /body\.profile/);
     // Nothing about the profile goes back down the stream.
     const stream = chat.slice(chat.indexOf('new ReadableStream'));

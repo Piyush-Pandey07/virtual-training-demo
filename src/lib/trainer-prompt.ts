@@ -922,3 +922,122 @@ Refer to something they actually asked about if there was one, because it shows 
 
 End on them rather than on the material. The honest and motivating note is that the controls in this deck work because of what individuals choose to do, so they are not a bystander to any of this. Leave them feeling that they are equipped and that asking was the right instinct. Do not ask another question.`;
 }
+
+// ------------------------------------------------------------ trainer-led sessions
+
+/** The level a participant, or a group, was placed at by the pre-session assessment. */
+export type AssessedLevel = 'beginner' | 'intermediate' | 'advanced';
+
+/**
+ * How to pitch delivery for an assessed level (AI-37).
+ *
+ * The content never changes with the level (RUL-1); only the way it is explained does.
+ * The level comes from the assessment, never from what somebody said about themselves.
+ */
+export function levelInstruction(level: AssessedLevel, group: boolean): string {
+  const who = group ? 'This group, taken together, was' : 'This trainee was';
+  const pitch: Record<AssessedLevel, string> = {
+    beginner:
+      'Use simpler wording and more everyday examples, and check understanding more often than you otherwise would.',
+    intermediate: 'Give the standard explanation.',
+    advanced:
+      'Go into more depth, refer to the relevant standards where they apply, and spend less time on the basics.',
+  };
+  return `HOW TO PITCH IT
+${who} placed at ${level} level by the pre-session assessment. ${pitch[level]} Teach the same content whatever the level: only the way you explain it changes.`;
+}
+
+/** What the facilitator handed over for. */
+export type FacilitatedTurn = 'explain' | 'answer' | 'greet' | 'engage';
+
+export interface Facilitation {
+  /** First names from the participant list, of those not marked absent. */
+  attendees: string[];
+  level?: AssessedLevel;
+}
+
+/**
+ * The system instruction for a trainer-led session (AI-01, AI-02).
+ *
+ * Built from the one-to-one instruction rather than written again, so everything that
+ * makes the trainer good at explaining carries over, with two things changed: who it is
+ * talking to, and that it is the co-facilitator rather than the trainer running the
+ * session. The one-to-one instruction itself is untouched.
+ */
+export function buildFacilitatedSystemInstruction(
+  deck: DeckRecord,
+  facilitation: Facilitation,
+  spoken?: SpokenLanguage,
+): string {
+  const base = buildSystemInstruction(deck, undefined, spoken);
+  const names = facilitation.attendees.length
+    ? `The participants in the room are: ${facilitation.attendees.join(', ')}.`
+    : "You have not been given the participants' names.";
+  const room = `YOUR ROLE IN THIS SESSION
+This is a trainer-led session in a room. A facilitator runs it on their screen for a group of participants, and you are the co-facilitator, not the primary trainer. You speak only when the facilitator hands over to you, and you do only what they hand over: explain the slide on screen, answer a question they relay, greet the group, or ask an engagement question. Then you hand back to the facilitator. You never run your own narration, move the deck on, or decide what comes next.
+
+${names} Use only these names, and use the name of whoever asked every time you answer a question or clear a doubt. Speak to the group as a whole. Never mention anything personal about a participant, such as a profile detail or an assessment result: names only.${
+    facilitation.level ? `\n\n${levelInstruction(facilitation.level, true)}` : ''
+  }`;
+  return base
+    .replace('running a one to one live session', 'co-facilitating a trainer-led session')
+    .replace(
+      "You do not know the trainee's name. Do not invent one and do not ask for it more than once.",
+      room,
+    );
+}
+
+/**
+ * One hand-over in a trainer-led session.
+ *
+ * Kept apart from `buildTurnPrompt`, whose one-to-one turns welcome the trainee, run
+ * the session and hand the conversation back to the trainee. Here the facilitator owns
+ * all of that, so every turn ends by handing back to them.
+ */
+export function buildFacilitatedTurnPrompt(args: {
+  deck: DeckRecord;
+  slide: DeckSlide;
+  history: HistoryTurn[];
+  turn: FacilitatedTurn;
+  question?: string;
+  askedBy?: string;
+  attendees: string[];
+  language?: SessionLanguage;
+}): string {
+  const { deck, slide, history, turn, question, askedBy, attendees } = args;
+  const knowledge = renderKnowledge(
+    selectKnowledge({ deck, slideId: slide.id, question, wholeDeck: false, coveredSlideIds: [] }),
+    'slide',
+  );
+  const glossary = renderGlossary(termsForTurn(deck, slide, question));
+  const context = `CONVERSATION SO FAR
+${historyBlock(history)}
+
+SLIDE NOW ON SCREEN
+${slideBriefing(deck, slide)}
+
+${glossary ? `${knowledge}\n\n${glossary}` : knowledge}`;
+
+  const tasks: Record<FacilitatedTurn, string> = {
+    explain: `YOUR TASK
+The facilitator has handed over to you to explain this slide to the group. Do not welcome anybody or introduce the session: the facilitator has done that. Teach the slide from your expertise, make at least one point concrete with an example, and finish with a short line handing back to the facilitator.
+
+LENGTH
+Roughly ${spokenWordBudget(slide)} words, and no more than ${Math.round(spokenWordBudget(slide) * 1.25)}.`,
+    answer: `THE FACILITATOR RELAYED A QUESTION${askedBy ? ` FROM ${askedBy.toUpperCase()}` : ''}
+"${question ?? ''}"
+
+YOUR TASK
+Answer it for the whole group${askedBy ? `, addressing ${askedBy} by name as you begin` : ''}. Answer the question that was asked, plainly, in no more than about 120 words, then hand back to the facilitator.`,
+    greet: `YOUR TASK
+The facilitator has handed over to you to greet the group. In three or four sentences: welcome everybody warmly, say you are ${TRAINER_NAME}, the co-facilitator for "${deck.meta.title}", and welcome ${
+      attendees.length ? `each participant by name: ${attendees.join(', ')}` : 'the group'
+    }. Then hand back to the facilitator. Do not start teaching.`,
+    engage: `YOUR TASK
+The facilitator has handed over to you for an engagement question. Ask the group one short, friendly question about this slide that gets people thinking or sharing their own experience, in one or two sentences. Then stop: the facilitator will take the answers.`,
+  };
+
+  const prompt = `${context}\n\n${tasks[turn]}`;
+  const reminder = args.language ? turnReminderFor(args.language) : '';
+  return reminder ? `${prompt}\n\n${reminder}` : prompt;
+}

@@ -35,8 +35,10 @@ const PUBLIC_PAGES: Record<string, string> = {
 };
 
 /** Anything that establishes who the caller is counts as a guard. */
+// sessionRunner is the batch and session routes' gate: requireUser, then a 404 for
+// anybody who does not run sessions (src/lib/training/route-helpers.ts).
 const GUARDS =
-  /\b(checkUser|checkAdmin|checkAssignedDeck|requireUser|requireAdmin|requireAssignedDeck|requireUserPage|requireAdminPage|requireAssignedDeckPage)\b/;
+  /\b(checkUser|checkAdmin|checkAssignedDeck|requireUser|requireAdmin|requireAssignedDeck|requireUserPage|requireAdminPage|requireAssignedDeckPage|sessionRunner)\b/;
 
 function walk(dir: string, match: (name: string) => boolean): string[] {
   const found: string[] = [];
