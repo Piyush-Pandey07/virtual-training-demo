@@ -2,17 +2,20 @@
  * Text to speech, for whichever provider serves the voice.
  *
  * One function, used by every route that speaks, so that adding a provider is a change
- * here rather than in each route. English is Deepgram Aura; Hindi is Sarvam Bulbul.
+ * here rather than in each route. English is Deepgram Aura; Hindi and the other Indian
+ * languages are Sarvam Bulbul; Arabic and the South East Asian languages are OpenAI's
+ * gpt-4o-mini-tts.
  *
  * Returns raw 16-bit mono PCM at AUDIO_SAMPLE_RATE, with no container. The browser
  * builds Web Audio buffers straight from those samples, which is what lets playback
  * start without a decoding step and a barge-in cut off cleanly mid-word. Any provider
  * added here has to return exactly that, converting if it must, as Sarvam's WAV is.
+ * OpenAI's `pcm` format already is.
  */
 
 import 'server-only';
 
-import { AUDIO_SAMPLE_RATE, SARVAM_TTS_MODEL, requireEnv } from '../config';
+import { AUDIO_SAMPLE_RATE, OPENAI_TTS_MODEL, SARVAM_TTS_MODEL, requireEnv } from '../config';
 import { classifyHttp, classifyThrown, type ProviderFailure } from '../failures/classify';
 import { failureResponse, type FailureContext } from '../failures/respond';
 import type { SpokenVoice } from './catalogue';
@@ -52,7 +55,9 @@ export interface SynthesisOptions {
    * rather than assumed: the voice samples and the staff test page still take PCM.
    *
    * Deepgram only. Sarvam's WAV is converted to PCM as before, and Hindi is paced to
-   * playback anyway, so its downloads are already spread out.
+   * playback anyway, so its downloads are already spread out. OpenAI's speech stays PCM
+   * too, for now: it could give MP3, but nothing has yet checked that its MP3 decodes
+   * cleanly in every browser the way Deepgram's has been.
    */
   compressed?: boolean;
 }
@@ -63,9 +68,14 @@ export function synthesise(
   signal?: AbortSignal,
   options: SynthesisOptions = {},
 ): Promise<Synthesis> {
-  return voice.provider === 'sarvam'
-    ? sarvam(text, voice, signal)
-    : deepgram(text, voice.model, signal, options.compressed === true);
+  switch (voice.provider) {
+    case 'sarvam':
+      return sarvam(text, voice, signal);
+    case 'openai':
+      return openai(text, voice, signal);
+    default:
+      return deepgram(text, voice.model, signal, options.compressed === true);
+  }
 }
 
 async function deepgram(
@@ -307,6 +317,143 @@ async function sarvam(text: string, voice: SpokenVoice, signal?: AbortSignal): P
       failure: { provider: 'sarvam', kind: 'bad_output', detail: (error as Error).message },
     };
   }
+}
+
+const OPENAI_SPEECH_URL = 'https://api.openai.com/v1/audio/speech';
+
+/** One piece of speech, as OpenAI is asked for it. */
+export interface OpenAiSpeech {
+  text: string;
+  /** One of OpenAI's built-in voices. */
+  voice: string;
+  /** How it should sound, accent included. Only gpt-4o-mini-tts takes this. */
+  instructions?: string;
+}
+
+/**
+ * Asks OpenAI to say something, as raw 16-bit mono PCM at 24 kHz, its `pcm` format.
+ *
+ * The one place that calls OpenAI's speech. A session's speech and the staff OpenAI test
+ * page both come through here, so what that page plays is exactly what a session would
+ * sound like. OpenAI fixes the rate of its `pcm` at 24 kHz, the rate the player runs at,
+ * so nothing is resampled; a test holds AUDIO_SAMPLE_RATE to that.
+ */
+export function requestOpenAiSpeech(
+  key: string,
+  speech: OpenAiSpeech,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(OPENAI_SPEECH_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OPENAI_TTS_MODEL(),
+      voice: speech.voice,
+      input: speech.text,
+      ...(speech.instructions ? { instructions: speech.instructions } : {}),
+      response_format: 'pcm',
+    }),
+    signal,
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Says what went wrong in words that tell somebody what to do about it.
+ *
+ * For the staff test page and the developer log; a trainee is shown the standard message
+ * for the kind of failure instead. OpenAI reports an empty account and a busy one with
+ * the same status, 429, and only the error's code tells them apart, so the code is read
+ * before the status.
+ */
+export function openAiFailure(status: number, detail: string): string {
+  let codes: string[] = [];
+  let message = '';
+  try {
+    const parsed = JSON.parse(detail) as {
+      error?: { code?: string | null; type?: string | null; message?: string };
+    };
+    codes = [parsed.error?.code, parsed.error?.type].filter((value): value is string => !!value);
+    message = parsed.error?.message ?? '';
+  } catch {
+    message = detail.slice(0, 200);
+  }
+  const said = message ? ` OpenAI said: "${message.slice(0, 200)}" (HTTP ${status}).` : '';
+
+  // Read from the words as well as the code. The first real call from production came
+  // back 429 saying "You have no credits remaining" without the code this looked for, and
+  // was reported as OpenAI being busy, which sends somebody to wait rather than to pay.
+  const outOfCredit =
+    codes.includes('insufficient_quota') ||
+    /\bno credits\b|\bcredits? remaining\b|\bexceeded your current quota\b|\bbilling\b/i.test(
+      message,
+    );
+  if (outOfCredit) {
+    return `The OpenAI account has no credit left. Add credit at platform.openai.com.${said}`;
+  }
+  if (status === 401 || codes.includes('invalid_api_key')) {
+    return `OpenAI refused the key. Check that OPENAI_API_KEY is correct.${said}`;
+  }
+  if (status === 429) {
+    return `OpenAI is asking for fewer requests. Wait a moment and try again.${said}`;
+  }
+  return `OpenAI failed (${status}).${said}`;
+}
+
+/**
+ * Arabic, Malay, Indonesian, Filipino and Vietnamese, spoken by OpenAI.
+ *
+ * Not retried here. OpenAI is billed as it is used, with limits a session comes nowhere
+ * near, so a refusal for being busy is rare, and the player already holds the trainer and
+ * asks again for a failure that is worth asking again.
+ */
+async function openai(text: string, voice: SpokenVoice, signal?: AbortSignal): Promise<Synthesis> {
+  let apiKey: string;
+  try {
+    apiKey = requireEnv('OPENAI_API_KEY');
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      error: (error as Error).message,
+      failure: classifyThrown('openai', error),
+    };
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await requestOpenAiSpeech(
+      apiKey,
+      {
+        text: text.slice(0, MAX_SYNTHESIS_CHARS),
+        voice: voice.model,
+        ...(voice.instructions ? { instructions: voice.instructions } : {}),
+      },
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) return { ok: false, status: 499, error: '' };
+    return {
+      ok: false,
+      status: 502,
+      error: `Could not reach OpenAI: ${(error as Error).message}`,
+      failure: { provider: 'openai', kind: 'unreachable', detail: (error as Error).message },
+    };
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => '');
+    return {
+      ok: false,
+      status: 502,
+      error: openAiFailure(upstream.status, detail),
+      // An empty OpenAI account is a 429 like a busy one; the classifier reads the
+      // credit in its words before it reads the status as busy.
+      failure: classifyHttp('openai', upstream.status, detail),
+    };
+  }
+
+  return { ok: true, audio: upstream.body, format: 'pcm' };
 }
 
 /**

@@ -32,7 +32,7 @@ import {
 import { checkFacilitated, parseFacilitated, type Room } from '@/lib/training/facilitation';
 import { trainingStore } from '@/lib/training/store';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
-import { languageInfo, pacedToPlayback } from '@/lib/languages';
+import { languageInfo, spokenBySarvam } from '@/lib/languages';
 import { languagesFor, speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
@@ -437,7 +437,8 @@ export async function POST(request: Request) {
           // Counted again on its own line, because Sarvam bills it, from a prepaid
           // credit, and the question of how much of that a session uses needs an answer.
           // Every Sarvam language, under the field's original name; see usage/types.ts.
-          hindiCharacters: pacedToPlayback(language) ? finalText.length : 0,
+          // OpenAI's languages are in ttsCharacters only: billed as used, not prepaid.
+          hindiCharacters: spokenBySarvam(language) ? finalText.length : 0,
         });
         if (!finalText) {
           // Usually a passing upstream issue, so it is marked as worth asking again.

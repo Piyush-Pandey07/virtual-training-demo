@@ -12,6 +12,8 @@ import { canSpeak, languagesFor, speaksAsFor, voiceCatalogue, voiceFor } from '.
 /**
  * The languages beyond English and Hindi: Indian English, Marathi, Tamil, Telugu,
  * Kannada, Malayalam, Bengali and Gujarati, all spoken by Sarvam (BRD, November 2026).
+ * Arabic, Malay, Indonesian, Filipino and Vietnamese, spoken by OpenAI, are tested in
+ * openai-languages.test.ts.
  */
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
@@ -30,15 +32,21 @@ function withEnv(values: Record<string, string | undefined>, run: () => void) {
   }
 }
 
+/** Sarvam's languages only: the OpenAI ones have their own tests, in openai-languages. */
 const withSarvam = (run: () => void, everyone?: string) =>
-  withEnv({ SARVAM_API_KEY: 'test-key', LANGUAGES_FOR_EVERYONE: everyone }, run);
+  withEnv(
+    { SARVAM_API_KEY: 'test-key', OPENAI_API_KEY: undefined, LANGUAGES_FOR_EVERYONE: everyone },
+    run,
+  );
+
+const SARVAM_LANGUAGES = LANGUAGES.filter((language) => language.sarvam);
 
 const staff = { platform: false, homeOrgId: 'technavious' };
 const customer = { platform: false, homeOrgId: 'acme' };
 const codes = (list: readonly { code: string }[]) => list.map((language) => language.code);
 
 describe('the language registry', () => {
-  it('has English first, then Indian English, Hindi and seven Indian languages', () => {
+  it('has English first, then Indian English, Hindi, seven Indian languages and five more', () => {
     assert.deepEqual(codes(LANGUAGES), [
       'en',
       'en-IN',
@@ -50,17 +58,26 @@ describe('the language registry', () => {
       'ml',
       'bn',
       'gu',
+      'ar',
+      'ms',
+      'id',
+      'tl',
+      'vi',
     ]);
   });
 
-  it('speaks every language but English through Sarvam, paced to playback', () => {
+  it('speaks the Indian languages through Sarvam, paced to playback, and nothing else', () => {
+    const openai = ['ar', 'ms', 'id', 'tl', 'vi'];
     for (const language of LANGUAGES) {
-      assert.equal(pacedToPlayback(language.code), language.code !== 'en', language.code);
+      const paced = language.code !== 'en' && !openai.includes(language.code);
+      assert.equal(pacedToPlayback(language.code), paced, language.code);
+      assert.equal(Boolean(language.sarvam), paced, language.code);
+      assert.equal(Boolean(language.openai), openai.includes(language.code), language.code);
     }
   });
 
   it('gives every Indian language its register, and writes English terms in English', () => {
-    for (const language of LANGUAGES.filter(
+    for (const language of SARVAM_LANGUAGES.filter(
       (entry) => !['en', 'en-IN', 'hi'].includes(entry.code),
     )) {
       const register = language.register;
@@ -106,8 +123,12 @@ describe('who is offered which language', () => {
   it('offers a customer English and Hindi by default, and Technavious everything', () => {
     withSarvam(() => {
       assert.deepEqual(codes(languagesFor(customer)), ['en', 'hi']);
-      assert.equal(languagesFor(staff).length, LANGUAGES.length);
-      assert.equal(languagesFor({ platform: true, homeOrgId: 'acme' }).length, LANGUAGES.length);
+      // Everything Sarvam speaks, and English. The OpenAI languages need OpenAI's key.
+      assert.equal(languagesFor(staff).length, SARVAM_LANGUAGES.length + 1);
+      assert.equal(
+        languagesFor({ platform: true, homeOrgId: 'acme' }).length,
+        SARVAM_LANGUAGES.length + 1,
+      );
     });
   });
 

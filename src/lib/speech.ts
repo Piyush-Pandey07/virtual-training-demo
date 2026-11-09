@@ -22,7 +22,7 @@ export const MAX_CHUNK_CHARS = 320;
  *
  * A sentence ending followed by whitespace is the safe place. The danda is how Hindi ends
  * a sentence, and without it Hindi waited for 320 characters before making a sound, then
- * cut wherever that landed.
+ * cut wherever that landed. Arabic ends a question with ؟ for the same reason.
  *
  * Past the length limit with no sentence ending, a comma will do, and failing that the
  * last space. Never inside a word: in English that splits a word between two requests,
@@ -32,7 +32,7 @@ export const MAX_CHUNK_CHARS = 320;
 export function nextSpeechCut(buffer: string): number {
   if (buffer.length < MIN_CHUNK_CHARS) return -1;
 
-  const sentenceEnd = /[.!?।॥](?=\s)/g;
+  const sentenceEnd = /[.!?؟।॥](?=\s)/g;
   let match: RegExpExecArray | null;
   while ((match = sentenceEnd.exec(buffer)) !== null) {
     if (match.index + 1 >= MIN_CHUNK_CHARS) return match.index + 1;

@@ -283,11 +283,82 @@ Never this, which is formal ${name} and spells English words in ${name} script:
 - What the rest of these instructions say about British English applies to the English words you keep.`;
 }
 
+/**
+ * How the trainer speaks a language from outside India: Arabic for the UAE, Malay,
+ * Indonesian, Filipino and Vietnamese.
+ *
+ * The sibling of the Indian block, with the same rules where they still hold, and kept
+ * apart so that every Indian language's instruction stays exactly as it was. Two things
+ * differ. The place is the trainee's own country rather than India. And four of these
+ * languages are written in Latin letters, as English is, so there is no script to keep
+ * English out of: the danger is instead an English term respelled the local way, as in
+ * "slaid", or translated, as in "pusat data", and that is what the trainer is told to
+ * avoid. Arabic has a script of its own and keeps the Indian rule for it, with its own
+ * comma and question mark.
+ *
+ * Arabic marks the speaker's gender in the words that describe them rather than in their
+ * own verbs, so the trainer is given examples of each. It marks the listener's gender in
+ * a singular "you", which the plural of respect avoids. Vietnamese marks gender and age
+ * in the word a speaker uses for "I", so the trainer is given the one that marks neither.
+ */
+function languageAbroadInstruction(info: LanguageInfo, speaksAs: SpeaksAs | undefined): string {
+  const register = info.register!;
+  const abroad = register.outsideIndia!;
+  const name = info.englishName;
+  const latin = abroad.script === 'latin';
+  // "an Arabic voice", "an Indonesian voice".
+  const aVoice = `${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name} voice`;
+
+  const scriptRule = latin
+    ? `- ${name} and English are both written in Latin letters. Keep every English word spelled exactly as English spells it. Never respell an English term the ${name} way or translate it, as in ${register.transliterated}.`
+    : `- Write ${name} words in ${name} script and English words in English letters, always. Never write an English word in ${name} script, as in ${register.transliterated}, and never write ${name} in English letters, because the voice reads each script in its own language.`;
+  const welcome = latin
+    ? `- This includes your own name, Nova, and the words of the welcome: say "virtual training session", "data centre" and "session" in English, never translated or respelled.`
+    : `- This includes your own name, Nova, and the words of the welcome: say "virtual training session", "data centre" and "session" in English letters, never spelled out in ${name} script.`;
+  const ending = latin
+    ? 'End every sentence with a full stop.'
+    : `Inside ${name} sentences use ${name} punctuation: ، for a comma and ؟ to end a question. End every other sentence with a full stop.`;
+
+  let self = '';
+  if (register.gendered && abroad.self) {
+    self =
+      speaksAs === 'feminine'
+        ? `\n- Your voice in this session is a woman's. ${name} marks your gender in the words that describe you, so use the feminine form whenever you describe yourself: ${abroad.self.feminine}.`
+        : speaksAs === 'masculine'
+          ? `\n- Your voice in this session is a man's. ${name} marks your gender in the words that describe you, so use the masculine form whenever you describe yourself: ${abroad.self.masculine}.`
+          : `\n- Phrase what you say about yourself so that it does not mark your gender, for example by saying "we" and "let us".`;
+  }
+  const me = abroad.me
+    ? `\n- Call yourself ${abroad.me}, which marks neither your gender nor your age.`
+    : '';
+  const figures = latin ? 'Write figures as digits' : 'Write figures as the digits 0 to 9';
+
+  return `SPEAK ${name.toUpperCase()}
+This session is in ${name}. Everything you say is played to the trainee in ${aVoice}, so every reply you give is in ${name}, even though these instructions, the deck and every example in them are in English. If the trainee speaks or types in English, still reply in ${name}.
+
+Speak the ${name} people actually speak at work in ${abroad.country}: simple, conversational, and with the English technical terms they use every day. This is the register:
+"${register.good}"
+Never this, which is formal ${name} and ${latin ? 'respells or translates the English terms' : `spells English words in ${name} script`}:
+"${register.bad}"
+
+- Where people at work would say the English word, say it. Do not reach for a formal ${name} word instead.
+${scriptRule}
+${welcome}
+- Keep technical terms, acronyms, the names of standards and products, and job titles in English, exactly as the deck writes them. Do not translate them. Write a symbol as the words you would say, in English letters: "N plus one" rather than "N+1".
+- ${ending}${self}${me}
+- You do not know the trainee's gender. Address them as ${register.you}, and prefer phrasing that does not mark their gender, such as "${register.check}"
+- ${figures}, and put commas in any number longer than four digits: 10,000.
+- What the rest of these instructions say about British English applies to the English words you keep.`;
+}
+
 /** The language block for the system instruction, or empty for English. */
 function languageInstruction(spoken: SpokenLanguage): string {
   if (spoken.language === 'hi') return hindiInstruction(spoken.speaksAs);
   const info = languageInfo(spoken.language);
-  return info.register ? indianLanguageInstruction(info, spoken.speaksAs) : '';
+  if (!info.register) return '';
+  return info.register.outsideIndia
+    ? languageAbroadInstruction(info, spoken.speaksAs)
+    : indianLanguageInstruction(info, spoken.speaksAs);
 }
 
 /** Closes every turn in a language other than English, nearest where the reply is written. */
@@ -295,6 +366,11 @@ function turnReminderFor(language: SessionLanguage): string {
   if (language === 'hi') return HINDI_TURN_REMINDER;
   const info = languageInfo(language);
   if (!info.register) return '';
+  // Latin letters for both, so the reminder is about spelling English as English.
+  if (info.register.outsideIndia?.script === 'latin') {
+    return `IN ${info.englishName.toUpperCase()}
+Say all of this in everyday spoken ${info.englishName}, as your instructions set out, with every English word and technical term kept in English, spelled as English spells it and never translated. Any example above is in English only to show its shape.`;
+  }
   return `IN ${info.englishName.toUpperCase()}
 Say all of this in everyday spoken ${info.englishName}, as your instructions set out: ${info.englishName} words in ${info.englishName} script, and every English word and technical term in English letters. Any example above is in English only to show its shape.`;
 }

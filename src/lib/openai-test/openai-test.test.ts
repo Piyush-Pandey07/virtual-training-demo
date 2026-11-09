@@ -105,7 +105,9 @@ describe('who may use it', () => {
     assert.match(home, />\s*OpenAI test\s*</);
   });
 
-  it('is never reached from a training session', () => {
+  it('is never reached from a training session, which speaks OpenAI only through synthesise', () => {
+    // A session's Arabic or Malay goes to OpenAI through synthesise.ts and nowhere else;
+    // the test page and its routes stay out of a session's way entirely.
     for (const file of [
       ...filesUnder('src/hooks'),
       ...filesUnder('src/app/session'),
@@ -260,16 +262,22 @@ describe('what it accepts', () => {
 });
 
 describe("today's voice", () => {
-  const sarvam = process.env.SARVAM_API_KEY;
+  const keys = {
+    SARVAM_API_KEY: process.env.SARVAM_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  };
   afterEach(() => {
-    if (sarvam === undefined) delete process.env.SARVAM_API_KEY;
-    else process.env.SARVAM_API_KEY = sarvam;
+    for (const [name, value] of Object.entries(keys)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   });
+  const staff = { platform: false, homeOrgId: 'technavious' };
 
   it('is Deepgram for English and Sarvam for Hindi, both voices the app really offers', () => {
     process.env.SARVAM_API_KEY = 'test-sarvam-key';
-    const english = todaysVoiceFor('en', true);
-    const hindi = todaysVoiceFor('hi', true);
+    const english = todaysVoiceFor('en', true, true);
+    const hindi = todaysVoiceFor('hi', true, true);
     assert.ok(english.ok && hindi.ok);
     assert.equal(english.label, 'Deepgram Thalia');
     assert.equal(hindi.label, 'Sarvam Priya');
@@ -278,34 +286,46 @@ describe("today's voice", () => {
   });
 
   it('has no Hindi to compare against where Sarvam is switched off, and says so', () => {
-    const hindi = todaysVoiceFor('hi', false);
+    const hindi = todaysVoiceFor('hi', false, true);
     assert.ok(!hindi.ok);
     assert.match(hindi.reason, /not switched on/);
   });
 
-  it('is unavailable for every other language, with a plain reason rather than an error', () => {
+  it('is the session voice for the OpenAI languages, as staff are offered it', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    for (const code of ['id', 'ar', 'ms', 'tl', 'vi'] as const) {
+      const today = todaysVoiceFor(code, false, true);
+      assert.ok(today.ok, code);
+      assert.equal(today.voice, `openai-${code}-marin`);
+      assert.equal(today.label, 'OpenAI Marin, as in a session');
+      // The id is one the session's own speech route accepts from Technavious staff.
+      assert.deepEqual(voiceFor(today.voice, staff)?.provider, 'openai', code);
+    }
+  });
+
+  it('has nothing for the OpenAI languages where OpenAI is not connected, and says so', () => {
     for (const code of ['id', 'ar', 'ms', 'tl', 'vi'] as const) {
       for (const hindi of [true, false]) {
-        const today = todaysVoiceFor(code, hindi);
-        assert.ok(!today.ok, `${code} should have no voice today`);
+        const today = todaysVoiceFor(code, hindi, false);
+        assert.ok(!today.ok, `${code} should have no voice without OpenAI`);
         assert.ok(today.reason.includes(languageName(code)), `${code} reason does not name it`);
+        assert.match(today.reason, /not connected/);
         // Written as a code, so the house rule against the character holds in this file too.
         const dash = String.fromCharCode(0x2014);
         assert.ok(!today.reason.includes(dash), `${code} reason has a long dash`);
       }
     }
-    assert.match((todaysVoiceFor('ar', true) as { reason: string }).reason, /Indian languages/);
   });
 
   it('compares Tamil, Telugu and Marathi with the Sarvam voice the trainer now uses', () => {
-    assert.deepEqual(todaysVoiceFor('ta', true), {
+    assert.deepEqual(todaysVoiceFor('ta', true, false), {
       ok: true,
       voice: 'sarvam-ta-ishita',
       label: 'Sarvam Ishita',
     });
-    assert.equal((todaysVoiceFor('te', true) as { voice: string }).voice, 'sarvam-te-neha');
-    assert.equal((todaysVoiceFor('mr', true) as { voice: string }).voice, 'sarvam-mr-priya');
-    assert.equal(todaysVoiceFor('mr', false).ok, false);
+    assert.equal((todaysVoiceFor('te', true, false) as { voice: string }).voice, 'sarvam-te-neha');
+    assert.equal((todaysVoiceFor('mr', true, false) as { voice: string }).voice, 'sarvam-mr-priya');
+    assert.equal(todaysVoiceFor('mr', false, true).ok, false);
   });
 });
 

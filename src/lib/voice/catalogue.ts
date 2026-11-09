@@ -8,15 +8,21 @@
  * `synthesise.ts`, and the screen is untouched. That was a stated requirement of the
  * to-do this was built for, and it is what let Hindi arrive as a second provider.
  *
- * English is Deepgram's, exactly as before. Hindi is Sarvam's, offered only where the
- * Sarvam key is set.
+ * English is Deepgram's, exactly as before. Hindi and the other Indian languages are
+ * Sarvam's, offered only where the Sarvam key is set. Arabic, Malay, Indonesian, Filipino
+ * and Vietnamese are OpenAI's, offered only where the OpenAI key is set.
  *
  * Safe to import from the browser, since nothing in it is secret, but the screen takes
  * its list from the API rather than from here so that the server stays the one place
  * that decides.
  */
 
-import { DEEPGRAM_TTS_MODEL, hindiAvailable, languagesForEveryone } from '../config';
+import {
+  DEEPGRAM_TTS_MODEL,
+  hindiAvailable,
+  languagesForEveryone,
+  openAiConfigured,
+} from '../config';
 import { LANGUAGES, languageInfo, type LanguageInfo, type SarvamLanguageCode } from '../languages';
 import { HOME_ORG_ID } from '../orgs/types';
 import type { SessionLanguage } from '../types';
@@ -56,11 +62,19 @@ export type SpeaksAs = 'feminine' | 'masculine';
 
 /** What the synthesis needs to know about a voice, and the screen never sees. */
 export interface SpokenVoice {
-  provider: 'deepgram' | 'sarvam';
-  /** The provider's own name for the voice: an Aura model, or a Sarvam speaker. */
+  provider: 'deepgram' | 'sarvam' | 'openai';
+  /** The provider's own name for the voice: an Aura model, a Sarvam speaker, an OpenAI voice. */
   model: string;
   /** The language the provider is told the text is in. Sarvam requires one. */
   languageCode?: SarvamLanguageCode;
+  /** How OpenAI is asked to speak, accent included. OpenAI only. */
+  instructions?: string;
+  /**
+   * The session language an OpenAI voice speaks. OpenAI is never told it, since its
+   * voices take the language from the text and the accent from the instructions, but the
+   * sample and the developer log need it. Sarvam's voices carry theirs in `languageCode`.
+   */
+  language?: SessionLanguage;
 }
 
 interface ProvidedVoice extends VoiceOption, SpokenVoice {
@@ -134,14 +148,16 @@ const DEEPGRAM_VOICES: readonly ProvidedVoice[] = [
  * Hindi's ids are what they were before there were other languages, so a session that
  * started on one is not refused partway.
  */
-interface SarvamVoice extends ProvidedVoice {
+interface LanguageVoice extends ProvidedVoice {
   language: SessionLanguage;
 }
 
-const SARVAM_VOICES: readonly SarvamVoice[] = LANGUAGES.flatMap((language) =>
+const capitalised = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+
+const SARVAM_VOICES: readonly LanguageVoice[] = LANGUAGES.flatMap((language) =>
   (language.sarvam?.speakers ?? []).map((speaker) => ({
     id: `sarvam-${language.code.toLowerCase()}-${speaker.speaker}`,
-    name: speaker.speaker.charAt(0).toUpperCase() + speaker.speaker.slice(1),
+    name: capitalised(speaker.speaker),
     accent: language.code === 'en-IN' ? 'Indian' : language.englishName,
     description: speaker.description,
     provider: 'sarvam' as const,
@@ -152,6 +168,30 @@ const SARVAM_VOICES: readonly SarvamVoice[] = LANGUAGES.flatMap((language) =>
     language: language.code,
   })),
 );
+
+/**
+ * The OpenAI voices, built from languages.ts in the same way.
+ *
+ * OpenAI's voices are not tied to a language, so the same voice is a different id in each
+ * language it speaks, carrying that language's instructions. The accent shown is the one
+ * the instructions ask for, which is what a delegate is choosing between.
+ */
+const OPENAI_VOICES: readonly LanguageVoice[] = LANGUAGES.flatMap((language) =>
+  (language.openai?.voices ?? []).map((speaker) => ({
+    id: `openai-${language.code}-${speaker.voice}`,
+    name: capitalised(speaker.voice),
+    accent: language.openai!.accent,
+    description: speaker.description,
+    provider: 'openai' as const,
+    model: speaker.voice,
+    instructions: language.openai!.instructions,
+    speaksAs: speaker.speaksAs,
+    language: language.code,
+  })),
+);
+
+/** Every voice that speaks one language other than English. */
+const LANGUAGE_VOICES: readonly LanguageVoice[] = [...SARVAM_VOICES, ...OPENAI_VOICES];
 
 /** What each voice says when a delegate plays its sample. Short, and what Nova sounds like. */
 export const VOICE_SAMPLE_TEXT =
@@ -180,10 +220,11 @@ export interface LanguageAudience {
 /**
  * The languages this person may hold a session in.
  *
- * English always. A Sarvam language only where the Sarvam key is set, so a deployment
- * without one has no option that fails on its first sentence. And a language nobody has
- * yet checked only for Technavious's own people, who test it; everybody else sees the
- * languages in LANGUAGES_FOR_EVERYONE.
+ * English always. A Sarvam language only where the Sarvam key is set, and an OpenAI
+ * language only where the OpenAI key is, so a deployment without one has no option that
+ * fails on its first sentence. And a language nobody has yet checked only for
+ * Technavious's own people, who test it; everybody else sees the languages in
+ * LANGUAGES_FOR_EVERYONE.
  */
 export function languagesFor(person?: LanguageAudience): readonly LanguageInfo[] {
   const everyone = languagesForEveryone();
@@ -191,13 +232,14 @@ export function languagesFor(person?: LanguageAudience): readonly LanguageInfo[]
   return LANGUAGES.filter((language) => {
     if (language.code === 'en') return true;
     if (language.sarvam && !hindiAvailable()) return false;
+    if (language.openai && !openAiConfigured()) return false;
     return staff || everyone.has(language.code);
   });
 }
 
 function offeredVoices(person?: LanguageAudience): readonly ProvidedVoice[] {
   const offered = new Set(languagesFor(person).map((language) => language.code));
-  return [...DEEPGRAM_VOICES, ...SARVAM_VOICES.filter((voice) => offered.has(voice.language))];
+  return [...DEEPGRAM_VOICES, ...LANGUAGE_VOICES.filter((voice) => offered.has(voice.language))];
 }
 
 export function voiceCatalogue(person?: LanguageAudience): VoiceCatalogue {
@@ -214,7 +256,7 @@ export function voiceCatalogue(person?: LanguageAudience): VoiceCatalogue {
         defaultVoiceId: offered ? configured : DEEPGRAM_VOICES[0]!.id,
       };
     }
-    const voices = SARVAM_VOICES.filter((voice) => voice.language === language.code);
+    const voices = LANGUAGE_VOICES.filter((voice) => voice.language === language.code);
     return {
       code: language.code,
       name: language.name,
@@ -235,8 +277,8 @@ export function voiceCatalogue(person?: LanguageAudience): VoiceCatalogue {
  * behaved before there was a choice, so nothing already in flight changes. A voice that
  * is named but not offered to this person is refused rather than quietly replaced: a
  * request asking for something specific should hear that it cannot have it, not get
- * something else. That includes a Sarvam voice on a deployment with no Sarvam key, and a
- * language still in testing asked for by a customer's trainee.
+ * something else. That includes a Sarvam or OpenAI voice on a deployment without that
+ * provider's key, and a language still in testing asked for by a customer's trainee.
  */
 export function voiceFor(requested: unknown, person?: LanguageAudience): SpokenVoice | null {
   if (requested === undefined || requested === null) {
@@ -245,12 +287,16 @@ export function voiceFor(requested: unknown, person?: LanguageAudience): SpokenV
   if (typeof requested !== 'string') return null;
   const voice = offeredVoices(person).find((candidate) => candidate.id === requested);
   if (!voice) return null;
-  const { provider, model, languageCode } = voice;
+  const { provider, model, languageCode, instructions, language } = voice;
+  if (provider === 'openai') return { provider, model, instructions, language };
   return languageCode ? { provider, model, languageCode } : { provider, model };
 }
 
 /** The line a voice's sample says, in the language the voice speaks. */
 export function sampleTextFor(voice: SpokenVoice): string {
+  if (voice.provider === 'openai') {
+    return (voice.language && languageInfo(voice.language).openai?.sample) || VOICE_SAMPLE_TEXT;
+  }
   const language = LANGUAGES.find((candidate) => candidate.sarvam?.code === voice.languageCode);
   return language?.sarvam?.sample ?? VOICE_SAMPLE_TEXT;
 }

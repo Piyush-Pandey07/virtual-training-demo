@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     return synthesisFailure(result, {
       route: '/api/tts',
       person: gate.person,
-      language: voice.languageCode,
+      language: voice.languageCode ?? voice.language,
     });
   }
 
