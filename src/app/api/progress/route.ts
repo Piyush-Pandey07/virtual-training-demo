@@ -63,7 +63,10 @@ export async function POST(request: Request) {
 
     const person = await requireAssignedDeck(deckId);
 
-    const deck = await loadDeck(deckId);
+    // In the person's own organisation. This read `loadDeck(deckId)`, which put the deck
+    // id where the organisation goes, so the deck was never found and every slide's
+    // progress was refused with a 404 that the session swallows by design.
+    const deck = await loadDeck(person.orgId, deckId);
     if (!deck) throw new NotAuthorised(404, 'Not found.');
 
     const store = rosterStore(person.orgId);

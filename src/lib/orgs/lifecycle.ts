@@ -252,8 +252,14 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks and the seed marker all carry their own id.
-  if (collection === 'people' || collection === 'decks' || collection === 'deck-seed') {
+  // people, decks, the seed marker, batches and trainer-led sessions all carry their own id.
+  if (
+    collection === 'people' ||
+    collection === 'decks' ||
+    collection === 'deck-seed' ||
+    collection === 'batches' ||
+    collection === 'trainingSessions'
+  ) {
     return typeof row.id === 'string' ? row.id : undefined;
   }
   // assignments and attempts are both keyed on the pair.
