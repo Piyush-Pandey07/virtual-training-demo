@@ -303,7 +303,8 @@ export class DocumentRosterStore implements RosterStore {
           lastSeenAt: now,
         };
 
-        if (!next.completedAt && isComplete(coverageOf(toAttempt(next)))) next.completedAt = now;
+        if (!next.completedAt && isComplete(coverageOf(toAttempt(next)), input.completionPercent))
+          next.completedAt = now;
         return next;
       },
     );

@@ -155,6 +155,12 @@ export interface DeckMeta {
   /** The one thing the closing turn must remind them of. */
   closingReminder: string;
   /**
+   * The share of teaching time that completes this deck for an AI-led session, as a
+   * whole percentage (BRD v2.3, AI-34). Set by whoever sets the deck up. Absent means
+   * COMPLETION_THRESHOLD, 90, because most decks end on a closing slide.
+   */
+  completionPercent?: number;
+  /**
    * When the outline pass last ran, and against which prompt.
    *
    * Absent on a deck that has only been rendered. The version is recorded so a

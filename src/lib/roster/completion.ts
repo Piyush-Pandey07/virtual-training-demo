@@ -50,7 +50,17 @@ export function percentComplete(coverage: Coverage): number {
  */
 export const COMPLETION_THRESHOLD = 90;
 
-export function isComplete(coverage: Coverage, threshold = COMPLETION_THRESHOLD): boolean {
+/**
+ * A deck's own completion point, kept within sense (AI-34). Fifty per cent is the
+ * floor: below it a deck would count as done with most of it untaught.
+ */
+export function completionPercentOf(meta: { completionPercent?: number }): number {
+  const value = meta.completionPercent;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return COMPLETION_THRESHOLD;
+  return Math.min(100, Math.max(50, Math.round(value)));
+}
+
+export function isComplete(coverage: Coverage, threshold: number = COMPLETION_THRESHOLD): boolean {
   return percentComplete(coverage) >= threshold;
 }
 

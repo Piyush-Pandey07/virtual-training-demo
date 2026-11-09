@@ -28,6 +28,7 @@ import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { deckWeight } from '@/lib/roster/report';
 import { RosterStoreError } from '@/lib/roster/store';
+import { completionPercentOf } from '@/lib/roster/completion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -96,6 +97,7 @@ export async function POST(request: Request) {
       slideId,
       targetSeconds: slide.targetSeconds,
       ...weight,
+      completionPercent: completionPercentOf(deck.meta),
     });
 
     return Response.json({

@@ -49,6 +49,8 @@ export interface ProgressInput {
   /** The deck as it is now, so a fresh attempt records what it is measured against. */
   slideCount: number;
   totalSeconds: number;
+  /** The deck's own completion point (AI-34). Absent means COMPLETION_THRESHOLD. */
+  completionPercent?: number;
 }
 
 export interface AssignmentInput {

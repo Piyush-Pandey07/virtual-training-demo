@@ -463,6 +463,34 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
               />
             </div>
           ))}
+          <div>
+            <label htmlFor="meta-completionPercent" className="block text-sm font-semibold">
+              Completion point
+            </label>
+            <p className="text-muted mt-0.5 text-xs">
+              The share of teaching time an AI-led session must deliver for the deck to count as
+              complete. Skipped slides count nothing. Most decks end on a closing slide, so the
+              default is 90%.
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <input
+                id="meta-completionPercent"
+                type="number"
+                min={50}
+                max={100}
+                step={1}
+                value={meta.completionPercent ?? 90}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  setMeta((current) => ({ ...current, completionPercent: value }));
+                  setDirty(true);
+                  setMessage(null);
+                }}
+                className="bg-charcoal-soft text-mist ring-charcoal-line focus:ring-teal w-24 rounded-md px-3 py-2 text-sm ring-1 ring-inset"
+              />
+              <span className="text-muted text-sm">%</span>
+            </div>
+          </div>
         </div>
       </section>
 

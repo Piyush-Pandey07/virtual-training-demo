@@ -349,7 +349,8 @@ export class BlobRosterStore implements RosterStore {
     });
     attempt.lastSlideId = input.slideId;
     attempt.lastSeenAt = now;
-    if (!attempt.completedAt && isComplete(coverageOf(attempt))) attempt.completedAt = now;
+    if (!attempt.completedAt && isComplete(coverageOf(attempt), input.completionPercent))
+      attempt.completedAt = now;
 
     await this.writeAttempt(attempt);
     return attempt;

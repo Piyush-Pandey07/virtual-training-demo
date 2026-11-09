@@ -85,6 +85,15 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
   if (!isObject(raw)) return meta;
 
   const next: DeckMeta = { ...meta };
+  // A number, unlike the rest: the share of teaching time that completes the deck.
+  if (raw.completionPercent !== undefined) {
+    const percent = Number(raw.completionPercent);
+    if (!Number.isInteger(percent) || percent < 50 || percent > 100) {
+      problems.push('meta.completionPercent must be a whole number from 50 to 100.');
+    } else {
+      next.completionPercent = percent;
+    }
+  }
   for (const field of EDITABLE_META) {
     const value = raw[field];
     if (value === undefined) continue;

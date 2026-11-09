@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  completionPercentOf,
   COMPLETION_THRESHOLD,
   coverageOf,
   emptyCoverage,
@@ -185,5 +186,21 @@ describe('where a trainee picks up', () => {
 
   it('is null for a deck with no slides rather than guessing', () => {
     assert.equal(resumeSlideId(null, []), null);
+  });
+});
+
+describe("a deck's own completion point (AI-34)", () => {
+  it('defaults to 90 and stays between 50 and 100', () => {
+    assert.equal(completionPercentOf({}), 90);
+    assert.equal(completionPercentOf({ completionPercent: 75 }), 75);
+    assert.equal(completionPercentOf({ completionPercent: 10 }), 50);
+    assert.equal(completionPercentOf({ completionPercent: 140 }), 100);
+    assert.equal(completionPercentOf({ completionPercent: Number.NaN }), 90);
+  });
+
+  it('completes a deck at its own point rather than at 90', () => {
+    const coverage = { coveredSeconds: 80, totalSeconds: 100, coveredCount: 4, slideCount: 5 };
+    assert.equal(isComplete(coverage), false);
+    assert.equal(isComplete(coverage, 75), true);
   });
 });
