@@ -63,6 +63,18 @@ const STORES = [
   // Batches and trainer-led sessions, with their attendance.
   'trainingStore',
   'trainingDocuments',
+  // Question banks, assessment results and feedback, and what the participant journey and
+  // the trainer prompt read from them.
+  'assessmentStore',
+  'assessmentDocuments',
+  'assessedLevel',
+  'preAssessmentDone',
+  'preAssessmentRequired',
+  'postAssessmentDone',
+  'feedbackDone',
+  'nextStepAfterSession',
+  'assessmentPaper',
+  'ownResult',
 ] as const;
 
 /**

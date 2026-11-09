@@ -19,6 +19,8 @@ import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { pageAssetName } from '@/lib/decks/asset-paths';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { mayManageBanks } from '@/lib/assessments/access';
+import { banksHref, resultsHref } from '@/lib/assessments/paths';
 import { currentPerson } from '@/lib/auth/session';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
@@ -193,7 +195,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {/* Where somebody lands after publishing, which is exactly when they want to
               know who it went to. */}
           <Link
@@ -202,6 +204,22 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
           >
             Who has attended
           </Link>
+          <Link
+            href={resultsHref(id)}
+            className="text-muted hover:text-teal text-sm transition-colors"
+          >
+            Results and feedback
+          </Link>
+          {/* The Benchmark administrator's alone: a company administrator never sets the
+              paper their own people are measured by. */}
+          {mayManageBanks(admin) && (
+            <Link
+              href={banksHref(id)}
+              className="text-muted hover:text-teal text-sm transition-colors"
+            >
+              Question banks
+            </Link>
+          )}
           <MainNav person={admin} />
         </div>
       </BrandHeader>
