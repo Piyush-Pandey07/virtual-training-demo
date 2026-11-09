@@ -36,7 +36,7 @@ const PUBLIC_PAGES: Record<string, string> = {
 
 /** Anything that establishes who the caller is counts as a guard. */
 const GUARDS =
-  /\b(checkUser|checkAdmin|checkAssignedDeck|requireUser|requireAdmin|requireAssignedDeck|requireUserPage|requireAdminPage|requireAssignedDeckPage)\b/;
+  /\b(checkUser|checkAdmin|checkAssignedDeck|requireUser|requireAdmin|requireAssignedDeck|requireUserPage|requireUserPageBeforeConsent|requireAdminPage|requireAssignedDeckPage)\b/;
 
 function walk(dir: string, match: (name: string) => boolean): string[] {
   const found: string[] = [];
