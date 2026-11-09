@@ -170,11 +170,14 @@ export function SessionScreen({
   reviewed,
   resume = null,
   profileOffer = null,
+  afterSession = null,
 }: {
   reviewed: boolean;
   resume?: ResumeState | null;
   /** Null whenever PROFILES_ENABLED is off, which the server decides. */
   profileOffer?: ProfileOfferState | null;
+  /** The post-session assessment or feedback, when either is still to do. */
+  afterSession?: { href: string; label: string } | null;
 }) {
   const deck = useDeck();
   const session = useTrainingSession(resume);
@@ -357,10 +360,10 @@ export function SessionScreen({
                     You covered {session.coveredSlideIds.length} of {deck.totalSlides} slides.
                   </p>
                   <Link
-                    href="/"
+                    href={afterSession?.href ?? '/'}
                     className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
                   >
-                    Back to the start
+                    {afterSession?.label ?? 'Back to the start'}
                   </Link>
                 </div>
               )}

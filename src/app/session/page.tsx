@@ -8,8 +8,10 @@
  */
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 
+import { assessmentHref } from '@/lib/assessments/paths';
+import { nextStepAfterSession, preAssessmentRequired } from '@/lib/assessments/service';
 import { requireAssignedDeckPage } from '@/lib/auth/guard';
 import { currentPerson } from '@/lib/auth/session';
 import { toClientView } from '@/lib/deck';
@@ -72,17 +74,27 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
   const stored = await loadStoredDeck(person.orgId, deckId).catch(() => undefined);
   if (!stored) notFound();
 
+  // The pre-session assessment comes first when the deck has one (AI-04), and this is
+  // where that is enforced for the AI-led session: somebody who has not taken it is sent
+  // to it rather than to the trainer. An administrator previewing the deck is not, since
+  // the review screen links here to check what the trainer says.
+  if (person.role !== 'admin' && (await preAssessmentRequired(person.orgId, person.id, deckId))) {
+    redirect(assessmentHref('pre', deckId));
+  }
+
   // What an earlier sitting left behind. Slide ids and one percentage: the weighting
   // that produced it stays on this side of the wire.
   //
   // Beside it, whether to offer the learner profile form, which is null without a read
   // whenever PROFILES_ENABLED is off. Only which questions are open crosses to the
   // browser, never what the profile says.
-  const [attempt, profileOffer] = await Promise.all([
+  const [attempt, profileOffer, afterSession] = await Promise.all([
     rosterStore(person.orgId)
       .getAttempt(person.id, deckId)
       .catch(() => undefined),
     profileOfferFor(person, deckId),
+    // Where the end of the session leads: the post-session assessment, then feedback.
+    nextStepAfterSession(person.orgId, person.id, deckId).catch(() => null),
   ]);
 
   const resume = attempt
@@ -99,6 +111,7 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
         reviewed={stored.status === 'published'}
         resume={resume}
         profileOffer={profileOffer}
+        afterSession={afterSession && { href: afterSession.href, label: afterSession.label }}
       />
     </DeckProvider>
   );

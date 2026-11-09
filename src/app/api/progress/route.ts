@@ -63,8 +63,8 @@ export async function POST(request: Request) {
 
     const person = await requireAssignedDeck(deckId);
 
-    // In the person's own organisation. This read `loadDeck(deckId)`, which put the deck
-    // id where the organisation goes, so the deck was never found and every slide's
+    // In the person's own organisation. This used to pass only the deck id, which put it
+    // where the organisation goes, so the deck was never found and every slide's
     // progress was refused with a 404 that the session swallows by design.
     const deck = await loadDeck(person.orgId, deckId);
     if (!deck) throw new NotAuthorised(404, 'Not found.');

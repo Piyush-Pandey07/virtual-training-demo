@@ -44,6 +44,10 @@ const OWNED_COLLECTIONS = [
   // Batches and trainer-led sessions, with their attendance.
   'batches',
   'trainingSessions',
+  // Question banks, assessment results and session feedback. Each row carries its own id.
+  'questionBanks',
+  'assessmentResults',
+  'feedback',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -252,13 +256,17 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks, the seed marker, batches and trainer-led sessions all carry their own id.
+  // people, decks, the seed marker, batches, trainer-led sessions and the assessment
+  // records all carry their own id.
   if (
     collection === 'people' ||
     collection === 'decks' ||
     collection === 'deck-seed' ||
     collection === 'batches' ||
-    collection === 'trainingSessions'
+    collection === 'trainingSessions' ||
+    collection === 'questionBanks' ||
+    collection === 'assessmentResults' ||
+    collection === 'feedback'
   ) {
     return typeof row.id === 'string' ? row.id : undefined;
   }

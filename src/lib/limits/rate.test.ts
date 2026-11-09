@@ -546,6 +546,13 @@ const SPENDERS: Spender[] = [
     body: 'before',
   },
   {
+    path: 'src/app/api/decks/[id]/questions/[kind]/sample/route.ts',
+    kind: 'questionSample',
+    gate: 'if (!mayManageBanks(gate.person))',
+    spends: ['generateSampleQuestions('],
+    body: 'before',
+  },
+  {
     path: 'src/app/api/openai-test/speak/route.ts',
     kind: 'openaiTest',
     gate: 'if (!mayUseOpenAiTest(gate.person))',

@@ -79,6 +79,12 @@ export const RATE_LIMITS = {
     { seconds: 60, max: 10 },
     { seconds: 3600, max: 100 },
   ],
+  // A sample question bank, one Gemini call over the whole deck. An administrator makes
+  // two per deck, perhaps again if the first reads badly; a hundred an hour is a loop.
+  questionSample: [
+    { seconds: 60, max: 5 },
+    { seconds: 3600, max: 40 },
+  ],
   // Browser reports to the developer log. Free to make, but each is a database write,
   // and a page stuck in a loop should not be able to fill the log.
   report: [
