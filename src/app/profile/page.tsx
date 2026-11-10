@@ -22,6 +22,7 @@ import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
 import { formValuesOf } from '@/lib/profiles/client';
 import { consentHistory, latestDecision } from '@/lib/profiles/consent';
 import { findProfile } from '@/lib/profiles/store';
+import { isRestricted, visibleTo } from '@/lib/retention/restricted';
 import { TRAINER_NAME } from '@/lib/trainer';
 import { ProfileEditor } from './ProfileEditor';
 
@@ -36,11 +37,19 @@ export default async function ProfilePage() {
 
   // A failed read is told apart from an empty profile, so somebody whose profile could
   // not be read is not shown a blank form that looks as if it had been lost.
+  //
+  // A profile restricted under the retention policy (AI-41) is not shown to its owner, only
+  // said to be there. The form starts empty, and saving it makes a new profile in use.
   const read = await Promise.all([findProfile(person), consentHistory(person)]).then(
-    ([profile, history]) => ({ ok: true as const, profile, latest: latestDecision(history) }),
-    () => ({ ok: false as const, profile: undefined, latest: undefined }),
+    ([stored, history]) => ({
+      ok: true as const,
+      profile: visibleTo(person, stored),
+      restricted: isRestricted(stored),
+      latest: latestDecision(history),
+    }),
+    () => ({ ok: false as const, profile: undefined, restricted: false, latest: undefined }),
   );
-  const { profile, latest } = read;
+  const { profile, latest, restricted } = read;
 
   const initial = formValuesOf(profile);
   if (!initial.name && person.name) initial.name = person.name;
@@ -73,6 +82,14 @@ export default async function ProfilePage() {
             {latest.decision === 'given'
               ? `You agreed to the privacy notice on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}.`
               : `You withdrew your consent on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}. Your training carries on without a profile.`}
+          </p>
+        )}
+
+        {restricted && !profile && (
+          <p className="text-muted mt-4 text-sm leading-relaxed">
+            The profile you gave before has been set aside, because you have not had a session for
+            90 days. The trainer no longer uses it. Fill the form in again if you would like the
+            trainer to know about you.
           </p>
         )}
 

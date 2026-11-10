@@ -20,6 +20,7 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { currentPerson } from '@/lib/auth/session';
 import { mayManageBanks, mayOpenResults } from '@/lib/assessments/access';
 import { banksHref, resultsHref } from '@/lib/assessments/paths';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/assessments/service';
 import { LEVEL_LABELS, PASS_MARK, RATING_MAX, SAMPLE_LABEL } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +62,18 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: str
       <p className="text-muted text-sm">{label}</p>
       <p className={`mt-1 text-3xl font-bold tabular-nums ${tone ?? ''}`}>{value}</p>
     </div>
+  );
+}
+
+/**
+ * In place of a result or feedback the viewer may not see, because the retention job has
+ * restricted it (AI-41). Administrators see the record itself and never this.
+ */
+function Restricted() {
+  return (
+    <span className="text-muted" title={RESTRICTED_EXPLANATION}>
+      Restricted
+    </span>
   );
 }
 
@@ -260,6 +274,8 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                             {row.pre.level ? LEVEL_LABELS[row.pre.level] : 'Recorded'}
                             <span className="text-muted block text-xs">{row.pre.percent}%</span>
                           </>
+                        ) : row.restricted ? (
+                          <Restricted />
                         ) : (
                           <span className="text-muted">
                             {prePaper ? 'Not taken' : 'No assessment'}
@@ -274,6 +290,8 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                               {onDate(row.post.submittedAt)}
                             </span>
                           </>
+                        ) : row.restricted ? (
+                          <Restricted />
                         ) : (
                           <span className="text-muted">
                             {postPaper ? 'Not taken' : 'No assessment'}
@@ -291,6 +309,8 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                           >
                             {row.post.passed ? 'Pass' : 'Fail'}
                           </span>
+                        ) : row.restricted ? (
+                          <Restricted />
                         ) : (
                           <span className="text-muted">Not yet</span>
                         )}
@@ -299,6 +319,8 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                         <td className="px-4 py-3">
                           {row.feedback === 'submitted' ? (
                             <span className="text-teal font-semibold">Submitted</span>
+                          ) : row.restricted ? (
+                            <Restricted />
                           ) : (
                             <span className="text-muted">Pending</span>
                           )}
@@ -309,6 +331,13 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                 </tbody>
               </table>
             </div>
+            {rows.some((row) => row.restricted) && (
+              <p className="text-muted mt-3 text-sm leading-relaxed">
+                {isAdministrator(person)
+                  ? 'Some of these records are restricted under the retention policy: you can still see them, and nobody else can.'
+                  : `Restricted: ${RESTRICTED_EXPLANATION}`}
+              </p>
+            )}
           </section>
         )}
 

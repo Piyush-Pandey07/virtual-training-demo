@@ -27,6 +27,7 @@ import {
 } from '@/lib/assessments/service';
 import { BANK_KIND_LABELS, isBankKind, SAMPLE_LABEL, type BankKind } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import { RESTRICTED_EXPLANATION, visibleTo } from '@/lib/retention/restricted';
 import type { SignedInPerson } from '@/lib/roster/types';
 import type { TrainingSession } from '@/lib/training/types';
 import { AssessmentForm } from './AssessmentForm';
@@ -115,7 +116,14 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
         <h1 className="mt-3 text-3xl font-bold">{stored.record.meta.title}</h1>
 
         <div className="mt-8">
-          {existing ? (
+          {existing && !visibleTo(person, existing) ? (
+            // Taken, and restricted under the retention policy (AI-41): it still stands, so
+            // the paper is not offered again, but its score is no longer shown.
+            <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
+              <p className="leading-relaxed">You have already taken this assessment.</p>
+              <p className="text-muted mt-3 text-sm leading-relaxed">{RESTRICTED_EXPLANATION}</p>
+            </section>
+          ) : existing ? (
             <ResultCard result={summaryOf(existing)} next={next} waiting={waiting} />
           ) : !paper ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">

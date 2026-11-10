@@ -13,6 +13,10 @@
  * Every view by somebody other than the owner is recorded in the audit history (AI-40),
  * after the rule has allowed it and the person has been found, so the history holds the
  * profiles somebody actually saw and not the ones they were refused.
+ *
+ * A profile the retention job has restricted (AI-41) is shown to administrators only.
+ * Anybody else allowed to look, the participant included, is told it is restricted and
+ * shown nothing of it, which `visibleTo` decides.
  */
 
 import 'server-only';
@@ -22,6 +26,7 @@ import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { RosterStore } from '../roster/store';
 import type { Role, SignedInPerson } from '../roster/types';
+import { isRestricted, visibleTo } from '../retention/restricted';
 import { mayViewProfile } from './access';
 import { findProfile } from './store';
 import type { LearnerProfileRecord } from './types';
@@ -29,6 +34,12 @@ import type { LearnerProfileRecord } from './types';
 export interface ProfileView {
   person: { id: string; name: string; email: string; role: Role };
   profile: LearnerProfileRecord | null;
+  /** Restricted under the retention policy. The profile is then null unless the viewer is an administrator. */
+  restricted: boolean;
+}
+
+function shown(viewer: SignedInPerson, profile: LearnerProfileRecord | undefined) {
+  return { profile: visibleTo(viewer, profile) ?? null, restricted: isRestricted(profile) };
 }
 
 export interface ViewOptions {
@@ -46,7 +57,7 @@ export async function viewProfile(
     const profile = await findProfile(viewer, { store: options.store });
     return {
       person: { id: viewer.id, name: viewer.name, email: viewer.email, role: viewer.role },
-      profile: profile ?? null,
+      ...shown(viewer, profile),
     };
   }
 
@@ -67,14 +78,18 @@ export async function viewProfile(
       action: 'viewed',
       subjectType: 'profile',
       subjectId: person.id,
-      detail: profile
-        ? `Viewed the profile of ${person.email}`
-        : `Opened ${person.email}, who has no profile`,
+      // Says what was actually shown: a restricted profile is withheld from all but the
+      // administrator, and the history should not record a view that showed nothing.
+      detail: !profile
+        ? `Opened ${person.email}, who has no profile`
+        : visibleTo(viewer, profile)
+          ? `Viewed the profile of ${person.email}`
+          : `Opened ${person.email}, whose profile is restricted`,
     },
     { store: options.store },
   );
   return {
     person: { id: person.id, name: person.name, email: person.email, role: person.role },
-    profile: profile ?? null,
+    ...shown(viewer, profile),
   };
 }

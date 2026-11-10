@@ -28,6 +28,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'How a first password is set. It refuses any address an administrator has not already added.',
   'api/auth/dev/route.ts':
     'The development sign-in. Refuses to run on Vercel, in a production build, or wherever Firebase is configured.',
+  'api/cron/retention/route.ts':
+    'Called by Vercel Cron, not by a person, so there is nobody to sign in. It answers 404 unless the request carries CRON_SECRET as a bearer token, and to everybody when CRON_SECRET is unset.',
 };
 
 const PUBLIC_PAGES: Record<string, string> = {

@@ -24,6 +24,7 @@ import { formValuesOf } from '@/lib/profiles/client';
 import { hasCurrentConsent } from '@/lib/profiles/consent';
 import { CONSENT_PATH } from '@/lib/profiles/gate';
 import { findProfile } from '@/lib/profiles/store';
+import { visibleTo } from '@/lib/retention/restricted';
 import { ConsentForm } from './ConsentForm';
 
 export const dynamic = 'force-dynamic';
@@ -50,7 +51,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   if (await hasCurrentConsent(person).catch(() => false)) redirect(destination);
 
   const participant = person.role === 'trainee';
-  const profile = participant ? await findProfile(person).catch(() => undefined) : undefined;
+  // A profile restricted under the retention policy (AI-41) is not prefilled: the form
+  // starts empty, as it would for somebody new, and agreeing saves a fresh one.
+  const profile = participant
+    ? visibleTo(person, await findProfile(person).catch(() => undefined))
+    : undefined;
   const initial = formValuesOf(profile);
   // Their name from the roster, where nothing else has given one.
   if (participant && !initial.name && person.name) initial.name = person.name;

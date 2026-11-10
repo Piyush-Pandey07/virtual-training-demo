@@ -243,6 +243,12 @@ export interface LearnerProfileRecord extends LearnerDetails {
   consent?: { version: string; at: string };
   /** ISO 8601. */
   updatedAt: string;
+  /**
+   * Set by the daily retention job 90 days after last use, when only administrators may
+   * see it and the trainer is no longer given it (AI-41). Written inline rather than
+   * imported, to keep this file free of imports; the shape is `RetentionMark`.
+   */
+  retention?: { restrictedAt: string; lastUsedAt: string };
 }
 
 /** The required fields this profile does not have yet. Empty when it is complete. */

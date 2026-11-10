@@ -44,7 +44,8 @@ interface MainNavProps {
     | '/audit'
     | '/openai-test'
     | '/profile'
-    | '/profiles/upload';
+    | '/profiles/upload'
+    | '/glossary';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -63,6 +64,8 @@ export function MainNav({ person, current }: MainNavProps) {
   // The administrator's alone (AI-40): who viewed or changed profiles, results, banks,
   // deck approvals and the glossary.
   if (isAdministrator(person)) links.push({ href: '/audit', label: 'Audit history' });
+  // The data centre glossary is Technavious's to manage, never a customer's (AI-21).
+  if (isAdministrator(person)) links.push({ href: '/glossary', label: 'Glossary' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
   // Everybody's own, so offered to everybody, but only where learner profiles are
