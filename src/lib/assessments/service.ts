@@ -10,10 +10,15 @@
  * The functions the participant journey and the trainer prompt need take the
  * organisation first, like every other reader of a customer's data. The ones that act
  * for somebody take the signed-in person, whose organisation is already settled.
+ *
+ * The audit history (AI-40) is written here too, for the same reason: submitting a
+ * result, viewing a deck's results, and saving, re-banding or removing a bank are each
+ * recorded once however a screen or route reaches them.
  */
 
 import 'server-only';
 
+import { recordAudit } from '../audit/log';
 import { isAdministrator, isCompanyAdmin } from '../auth/permissions';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
@@ -330,7 +335,18 @@ export async function submitAssessment(
     result.passMark = PASS_MARK;
   }
 
-  return store.recordResult(result);
+  const recorded = await store.recordResult(result);
+  await recordAudit(
+    person,
+    {
+      action: 'created',
+      subjectType: 'assessment-result',
+      subjectId: recorded.id,
+      detail: `Submitted the ${input.kind}-session assessment for ${input.deckId}: ${recorded.percent}%`,
+    },
+    { store: options.store },
+  );
+  return recorded;
 }
 
 export interface SubmittedFeedback {
@@ -433,7 +449,8 @@ export async function saveBank(
   refuseUnlessAdministrator(viewer);
   if (questions.length === 0) throw new Refused(400, 'A bank needs at least one question.');
 
-  return assessmentStore(viewer.orgId, options.store).updateBank(deckId, kind, (current) => {
+  const store = assessmentStore(viewer.orgId, options.store);
+  const saved = await store.updateBank(deckId, kind, (current) => {
     if (source === 'sample' && current?.source === 'upload') {
       throw new Refused(
         409,
@@ -458,6 +475,17 @@ export async function saveBank(
     if (kind === 'pre') bank.bands = current?.bands ?? DEFAULT_LEVEL_BANDS;
     return bank;
   });
+  await recordAudit(
+    viewer,
+    {
+      action: source === 'upload' ? 'uploaded' : 'created',
+      subjectType: 'question-bank',
+      subjectId: saved.id,
+      detail: `${source === 'upload' ? 'Uploaded' : 'Generated a sample'} ${kind}-session bank of ${saved.questions.length} questions for ${deckId}`,
+    },
+    { store: options.store },
+  );
+  return saved;
 }
 
 /** Changes the pre-session bank's level bands. Results already given keep their level. */
@@ -472,10 +500,21 @@ export async function setLevelBands(
   if (!(await store.getBank(deckId, 'pre'))) {
     throw new Refused(404, 'Upload or generate the pre-session bank first.');
   }
-  return store.updateBank(deckId, 'pre', (current) => {
+  const saved = await store.updateBank(deckId, 'pre', (current) => {
     if (!current) throw new Refused(404, 'Upload or generate the pre-session bank first.');
     return { ...current, bands, savedBy: viewer.id, savedAt: new Date().toISOString() };
   });
+  await recordAudit(
+    viewer,
+    {
+      action: 'updated',
+      subjectType: 'question-bank',
+      subjectId: saved.id,
+      detail: `Changed the level bands of the pre-session bank for ${deckId}`,
+    },
+    { store: options.store },
+  );
+  return saved;
 }
 
 /**
@@ -490,6 +529,16 @@ export async function removeBank(
 ): Promise<void> {
   refuseUnlessAdministrator(viewer);
   await assessmentStore(viewer.orgId, options.store).removeBank(deckId, kind);
+  await recordAudit(
+    viewer,
+    {
+      action: 'deleted',
+      subjectType: 'question-bank',
+      subjectId: bankId(deckId, kind),
+      detail: `Removed the ${kind}-session bank for ${deckId}`,
+    },
+    { store: options.store },
+  );
 }
 
 // ---------------------------------------------------------------- reporting
@@ -612,6 +661,19 @@ export async function resultsForDeck(
     };
   });
   rows.sort((a, b) => a.name.localeCompare(b.name, 'en-GB'));
+
+  // What was shown, to whom: the deck, the session if narrowed to one, and how many
+  // people's results were on the screen (AI-40).
+  await recordAudit(
+    viewer,
+    {
+      action: 'viewed',
+      subjectType: 'assessment-result',
+      subjectId: session ? `${deckId}/${session.id}` : deckId,
+      detail: `Viewed results for ${rows.length} ${rows.length === 1 ? 'person' : 'people'} on ${deckId}${session ? `, session ${session.id}` : ''}`,
+    },
+    { store: options.store },
+  );
 
   return {
     rows,

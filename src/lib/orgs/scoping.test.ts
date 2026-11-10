@@ -75,6 +75,15 @@ const STORES = [
   'nextStepAfterSession',
   'assessmentPaper',
   'ownResult',
+  // Deck approvals, which decide whether a customer's deck may be assigned.
+  'deckApprovalDocuments',
+  'deckApprovalFor',
+  'deckApprovalState',
+  'deckApprovalStates',
+  'assignmentRefusal',
+  // The audit history of who viewed or changed a customer's data.
+  'auditDocuments',
+  'auditHistory',
 ] as const;
 
 /**

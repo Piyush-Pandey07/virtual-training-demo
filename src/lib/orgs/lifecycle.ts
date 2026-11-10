@@ -51,6 +51,11 @@ const OWNED_COLLECTIONS = [
   'questionBanks',
   'assessmentResults',
   'feedback',
+  // Who approved which deck, and the fingerprint they approved (AI-39), and the audit
+  // history of who viewed or changed the customer's data (AI-40). The history is the
+  // customer's record, so it goes with them rather than outliving them.
+  'deckApprovals',
+  'audit',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -261,8 +266,8 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks, the seed marker, consent records, batches, trainer-led sessions and
-  // the assessment records all carry their own id.
+  // people, decks, the seed marker, consent records, batches, trainer-led sessions, the
+  // assessment records, deck approvals and audit entries all carry their own id.
   if (
     collection === 'people' ||
     collection === 'decks' ||
@@ -272,6 +277,8 @@ function documentIdOf(
     collection === 'questionBanks' ||
     collection === 'assessmentResults' ||
     collection === 'feedback' ||
+    collection === 'deckApprovals' ||
+    collection === 'audit' ||
     collection === 'consents'
   ) {
     return typeof row.id === 'string' ? row.id : undefined;

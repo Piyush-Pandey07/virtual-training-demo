@@ -22,9 +22,16 @@ import { requireAdminPage } from '@/lib/auth/guard';
 import { mayManageBanks } from '@/lib/assessments/access';
 import { banksHref, resultsHref } from '@/lib/assessments/paths';
 import { currentPerson } from '@/lib/auth/session';
+import {
+  approvalStateOf,
+  assignmentRefusalFor,
+  deckApprovalFor,
+  mayApproveDecks,
+} from '@/lib/decks/approval';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
+import { ApproveDeck } from './ApproveDeck';
 import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
 import { DeleteDeck } from './DeleteDeck';
 import { DeckReview, type ReviewDeck } from './DeckReview';
@@ -86,6 +93,10 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   // Awaited inside a try below. This covers the one path where it never is: a bad id
   // reaching notFound() first, which would otherwise leave a rejection unhandled.
   rosterRead?.catch(() => undefined);
+  // The approval record, beside the deck, for the same reason. A failure reads as no
+  // approval, which is the safe way to be wrong: the page asks for one, and the
+  // assignment routes refuse on their own reading regardless.
+  const approvalRead = deckApprovalFor(admin.orgId, id).catch(() => undefined);
 
   // A bad id throws from the store rather than returning nothing, and a bad link
   // should be a 404 rather than a stack trace.
@@ -93,6 +104,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   if (!stored) notFound();
 
   const { record } = stored;
+  const approval = approvalStateOf(await approvalRead, record, stored.status);
 
   const review: ReviewDeck = {
     id: record.meta.id,
@@ -238,10 +250,21 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
         <div className="mt-8 space-y-8">
           <DeckReview initial={review} />
 
+          {/* Before the assign panel, because it is the reason that panel is open or
+              closed (AI-39). */}
+          <ApproveDeck
+            deckId={review.id}
+            approval={approval}
+            published={stored.status === 'published'}
+            mayApprove={mayApproveDecks(admin)}
+            assignedCount={assigned.length}
+          />
+
           {rosterAvailable && (
             <AssignDeck
               deckId={review.id}
               published={stored.status === 'published'}
+              refusal={assignmentRefusalFor(approval)}
               candidates={candidates}
               assigned={assigned}
             />

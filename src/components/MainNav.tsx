@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { SignOutButton } from './SignOutButton';
 import { roleLabel } from '@/lib/auth/labels';
 import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
-import { mayRunSessions } from '@/lib/auth/permissions';
+import { isAdministrator, mayRunSessions } from '@/lib/auth/permissions';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import { mayUploadParticipants } from '@/lib/profiles/access';
 import type { Role } from '@/lib/roster/types';
@@ -41,6 +41,7 @@ interface MainNavProps {
     | '/people'
     | '/sessions'
     | '/platform'
+    | '/audit'
     | '/openai-test'
     | '/profile'
     | '/profiles/upload';
@@ -57,6 +58,9 @@ export function MainNav({ person, current }: MainNavProps) {
   // Trainer-led sessions and batches: facilitators run their own, administrators all.
   if (mayRunSessions(person)) links.push({ href: '/sessions', label: 'Sessions' });
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
+  // The administrator's alone (AI-40): who viewed or changed profiles, results, banks,
+  // deck approvals and the glossary.
+  if (isAdministrator(person)) links.push({ href: '/audit', label: 'Audit history' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
   // Everybody's own, so offered to everybody, but only where learner profiles are

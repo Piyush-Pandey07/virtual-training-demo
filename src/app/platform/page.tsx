@@ -106,6 +106,15 @@ export default async function PlatformPage() {
             : what went wrong for trainees and admins, with each provider&apos;s own words.
           </span>
         </p>
+        <p className="mt-1 text-sm">
+          <Link href="/audit" className="text-teal hover:underline">
+            Audit history
+          </Link>
+          <span className="text-muted">
+            : who viewed or changed profiles, results, question banks, deck approvals and the
+            glossary.
+          </span>
+        </p>
 
         {!orgsConfigured() && (
           <p className="border-logo-red/40 bg-logo-red/10 mt-8 rounded-md border p-4 text-sm">

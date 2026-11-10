@@ -17,6 +17,7 @@ import { isAdministrator } from '@/lib/auth/permissions';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { currentPerson } from '@/lib/auth/session';
 import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
+import { deckApprovalStates } from '@/lib/decks/approval';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { trainingFor } from '@/lib/roster/report';
@@ -62,14 +63,26 @@ export default async function PersonPage({ params }: PersonPageProps) {
   // Only published decks, and only ones they do not already have. A draft has not
   // been checked by anybody, and the API refuses it too — this just avoids offering
   // a choice that would be rejected.
-  const assignable: AssignableDeck[] = decks
-    .filter((deck) => deck.status === 'published' && !already.has(deck.id))
-    .map((deck) => ({
+  const offered = decks.filter((deck) => deck.status === 'published' && !already.has(deck.id));
+  // A published deck that is not approved as it stands is still listed, but disabled with
+  // the reason (AI-39), so an administrator looking for it learns why it cannot be chosen
+  // rather than wondering where it went. A failure to read approvals disables them all.
+  const approvals = await deckApprovalStates(admin.orgId, offered).catch(() => null);
+  const assignable: AssignableDeck[] = offered.map((deck) => {
+    const approval = approvals?.get(deck.id);
+    return {
       id: deck.id,
       title: deck.title,
       slideCount: deck.slideCount,
       estimatedMinutes: deck.estimatedMinutes,
-    }));
+      ...(approval?.state === 'approved'
+        ? {}
+        : {
+            unavailable:
+              approval?.state === 'changed' ? 'changed since approval' : 'needs approval',
+          }),
+    };
+  });
 
   const complete = rows.filter((row) => row.completedAt !== null).length;
 

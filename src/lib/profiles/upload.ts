@@ -17,6 +17,7 @@ import 'server-only';
 
 import type { DocumentStore } from '../roster/documents';
 import type { RosterStore } from '../roster/store';
+import { recordAudit } from '../audit/log';
 import type { Person, SignedInPerson } from '../roster/types';
 import type { UploadRow } from './csv';
 import { saveUploadedProfile, type UploadOutcome } from './store';
@@ -119,6 +120,21 @@ export async function importParticipants(
         { store: options.store },
         now,
       );
+      // One entry per profile written, against the person it is about, so the history
+      // of one person's profile shows the upload that filled it in (AI-40). A profile
+      // kept because its owner had confirmed it was not changed, so it is not recorded.
+      if (profile === 'prefilled') {
+        await recordAudit(
+          uploader,
+          {
+            action: 'uploaded',
+            subjectType: 'profile',
+            subjectId: person.id,
+            detail: `Prefilled the profile of ${row.email} from line ${row.line} of an upload`,
+          },
+          { store: options.store },
+        );
+      }
 
       return {
         line: row.line,
