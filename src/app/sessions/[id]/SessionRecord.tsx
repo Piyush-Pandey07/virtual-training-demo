@@ -13,12 +13,25 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import type { SummaryRow } from '@/lib/training/summary';
 import type { AttendanceMark, TrainingSession } from '@/lib/training/types';
 
 interface Props {
   session: TrainingSession;
   participants: { id: string; name: string }[];
   deckAvailable: boolean;
+  /** The closure summary (AI-33). Null if it could not be read. */
+  summary: {
+    rows: SummaryRow[];
+    totals: {
+      listed: number;
+      present: number;
+      absent: number;
+      passed: number;
+      feedbackGiven: number;
+    };
+  } | null;
+  resultsLink: string;
 }
 
 const BUTTON =
@@ -30,7 +43,13 @@ function markLabel(mark: AttendanceMark | undefined): string {
   return 'Not marked';
 }
 
-export function SessionRecord({ session, participants, deckAvailable }: Props) {
+export function SessionRecord({
+  session,
+  participants,
+  deckAvailable,
+  summary,
+  resultsLink,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +152,65 @@ export function SessionRecord({ session, participants, deckAvailable }: Props) {
           })}
         </ul>
       </section>
+
+      {summary && (
+        <section aria-labelledby="summary-heading">
+          <h2 id="summary-heading" className="text-xl font-bold">
+            Closure summary
+          </h2>
+          <p className="text-muted mt-1 text-sm">
+            {summary.totals.present} of {summary.totals.listed} present, {summary.totals.passed}{' '}
+            passed the post-session assessment, {summary.totals.feedbackGiven} gave feedback.
+          </p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-muted border-charcoal-line border-b">
+                <tr>
+                  <th className="py-2 pr-4 font-semibold">Participant</th>
+                  <th className="py-2 pr-4 font-semibold">Attendance</th>
+                  <th className="py-2 pr-4 font-semibold">Pre-session level</th>
+                  <th className="py-2 pr-4 font-semibold">Post-session</th>
+                  <th className="py-2 font-semibold">Feedback</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.rows.map((row) => (
+                  <tr key={row.personId} className="border-charcoal-line border-b">
+                    <td className="text-mist py-2 pr-4">{row.name}</td>
+                    <td className="py-2 pr-4">
+                      {markLabel(row.attendance === 'not marked' ? undefined : row.attendance)}
+                    </td>
+                    <td className="py-2 pr-4">{row.preLevel ?? 'Not taken'}</td>
+                    <td className="py-2 pr-4">
+                      {row.postPercent === null
+                        ? 'Not taken'
+                        : `${row.postPercent}%, ${row.passed ? 'Pass' : 'Fail'}`}
+                    </td>
+                    <td className="py-2">
+                      {row.feedback === 'submitted'
+                        ? 'Given'
+                        : row.feedback === 'pending'
+                          ? 'Pending'
+                          : 'Not shown'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-4 text-sm">
+            <a
+              href={`/api/training-sessions/${session.id}/summary`}
+              className="text-teal hover:underline"
+            >
+              Download the summary
+            </a>
+            <Link href={resultsLink} className="text-teal hover:underline">
+              Results and feedback in detail
+            </Link>
+          </div>
+        </section>
+      )}
 
       {!closed && (
         <button

@@ -17,6 +17,8 @@ import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
 import { trainingStore } from '@/lib/training/store';
+import { closureSummary } from '@/lib/training/summary';
+import { resultsHref } from '@/lib/assessments/paths';
 import { SessionRecord } from './SessionRecord';
 
 export const dynamic = 'force-dynamic';
@@ -37,9 +39,10 @@ export default async function SessionPage({ params }: Props) {
     .catch(() => undefined);
   if (!session || !mayManageSession(me, session)) notFound();
 
-  const [deck, people] = await Promise.all([
+  const [deck, people, summary] = await Promise.all([
     loadDeck(me.orgId, session.deckId).catch(() => undefined),
     rosterStore(me.orgId).listPeople(),
+    closureSummary(me, session.id).catch(() => null),
   ]);
   const nameOf = (personId: string) => {
     const person = people.find((entry) => entry.id === personId);
@@ -73,6 +76,8 @@ export default async function SessionPage({ params }: Props) {
               name: nameOf(personId),
             }))}
             deckAvailable={Boolean(deck)}
+            summary={summary ? { rows: summary.rows, totals: summary.totals } : null}
+            resultsLink={resultsHref(session.deckId, session.id)}
           />
         </div>
       </main>
