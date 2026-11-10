@@ -516,10 +516,13 @@ export function buildSystemInstruction(
   traineeName?: string,
   spoken?: SpokenLanguage,
   profile?: LearnerProfileRecord | null,
+  level?: AssessedLevel | null,
 ): string {
   const meta = deck.meta;
+  // Every time they are answered or engaged, as BRD v2.3 AI-08 asks, which replaces
+  // "occasionally". Still not in every sentence, which would sound like a script.
   const addressed = traineeName?.trim()
-    ? `The trainee is called ${traineeName.trim()}. Use their first name occasionally, not in every sentence.`
+    ? `The trainee is called ${traineeName.trim()}. Use their first name every time you answer a question, clear a doubt or ask them something, but not in every sentence.`
     : "You do not know the trainee's name. Do not invent one and do not ask for it more than once.";
   // Empty for English, so an English session's instruction is exactly what it was, and
   // for English with an Indian voice, which is the same English said differently.
@@ -528,7 +531,10 @@ export function buildSystemInstruction(
   // Empty without a profile, for the same reason. Beside the name because it is the
   // same kind of thing: who is in the room.
   const about = traineeProfileBlock(profile);
-  const aboutThem = about ? `\n\n${about}` : '';
+  // The assessed level, when there is one (AI-37). Empty without an assessment, so a
+  // deck with no question bank is taught exactly as before.
+  const pitch = level ? `\n\n${levelInstruction(level, false)}` : '';
+  const aboutThem = about ? `\n\n${about}${pitch}` : pitch;
 
   return `You are ${TRAINER_NAME}, ${meta.trainerRole} running a one to one live session for ${meta.owner}, ${meta.ownerDescription}. You are delivering the deck titled "${meta.title}" (${meta.subtitle}).
 
@@ -921,7 +927,11 @@ Set them at ease while you do it. Say in your own words that they can stop you w
         : ''
     }
 
-Teach from your expertise, not from the slide text. Make at least one point concrete with an example. End by handing the conversation back.
+Teach from your expertise, not from the slide text. Make at least one point concrete with an example. ${
+      endsAModule(deck, slide)
+        ? 'This slide closes a module, so end with one short, friendly engagement question that gets them thinking about what the module meant for their own work.'
+        : 'End by handing the conversation back.'
+    }
 
 LENGTH
 Write roughly ${spokenWordBudget(slide)} words. Not fewer than ${Math.round(spokenWordBudget(slide) * 0.75)} and not more than ${Math.round(spokenWordBudget(slide) * 1.25)}. Count them as you go, because at speaking pace that is about ${slide.targetSeconds} seconds and you cannot hold someone's attention for much longer in one go.
@@ -1018,6 +1028,19 @@ ${
 Refer to something they actually asked about if there was one, because it shows you were listening and it is the easiest genuine compliment available to you.
 
 End on them rather than on the material. The honest and motivating note is that the controls in this deck work because of what individuals choose to do, so they are not a bystander to any of this. Leave them feeling that they are equipped and that asking was the right instinct. Do not ask another question.`;
+}
+
+/**
+ * Whether a slide is the last teaching slide before a section divider (AI-09).
+ *
+ * The end of a module is where an engagement question does most good: the trainee has
+ * the whole module in mind and has not yet moved on. A deck without dividers has no
+ * modules, and its narration is exactly as it was.
+ */
+export function endsAModule(deck: DeckRecord, slide: DeckSlide): boolean {
+  const index = deck.slides.findIndex((entry) => entry.id === slide.id);
+  const next = deck.slides[index + 1];
+  return Boolean(next && next.role === 'divider' && slide.role !== 'divider' && slide.teaches);
 }
 
 // ------------------------------------------------------------ trainer-led sessions

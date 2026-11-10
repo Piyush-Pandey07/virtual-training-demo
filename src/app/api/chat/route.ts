@@ -30,6 +30,7 @@ import {
   sanitiseForSpeech,
 } from '@/lib/trainer-prompt';
 import { checkFacilitated, parseFacilitated, type Room } from '@/lib/training/facilitation';
+import { assessedLevel, groupLevel } from '@/lib/assessments/service';
 import { trainingStore } from '@/lib/training/store';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
 import { languageInfo, spokenBySarvam } from '@/lib/languages';
@@ -323,10 +324,25 @@ export async function POST(request: Request) {
       ]
     : turnFor(effectiveKind, effectiveSlide);
 
+  // The assessed level (AI-37): the participant's own, or in a trainer-led session the
+  // group's, taken as the middle of the attendees' levels. Null without an assessment,
+  // which leaves the instruction exactly as it was.
+  const level = room
+    ? await groupLevel(
+        gate.person.orgId,
+        room.session.participantIds.filter((id) => room.session.attendance[id] !== 'absent'),
+        deck.meta.id,
+      ).catch(() => null)
+    : await assessedLevel(gate.person.orgId, gate.person.id, deck.meta.id).catch(() => null);
+
   // Built before the stream, so nothing inside it handles the profile.
   const systemInstruction = room
-    ? buildFacilitatedSystemInstruction(deck, { attendees: room.attendees }, { language, speaksAs })
-    : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile);
+    ? buildFacilitatedSystemInstruction(
+        deck,
+        { attendees: room.attendees, ...(level ? { level } : {}) },
+        { language, speaksAs },
+      )
+    : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile, level);
 
   const encoder = new TextEncoder();
 

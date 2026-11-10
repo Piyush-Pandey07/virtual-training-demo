@@ -251,7 +251,9 @@ describe('for anybody the switch leaves out, nothing happens', () => {
 
     assert.equal(
       sha(buildSystemInstruction(deck, 'Asha', { language: 'en' }, loaded)),
-      '09bd7ea588e3eee7398990247a9a6bdabf7c3eaac4c5df6a914d5f76e7d812c4',
+      // Changed on 9 November 2026 for AI-08 only, the name now used on every answer.
+      // Reverting that one sentence reproduces the earlier hash, 09bd7ea5...
+      'ab2a32d1e5939e83a0bf56ea2df28ea3e474907a959bc0a4cde0f64bfc4861b5',
     );
     assert.equal(
       sha(buildSystemInstruction(deck, undefined, undefined, loaded)),
@@ -772,7 +774,7 @@ describe('who can reach a profile through the routes', () => {
     // Only in a one-to-one turn: a trainer-led session never reads anybody's profile.
     assert.match(
       chat,
-      /buildSystemInstruction\(deck, traineeName, \{ language, speaksAs \}, profile\)/,
+      /buildSystemInstruction\(deck, traineeName, \{ language, speaksAs \}, profile, level\)/,
     );
     assert.doesNotMatch(chat, /body\.profile/);
     const stream = chat.slice(chat.indexOf('new ReadableStream'));

@@ -92,6 +92,28 @@ export async function assessedLevel(
   return result?.level ?? null;
 }
 
+/**
+ * A group's level for a trainer-led session (AI-37): the middle of its members' assessed
+ * levels, so one beginner or one expert does not set the pitch for everybody. Null when
+ * nobody in the group has been assessed.
+ */
+export async function groupLevel(
+  orgId: string,
+  personIds: string[],
+  deckId: string,
+  options: ServiceOptions = {},
+): Promise<Level | null> {
+  const order: Level[] = ['beginner', 'intermediate', 'advanced'];
+  const levels = (
+    await Promise.all(personIds.map((id) => assessedLevel(orgId, id, deckId, options)))
+  )
+    .filter((level): level is Level => level !== null)
+    .map((level) => order.indexOf(level))
+    .sort((a, b) => a - b);
+  if (levels.length === 0) return null;
+  return order[levels[Math.floor((levels.length - 1) / 2)]!]!;
+}
+
 /** Whether this participant has submitted the pre-session assessment for this deck. */
 export async function preAssessmentDone(
   orgId: string,

@@ -62,6 +62,8 @@ const STORES = [
   'resume',
   // Batches and trainer-led sessions, with their attendance.
   'trainingStore',
+  // The middle of a group's assessed levels, read from their assessment results.
+  'groupLevel',
   'trainingDocuments',
   // Question banks, assessment results and feedback, and what the participant journey and
   // the trainer prompt read from them.

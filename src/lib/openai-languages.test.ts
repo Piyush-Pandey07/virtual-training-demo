@@ -477,7 +477,11 @@ describe('the trainer speaking each OpenAI language', () => {
       );
     }
     const sha = createHash('sha256').update(parts.join('\n\u0000\n')).digest('hex');
-    assert.equal(sha, 'b1ca7f5cec9d4d8fd72dd1c91c21f2c835da1f83e057f99b7e31f4438c3fd33c');
+    assert.equal(
+      sha, // Changed on 9 November 2026 for AI-08 only: the named-trainee line now asks for the
+      // name on every answer. Checked by reverting that one sentence and matching the old hash.
+      'd30ac9304f0da242600baa36ee8e85793b426d7b99fd79cfcf1a9778f13b42fe',
+    );
   });
 });
 
