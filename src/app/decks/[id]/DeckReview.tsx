@@ -463,6 +463,27 @@ export function DeckReview({ initial }: { initial: ReviewDeck }) {
               />
             </div>
           ))}
+          {(['topicInfo', 'caseStudies'] as const).map((field) => (
+            <div key={field}>
+              <label htmlFor={`meta-${field}`} className="block text-sm font-semibold">
+                {field === 'topicInfo' ? 'Course information' : 'Case studies'}
+                <span className="text-muted ml-2 font-normal">optional</span>
+              </label>
+              <p className="text-muted mt-0.5 text-xs">
+                {field === 'topicInfo'
+                  ? 'Who the course is for, what they should leave with, and anything the slides do not say. The trainer uses it as background.'
+                  : 'Short case studies the trainer may use as examples. It never says a brand, manufacturer or client name, whatever is written here.'}
+              </p>
+              <textarea
+                id={`meta-${field}`}
+                value={meta[field] ?? ''}
+                onChange={(event) => editMeta(field, event.target.value)}
+                rows={4}
+                maxLength={4000}
+                className="bg-charcoal-soft text-mist ring-charcoal-line focus:ring-teal mt-1.5 w-full resize-y rounded-md px-3 py-2 text-sm ring-1 ring-inset"
+              />
+            </div>
+          ))}
           <div>
             <label htmlFor="meta-completionPercent" className="block text-sm font-semibold">
               Completion point

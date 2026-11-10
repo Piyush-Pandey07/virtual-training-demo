@@ -161,6 +161,17 @@ export interface DeckMeta {
    */
   completionPercent?: number;
   /**
+   * What the administrator says about the course before it is taught (AI-03): who it is
+   * for, what they should leave with, and any context the slides do not carry. Optional,
+   * and used only when set.
+   */
+  topicInfo?: string;
+  /**
+   * Case studies the administrator wants drawn on as examples (AI-03). Brand names are
+   * never used, whatever this contains (RUL in BRD v2.3).
+   */
+  caseStudies?: string;
+  /**
    * When the outline pass last ran, and against which prompt.
    *
    * Absent on a deck that has only been rendered. The version is recorded so a

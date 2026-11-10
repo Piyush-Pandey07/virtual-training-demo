@@ -85,6 +85,22 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
   if (!isObject(raw)) return meta;
 
   const next: DeckMeta = { ...meta };
+  // Free text the administrator may leave empty, unlike the spoken fields above, so an
+  // empty value removes it rather than being refused (AI-03).
+  for (const field of ['topicInfo', 'caseStudies'] as const) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') {
+      problems.push(`meta.${field} must be a string.`);
+      continue;
+    }
+    const clean = value
+      .replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ')
+      .trim()
+      .slice(0, 4000);
+    if (clean) next[field] = clean;
+    else delete next[field];
+  }
   // A number, unlike the rest: the share of teaching time that completes the deck.
   if (raw.completionPercent !== undefined) {
     const percent = Number(raw.completionPercent);
