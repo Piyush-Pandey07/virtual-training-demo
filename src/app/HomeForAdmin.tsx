@@ -14,6 +14,7 @@ import type { DeckSummary } from '@/lib/decks/store';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
+import type { ProviderAlert } from '@/lib/failures/alerts';
 
 const STEPS = [
   {
@@ -38,7 +39,22 @@ export interface AdminHomeData {
   peopleCount: number;
   outstanding: number;
   rosterReady: boolean;
+  /** For Technavious administrators only: providers that need somebody to act (AI-11). */
+  alerts?: ProviderAlert[];
 }
+
+const PROVIDER_NAMES: Record<string, string> = {
+  gemini: 'Google Gemini',
+  deepgram: 'Deepgram',
+  sarvam: 'Sarvam',
+  openai: 'OpenAI',
+};
+
+const ALERT_WORDS: Record<string, string> = {
+  out_of_credit: 'Out of credit',
+  bad_key: 'The key was refused',
+  not_configured: 'No key is set',
+};
 
 export function HomeForAdmin({
   person,
@@ -48,6 +64,7 @@ export function HomeForAdmin({
   peopleCount,
   outstanding,
   rosterReady,
+  alerts = [],
 }: AdminHomeData) {
   return (
     <div className="flex min-h-screen flex-col">
@@ -56,6 +73,36 @@ export function HomeForAdmin({
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-12 sm:px-8 sm:py-16">
+        {alerts.length > 0 && (
+          <div
+            role="alert"
+            className="border-logo-red/40 bg-logo-red/10 mb-8 rounded-md border p-4 text-sm"
+          >
+            <p className="font-semibold">A service needs attention</p>
+            <ul className="mt-2 space-y-1">
+              {alerts.map((alert) => (
+                <li key={`${alert.provider}-${alert.kind}`}>
+                  {ALERT_WORDS[alert.kind] ?? alert.kind} for{' '}
+                  {PROVIDER_NAMES[alert.provider] ?? alert.provider}, last at{' '}
+                  {new Date(alert.lastAt).toLocaleString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}{' '}
+                  ({alert.count} {alert.count === 1 ? 'time' : 'times'}).
+                </li>
+              ))}
+            </ul>
+            <p className="text-muted mt-2">
+              Trainees see a standard message while this lasts.{' '}
+              <Link href="/platform/errors" className="text-teal hover:underline">
+                Open the developer log
+              </Link>{' '}
+              for the provider&apos;s own words.
+            </p>
+          </div>
+        )}
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">
           AI-led training sessions
         </p>

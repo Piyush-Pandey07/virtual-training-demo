@@ -18,7 +18,7 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
-import { isPlatformAdmin } from '@/lib/auth/roles';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { DEVLOG_RETENTION_DAYS, entriesFor } from '@/lib/failures/devlog';
 import { orgsConfigured } from '@/lib/orgs/registry';
 
@@ -38,7 +38,9 @@ function shiftDay(day: string, by: number): string {
 
 export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
   const person = await requireUserPage('/platform/errors');
-  if (!isPlatformAdmin(person.email)) notFound();
+  // Every Technavious administrator, not only platform staff (AI-11): they are the ones
+  // who follow up with whoever runs each service, to recharge credit for instance.
+  if (!isAdministrator(person)) notFound();
 
   const today = new Date().toISOString().slice(0, 10);
   const { day: requested } = await searchParams;
@@ -76,9 +78,11 @@ export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
               Next day
             </Link>
           )}
-          <Link href="/platform" className="text-muted hover:text-teal ml-auto">
-            Back to customers
-          </Link>
+          {person.platform && (
+            <Link href="/platform" className="text-muted hover:text-teal ml-auto">
+              Back to customers
+            </Link>
+          )}
         </nav>
 
         {entries === null && (
