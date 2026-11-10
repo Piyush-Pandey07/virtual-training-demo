@@ -41,6 +41,7 @@ interface MainNavProps {
     | '/people'
     | '/sessions'
     | '/platform'
+    | '/audit'
     | '/openai-test'
     | '/profile'
     | '/profiles/upload';
@@ -59,6 +60,9 @@ export function MainNav({ person, current }: MainNavProps) {
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
   // Every Technavious administrator: what went wrong behind the standard messages (AI-11).
   if (isAdministrator(person)) links.push({ href: '/platform/errors', label: 'Developer log' });
+  // The administrator's alone (AI-40): who viewed or changed profiles, results, banks,
+  // deck approvals and the glossary.
+  if (isAdministrator(person)) links.push({ href: '/audit', label: 'Audit history' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
   // Everybody's own, so offered to everybody, but only where learner profiles are

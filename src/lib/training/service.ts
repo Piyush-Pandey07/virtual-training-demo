@@ -9,6 +9,7 @@
 
 import 'server-only';
 
+import { assignmentRefusal } from '../decks/approval';
 import { listDecks } from '../decks/registry';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
@@ -156,6 +157,10 @@ export async function createSession(
   const decks = await listDecks(person.orgId);
   const deck = decks.find((entry) => entry.id === input.deckId);
   if (!deck) throw new TrainingRuleError(400, 'Choose a deck from this company.');
+  // A session assigns its deck to everybody on it, below, so it is held to the same
+  // approval as assigning one by one (AI-39), and asked before anything is written.
+  const refusal = await assignmentRefusal(person.orgId, deck.id, { store: options.store });
+  if (refusal) throw new TrainingRuleError(409, refusal);
 
   const facilitatorId = await chosenFacilitator(person, input.facilitatorId);
 

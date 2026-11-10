@@ -13,8 +13,12 @@
  * gives, before anything else is looked at, including who is asking. Off is meant to
  * look exactly like a deployment where this route was never written. With it on for
  * Technavious only, everybody else gets the same 404.
+ *
+ * Changes are recorded in the audit history (AI-40). Reading one's own profile is not:
+ * the history is of who looked at somebody else's.
  */
 
+import { recordAudit } from '@/lib/audit/log';
 import { checkUser } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
 import { consentHistory, latestDecision, recordConsent } from '@/lib/profiles/consent';
@@ -56,8 +60,15 @@ export async function PUT(request: Request) {
   });
   if (!parsed.ok) return reply({ error: parsed.error }, 400);
 
+  const before = await findProfile(gate.person);
   const profile = await saveProfile(gate.person, parsed.value.details ?? {});
-  await recordConsent(gate.person, 'given', true);
+  const consent = await recordConsent(gate.person, 'given', true);
+  await recordAudit(gate.person, {
+    action: before ? 'updated' : 'created',
+    subjectType: 'profile',
+    subjectId: gate.person.id,
+    detail: `${before ? 'Changed' : 'Gave'} their own profile, agreeing to notice ${consent.noticeVersion}`,
+  });
   return reply({ profile });
 }
 
@@ -74,5 +85,11 @@ export async function DELETE() {
 
   await deleteProfile(gate.person);
   await recordConsent(gate.person, 'withdrawn', false);
+  await recordAudit(gate.person, {
+    action: 'withdrawn',
+    subjectType: 'profile',
+    subjectId: gate.person.id,
+    detail: 'Withdrew consent, which deleted their profile',
+  });
   return reply({ ok: true });
 }

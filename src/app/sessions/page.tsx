@@ -13,6 +13,7 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
 import { mayRunSessions } from '@/lib/auth/permissions';
+import { deckApprovalStates } from '@/lib/decks/approval';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { visibleBatches, visibleSessions } from '@/lib/training/service';
@@ -34,6 +35,22 @@ export default async function SessionsPage() {
     listDecks(me.orgId),
     rosterStore(me.orgId).listPeople(),
   ]);
+  // A deck can only be run once it is published and approved as it stands (AI-39). The
+  // others stay listed, disabled with the reason, so nobody wonders where a deck went.
+  // A failure to read approvals disables them all; the server refuses them anyway.
+  const approvals = await deckApprovalStates(me.orgId, decks).catch(() => null);
+  const deckChoices = decks.map((deck) => {
+    const approval = approvals?.get(deck.id);
+    const unavailable =
+      deck.status !== 'published'
+        ? 'not published'
+        : approval?.state === 'approved'
+          ? undefined
+          : approval?.state === 'changed'
+            ? 'changed since approval'
+            : 'needs approval';
+    return { id: deck.id, title: deck.title, ...(unavailable ? { unavailable } : {}) };
+  });
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -55,7 +72,7 @@ export default async function SessionsPage() {
               (b.scheduledFor ?? b.createdAt).localeCompare(a.scheduledFor ?? a.createdAt),
             )}
             batches={visibleBatches(me, batches)}
-            decks={decks.map((deck) => ({ id: deck.id, title: deck.title }))}
+            decks={deckChoices}
             people={people.map((person) => ({
               id: person.id,
               name: person.name || person.email,

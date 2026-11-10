@@ -11,8 +11,13 @@
  * given would let a browser rewrite `image` to point anywhere, or write
  * `internalNotes`, which is the one field the whole design keeps away from both the
  * model and the trainee.
+ *
+ * Either one costs the deck its approval (AI-39) when it changes what the deck teaches
+ * or withdraws it: unpublishing and deleting always, an edit only when the fingerprint
+ * of the saved deck differs from the approved one. See `decks/approval.ts`.
  */
 
+import { clearDeckApproval, noteDeckSaved } from '@/lib/decks/approval';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { deckStore } from '@/lib/decks/registry';
 import { assetStore } from '@/lib/decks/registry';
@@ -280,6 +285,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const summary = await store.save(deck, status);
+  // Unpublishing withdraws the deck, which always needs a fresh approval, even if it is
+  // published again unchanged. Anything else clears it only if the content moved.
+  if (stored.status === 'published' && status === 'draft') {
+    await clearDeckApproval(gate.person, id, 'withdrawn').catch(() => false);
+  } else {
+    await noteDeckSaved(gate.person, deck, status);
+  }
   return Response.json({ deck: summary, blocking: checkReadyToPublish(deck) });
 }
 
@@ -303,6 +315,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       rosterStore(gate.person.orgId),
       id,
     );
+    await clearDeckApproval(gate.person, id, 'withdrawn').catch(() => false);
 
     // Said back rather than done silently. Removing a deck quietly takes it off other
     // people's lists, and the administrator doing it is usually not the one who assigned

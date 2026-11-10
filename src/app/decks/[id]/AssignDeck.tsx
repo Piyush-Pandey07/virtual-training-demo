@@ -37,6 +37,11 @@ export interface Candidate {
 interface AssignDeckProps {
   deckId: string;
   published: boolean;
+  /**
+   * Why the deck cannot be given to anybody new, when it has not been approved as it
+   * stands (AI-39). People who already have it are still listed, and can be removed.
+   */
+  refusal?: string | null;
   /** Everybody who could be given this deck and does not already have it. */
   candidates: Candidate[];
   assigned: Assignee[];
@@ -54,7 +59,13 @@ function onDate(iso: string | null): string {
     : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function AssignDeck({ deckId, published, candidates, assigned }: AssignDeckProps) {
+export function AssignDeck({
+  deckId,
+  published,
+  refusal = null,
+  candidates,
+  assigned,
+}: AssignDeckProps) {
   const router = useRouter();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [dueAt, setDueAt] = useState('');
@@ -177,7 +188,9 @@ export function AssignDeck({ deckId, published, candidates, assigned }: AssignDe
             </ul>
           )}
 
-          {candidates.length === 0 ? (
+          {refusal ? (
+            <p className="text-muted mt-4 text-sm leading-relaxed">{refusal}</p>
+          ) : candidates.length === 0 ? (
             <p className="text-muted mt-4 text-sm leading-relaxed">
               {assigned.length > 0
                 ? 'Everybody on the roster already has this deck.'

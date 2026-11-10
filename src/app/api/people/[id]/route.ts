@@ -9,6 +9,7 @@
  * and a redeploy. Refusing the click is cheaper than explaining the recovery.
  */
 
+import { recordAudit } from '@/lib/audit/log';
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { deleteAccount, revokeSessions } from '@/lib/firebase/admin';
@@ -110,6 +111,14 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     await deleteProfile({ id, orgId: admin.orgId, emailKey: leaving?.emailKey }).catch(
       () => undefined,
     );
+    // Recorded whether or not they had one, since the deletion is the decision and the
+    // administrator was deliberately not shown what it removed (AI-40).
+    await recordAudit(admin, {
+      action: 'deleted',
+      subjectType: 'profile',
+      subjectId: id,
+      detail: `Removed ${leaving?.email ?? 'this person'} and any profile they had`,
+    });
 
     return Response.json({ ok: true });
   } catch (error) {

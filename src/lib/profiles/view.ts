@@ -9,10 +9,15 @@
  * Refusals and absences are the same answer, null, which the callers turn into a 404:
  * a company administrator asking about a participant learns no more than somebody asking
  * about an id that does not exist.
+ *
+ * Every view by somebody other than the owner is recorded in the audit history (AI-40),
+ * after the rule has allowed it and the person has been found, so the history holds the
+ * profiles somebody actually saw and not the ones they were refused.
  */
 
 import 'server-only';
 
+import { recordAudit } from '../audit/log';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { RosterStore } from '../roster/store';
@@ -54,6 +59,18 @@ export async function viewProfile(
 
   const profile = await findProfile(
     { id: person.id, orgId: viewer.orgId, emailKey: person.emailKey },
+    { store: options.store },
+  );
+  await recordAudit(
+    viewer,
+    {
+      action: 'viewed',
+      subjectType: 'profile',
+      subjectId: person.id,
+      detail: profile
+        ? `Viewed the profile of ${person.email}`
+        : `Opened ${person.email}, who has no profile`,
+    },
     { store: options.store },
   );
   return {

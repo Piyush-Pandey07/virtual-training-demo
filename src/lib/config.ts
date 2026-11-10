@@ -205,6 +205,23 @@ export function profilesEnabledInOrg(orgId: string): boolean {
 }
 
 /**
+ * Who approves a deck before it can be assigned (BRD v2.3, AI-39), as addresses
+ * separated by commas, compared without regard to case.
+ *
+ * Srikant's address goes here. While it is empty, every Technavious administrator may
+ * approve instead, so UAT can exercise approval before the list is settled; once one
+ * address is set, only the people listed may approve, Technavious administrators
+ * included. `mayApproveDecks` in `decks/approval.ts` is where that rule is applied.
+ */
+export const deckApprovers = (): ReadonlySet<string> =>
+  new Set(
+    (process.env.DECK_APPROVERS ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.

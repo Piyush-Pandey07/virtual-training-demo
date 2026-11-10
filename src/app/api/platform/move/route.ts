@@ -11,6 +11,7 @@
  * `movePerson` for why that is the right way round.
  */
 
+import { recordAudit } from '@/lib/audit/log';
 import { requireUser, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { movePerson } from '@/lib/orgs/lifecycle';
@@ -66,6 +67,17 @@ export async function POST(request: Request) {
     await movePerson(person.id, fromOrgId, toOrgId);
 
     console.warn(`[platform] ${staff.email} moved ${email} from "${fromOrgId}" to "${toOrgId}"`);
+    // Moving deletes any profile they had in the customer they left, so it is recorded
+    // there, in that customer's history, whichever customer staff are looking inside.
+    await recordAudit(
+      { ...staff, orgId: fromOrgId },
+      {
+        action: 'deleted',
+        subjectType: 'profile',
+        subjectId: person.id,
+        detail: `Moved ${email} to "${toOrgId}", which deleted any profile they had here`,
+      },
+    );
 
     return Response.json({ email, from: fromOrgId, to: toOrgId });
   } catch (error) {

@@ -26,7 +26,8 @@ interface Props {
   me: { id: string; role: Role; platform: boolean };
   sessions: TrainingSession[];
   batches: Batch[];
-  decks: { id: string; title: string }[];
+  /** Every deck, for the titles of sessions; those that cannot be run say why. */
+  decks: { id: string; title: string; unavailable?: string }[];
   people: PersonOption[];
 }
 
@@ -141,7 +142,7 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [deckId, setDeckId] = useState(decks[0]?.id ?? '');
+  const [deckId, setDeckId] = useState(decks.find((deck) => !deck.unavailable)?.id ?? '');
   const [sessionFacilitator, setSessionFacilitator] = useState(facilitators[0]?.id ?? '');
   const [batchId, setBatchId] = useState('');
   const [sessionPeople, setSessionPeople] = useState<string[]>([]);
@@ -256,8 +257,8 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
               className={FIELD}
             >
               {decks.map((deck) => (
-                <option key={deck.id} value={deck.id}>
-                  {deck.title}
+                <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
+                  {deck.unavailable ? `${deck.title} (${deck.unavailable})` : deck.title}
                 </option>
               ))}
             </select>
