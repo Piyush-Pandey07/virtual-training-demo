@@ -13,8 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import type { SummaryRow } from '@/lib/training/summary';
-import type { AttendanceMark, TrainingSession } from '@/lib/training/types';
+import type { AttendanceMark, SummaryRow, TrainingSession } from '@/lib/training/types';
 
 interface Props {
   session: TrainingSession;

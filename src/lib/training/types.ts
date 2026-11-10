@@ -55,3 +55,15 @@ export interface TrainingSession {
   closedAt: string | null;
   closedBy: string | null;
 }
+
+/** One participant's line in a session's closure summary (AI-33). */
+export interface SummaryRow {
+  personId: string;
+  name: string;
+  email: string;
+  attendance: AttendanceMark | 'not marked';
+  preLevel: string | null;
+  postPercent: number | null;
+  passed: boolean | null;
+  feedback: 'submitted' | 'pending' | null;
+}

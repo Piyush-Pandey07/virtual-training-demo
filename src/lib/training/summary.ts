@@ -13,18 +13,9 @@ import { resultsForDeck } from '../assessments/service';
 import { LEVEL_LABELS } from '../assessments/types';
 import type { SignedInPerson } from '../roster/types';
 import { sessionFor } from './service';
-import type { AttendanceMark, TrainingSession } from './types';
+import type { SummaryRow, TrainingSession } from './types';
 
-export interface SummaryRow {
-  personId: string;
-  name: string;
-  email: string;
-  attendance: AttendanceMark | 'not marked';
-  preLevel: string | null;
-  postPercent: number | null;
-  passed: boolean | null;
-  feedback: 'submitted' | 'pending' | null;
-}
+export type { SummaryRow } from './types';
 
 export interface ClosureSummary {
   session: TrainingSession;
