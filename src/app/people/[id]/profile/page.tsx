@@ -20,6 +20,8 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
 import { detailsOf, displayValue, missingRequired, PROFILE_FIELDS } from '@/lib/profiles/types';
 import { viewProfile } from '@/lib/profiles/view';
+import { deletionDue } from '@/lib/retention/policy';
+import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,15 +43,21 @@ export default async function ProfileViewPage({ params }: ProfileViewPageProps) 
 
   const view = await viewProfile(viewer, id);
   if (!view) notFound();
-  const { person, profile } = view;
+  const { person, profile, restricted } = view;
   const details = detailsOf(profile);
   const missing = profile ? missingRequired(details) : [];
+  // Only an administrator is handed a restricted profile, and is told when it will go.
+  const due = profile?.retention ? deletionDue(profile.retention) : null;
 
-  const status = !profile
-    ? 'No profile. They have not filled one in, or they withdrew their consent.'
-    : profile.confirmed
-      ? `Confirmed by them on ${dateOf(profile.consent?.at ?? profile.updatedAt)}.`
-      : `Uploaded by their organisation on ${dateOf(profile.uploadedAt)}, not yet confirmed by them. The trainer does not use it until they do.`;
+  const status = restricted
+    ? profile
+      ? `Restricted under the retention policy on ${dateOf(profile.retention?.restrictedAt)}, because there has been no session for 90 days. Only Technavious administrators can see it${due ? `, and it will be deleted on ${dateOf(due)} unless they attend another session` : ''}. The trainer does not use it.`
+      : RESTRICTED_EXPLANATION
+    : !profile
+      ? 'No profile. They have not filled one in, or they withdrew their consent.'
+      : profile.confirmed
+        ? `Confirmed by them on ${dateOf(profile.consent?.at ?? profile.updatedAt)}.`
+        : `Uploaded by their organisation on ${dateOf(profile.uploadedAt)}, not yet confirmed by them. The trainer does not use it until they do.`;
 
   return (
     <div className="flex min-h-screen flex-col">

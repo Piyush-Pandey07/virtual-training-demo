@@ -7,6 +7,7 @@
 
 import 'server-only';
 
+import { isRestricted } from '../retention/restricted';
 import { AnswersRejected, summaryOf } from './scoring';
 import { Refused } from './service';
 import { AlreadySubmitted } from './store';
@@ -16,10 +17,11 @@ import type { AssessmentResult } from './types';
 export function refusalResponse(error: unknown): Response | null {
   if (error instanceof AlreadySubmitted) {
     // The first result travels back with the refusal, so a page that was open on two
-    // devices can show the score that stands rather than only saying no.
+    // devices can show the score that stands rather than only saying no. Not once it is
+    // restricted under the retention policy, when only the refusal does.
     const existing = error.existing;
     const result =
-      'kind' in existing && 'percent' in existing
+      'kind' in existing && 'percent' in existing && !isRestricted(existing)
         ? summaryOf(existing as AssessmentResult)
         : undefined;
     return Response.json({ error: error.message, result }, { status: 409 });

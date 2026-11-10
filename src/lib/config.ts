@@ -205,6 +205,17 @@ export function profilesEnabledInOrg(orgId: string): boolean {
 }
 
 /**
+ * The secret Vercel Cron sends to the daily jobs, as `Authorization: Bearer <secret>`.
+ *
+ * Set it in the project's environment variables and Vercel adds the header to every
+ * cron invocation by itself. A request without exactly this header is answered 404, the
+ * same as a route that does not exist, and with the variable unset every request is, so
+ * a deployment that never configured it has no retention job anybody can trigger rather
+ * than one everybody can. Null when unset or blank.
+ */
+export const cronSecret = (): string | null => process.env.CRON_SECRET?.trim() || null;
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.

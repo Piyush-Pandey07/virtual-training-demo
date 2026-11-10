@@ -152,6 +152,12 @@ export interface AssessmentResult {
   bankVersion: string;
   bankSource: BankSource;
   submittedAt: string;
+  /**
+   * Set by the daily retention job 90 days after last use, when only administrators may
+   * see it (AI-41). The only change ever made to a result after it is written. The shape
+   * is `RetentionMark` in retention/policy.ts, written inline to keep this file import-free.
+   */
+  retention?: { restrictedAt: string; lastUsedAt: string };
 }
 
 /** What a participant is told about their own result. No answer key, and no per-question marks. */
@@ -254,6 +260,8 @@ export interface FeedbackRecord {
   /** By question id. Only comments somebody actually wrote. */
   comments: Record<string, string>;
   submittedAt: string;
+  /** Set by the daily retention job, as on a result. */
+  retention?: { restrictedAt: string; lastUsedAt: string };
 }
 
 // ---------------------------------------------------------------- the report
@@ -267,4 +275,9 @@ export interface ResultsRow {
   post: { percent: number; passed: boolean; submittedAt: string } | null;
   /** Null when the viewer may not see feedback; otherwise whether it has been given. */
   feedback: 'submitted' | 'pending' | null;
+  /**
+   * Whether any of their results or feedback for this deck is restricted under the
+   * retention policy. For anybody but an administrator, those are then absent above.
+   */
+  restricted: boolean;
 }

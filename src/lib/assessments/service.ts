@@ -15,6 +15,7 @@
 import 'server-only';
 
 import { isAdministrator, isCompanyAdmin } from '../auth/permissions';
+import { isRestricted, visibleOnly, visibleTo } from '../retention/restricted';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { RosterStore } from '../roster/store';
@@ -81,6 +82,11 @@ function hasQuestions(bank: QuestionBank | undefined): bank is QuestionBank {
  * they have not taken it (or the deck has no pre-session bank).
  *
  * For the trainer prompt, which pitches the session at this level.
+ *
+ * Null as well once the result is restricted under the retention policy (AI-41). The
+ * level is the result's content, and pitching a session at it is using it. It is also
+ * at least 90 days old by then, which is a poor guide to what somebody knows today, and
+ * the standard explanation is what a participant with no level gets anyway.
  */
 export async function assessedLevel(
   orgId: string,
@@ -89,7 +95,7 @@ export async function assessedLevel(
   options: ServiceOptions = {},
 ): Promise<Level | null> {
   const result = await assessmentStore(orgId, options.store).getResult(personId, deckId, 'pre');
-  return result?.level ?? null;
+  return visibleTo(null, result)?.level ?? null;
 }
 
 /** Whether this participant has submitted the pre-session assessment for this deck. */
@@ -196,7 +202,13 @@ export async function assessmentPaper(
   return hasQuestions(bank) ? paperFor(bank) : null;
 }
 
-/** This participant's own result, if they have one. */
+/**
+ * This participant's own result, if they have one.
+ *
+ * Whether or not it is restricted, because the journey needs to know it was taken: a
+ * restricted result still stands, and the participant is not offered the paper again.
+ * A screen that shows it asks `visibleTo` first.
+ */
 export async function ownResult(
   orgId: string,
   personId: string,
@@ -551,13 +563,25 @@ export async function resultsForDeck(
     session = found;
   }
 
-  const [people, assignments, sessions, results, feedback] = await Promise.all([
+  const [people, assignments, sessions, stored, storedFeedback] = await Promise.all([
     roster.listPeople().catch(() => [] as Person[]),
     session ? Promise.resolve([]) : roster.listAssignmentsForDeck(deckId).catch(() => []),
     session ? Promise.resolve([session]) : training.listSessions(),
     assessments.resultsForDeck(deckId),
     assessments.feedbackForDeck(deckId),
   ]);
+
+  // Restricted records (AI-41) are left out for everybody but administrators, before
+  // anything is counted or averaged, so a facilitator's averages cannot carry them. The
+  // people they belong to are still listed, marked restricted, rather than shown as
+  // having taken nothing.
+  const results = visibleOnly(viewer, stored);
+  const feedback = visibleOnly(viewer, storedFeedback);
+  const restrictedFor = new Set(
+    [...stored, ...storedFeedback.filter((record) => !session || record.sessionId === session.id)]
+      .filter((record) => isRestricted(record))
+      .map((record) => record.personId),
+  );
 
   const relevantFeedback = session
     ? feedback.filter((record) => record.sessionId === session.id)
@@ -573,6 +597,7 @@ export async function resultsForDeck(
       .forEach((each) => each.participantIds.forEach((id) => candidates.add(id)));
     results.forEach((result) => candidates.add(result.personId));
     relevantFeedback.forEach((record) => candidates.add(record.personId));
+    restrictedFor.forEach((personId) => candidates.add(personId));
   }
 
   // Administrators of either kind see the whole company; anybody else is asked about each
@@ -609,6 +634,7 @@ export async function resultsForDeck(
         ? { percent: post.percent, passed: post.passed === true, submittedAt: post.submittedAt }
         : null,
       feedback: showFeedback ? (gaveFeedback.has(personId) ? 'submitted' : 'pending') : null,
+      restricted: restrictedFor.has(personId),
     };
   });
   rows.sort((a, b) => a.name.localeCompare(b.name, 'en-GB'));
@@ -619,7 +645,8 @@ export async function resultsForDeck(
     feedback: showFeedback
       ? summariseFeedback(
           relevantFeedback.filter((record) => visible.has(record.personId)),
-          rows.filter((row) => row.feedback === 'pending').length,
+          // Somebody whose feedback is restricted gave it, and is not waiting to.
+          rows.filter((row) => row.feedback === 'pending' && !row.restricted).length,
         )
       : null,
   };

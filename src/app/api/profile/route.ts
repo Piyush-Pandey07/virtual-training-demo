@@ -21,6 +21,7 @@ import { consentHistory, latestDecision, recordConsent } from '@/lib/profiles/co
 import { notFound, reply, signedOut } from '@/lib/profiles/responses';
 import { deleteProfile, findProfile, saveProfile } from '@/lib/profiles/store';
 import { parseSubmission } from '@/lib/profiles/validate';
+import { isRestricted, visibleTo } from '@/lib/retention/restricted';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,13 @@ export async function GET() {
     findProfile(gate.person),
     consentHistory(gate.person),
   ]);
-  return reply({ profile: profile ?? null, consent: latestDecision(history) ?? null });
+  // A restricted profile (AI-41) is not shown to its owner either, only said to exist.
+  // Saving the form again replaces it with a new one in use, as a first save would.
+  return reply({
+    profile: visibleTo(gate.person, profile) ?? null,
+    restricted: isRestricted(profile),
+    consent: latestDecision(history) ?? null,
+  });
 }
 
 /**

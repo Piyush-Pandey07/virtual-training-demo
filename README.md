@@ -386,6 +386,51 @@ The log is the `devlog` Firestore collection, outside every customer's data. Ent
 90 days ahead. **Enable a TTL policy on `devlog` / `expireAt` in the Firebase console**, as for
 `ratelimits` / `expireAt`, or entries are never deleted.
 
+### Retention: the daily job
+
+Learner profiles, assessment results and feedback follow the rule in the privacy notice (AI-41). The
+code is in `src/lib/retention/`, and the arithmetic in `policy.ts`.
+
+| Days after last use | What happens                                                                 |
+| ------------------- | ---------------------------------------------------------------------------- |
+| 0 to 89             | In use, by everybody the record's own rules allow                            |
+| 90 to 364           | **Restricted**: only Technavious administrators see it; the trainer does not |
+| 365 and after       | **Deleted**                                                                  |
+
+Training progress (attempts), trainer-led attendance and consent records are kept for at least five
+years and the job never changes them.
+
+- **Last use.** A participant's last session is the latest of their AI-led attempt activity
+  (`lastSeenAt`) and any trainer-led session they attended (`closedAt`, or `openedAt` while it is
+  open; not if they were marked absent, and not a session that was only scheduled). A record's last
+  use is the later of that and its own date: when the profile was last saved or uploaded, or when the
+  result or feedback was submitted. So a participant who has never sat a session is measured from
+  the record itself, and one who edited their profile yesterday has used it yesterday.
+- **Coming back.** A session after a restriction puts the records back in use, and the next run
+  lifts it. Filling in My profile again lifts it for the profile at once.
+- **Restricted, in practice.** The job writes one field, `retention`, on the record, and every read
+  asks `visibleTo` in `src/lib/retention/restricted.ts`: the profile views and their route
+  (`viewProfile`), the participant's own profile page, route and consent page, the trainer's
+  profile (`profileForTrainer`), the assessed level used to pitch a session (`assessedLevel`), the
+  results and feedback screen (`resultsForDeck`), a participant's own result on the assessment
+  page, and the score returned with a refused second submission. A restricted result still counts
+  as taken, so nobody is offered the paper again.
+- **The route.** `GET /api/cron/retention`, scheduled in `vercel.json` once a day at 21:30 UTC
+  (03:00 in India; Hobby runs it at some point in that hour). Vercel sends `Authorization: Bearer
+  <CRON_SECRET>`; **set `CRON_SECRET`** under Settings, Environment Variables, to a long random
+  value, or the route answers 404 to everybody, Vercel included.
+- **Bounded and idempotent.** It stops itself at 45 seconds or 2,000 writes, records the
+  organisation it reached in the `retention` collection, and starts there the next day. Running it
+  twice changes nothing the second time. Anything it cannot read, a person's attempts or an
+  organisation's sessions, is skipped for the day rather than judged.
+- **Dry run, for UAT.** Add `?dryRun=1` to report what it would do without changing anything, with
+  up to 25 record ids per organisation. `&asOf=2027-03-01` judges as of that date, which only a dry
+  run accepts:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET"   "https://your-deployment.vercel.app/api/cron/retention?dryRun=1&asOf=2027-03-01"
+```
+
 ### Why sentence chunking
 
 Waiting for a full Gemini reply before speaking would add several seconds of silence to every turn.
