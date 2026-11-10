@@ -13,6 +13,7 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { DEFAULT_DECK_ID, deckStore, listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { peopleOverview, trainingFor } from '@/lib/roster/report';
+import { journeysFor } from '@/lib/training/journey';
 import { HomeForAdmin } from './HomeForAdmin';
 import { HomeForTrainee } from './HomeForTrainee';
 
@@ -30,7 +31,11 @@ export default async function HomePage() {
   const person = await requireUserPage('/');
 
   if (person.role !== 'admin') {
-    return <HomeForTrainee person={person} rows={await trainingFor(person.orgId, person)} />;
+    const [rows, journeys] = await Promise.all([
+      trainingFor(person.orgId, person),
+      journeysFor(person).catch(() => []),
+    ]);
+    return <HomeForTrainee person={person} rows={rows} journeys={journeys} />;
   }
 
   const store = deckStore(person.orgId);
