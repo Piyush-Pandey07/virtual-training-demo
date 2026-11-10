@@ -183,7 +183,11 @@ describe('cutting Hindi into sentences to speak', () => {
   });
 
   it('is the cut the player uses', () => {
-    assert.match(bodyOf(PLAYER, 'drain'), /const cut = nextSpeechCut\(buffer\);/);
+    // The opening chunk of a turn uses the shorter cut, which also ends at a danda.
+    assert.match(
+      bodyOf(PLAYER, 'drain'),
+      /const cut = opening \? nextOpeningCut\(buffer\) : nextSpeechCut\(buffer\);/,
+    );
   });
 });
 

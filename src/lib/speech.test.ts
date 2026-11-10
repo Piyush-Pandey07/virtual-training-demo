@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { sanitiseForSpeech } from './speech';
+import { nextOpeningCut, sanitiseForSpeech } from './speech';
 
 /**
  * Everything the trainer says is spoken aloud, so anything that reads badly in a
@@ -99,5 +99,28 @@ describe('the sanitiser is on the path to the speaker', () => {
     assert.match(own, /export function sanitiseForSpeech/);
     assert.doesNotMatch(own, /from '\.\/deck'/, 'importing the deck would drag it server-side');
     assert.doesNotMatch(own, /from '\.\/knowledge'/);
+  });
+});
+
+describe('the first chunk of a turn (AI-44)', () => {
+  it('is cut at the first sentence end after 20 characters', () => {
+    const text = 'Welcome to the session. Today we will look at how power reaches the racks.';
+    assert.equal(nextOpeningCut(text), text.indexOf('.') + 1);
+  });
+
+  it('falls back to the first clause break after 25 characters', () => {
+    const text = 'Welcome to this session on data centres, where we will look at power and cooling';
+    assert.equal(nextOpeningCut(text), text.indexOf(',') + 1);
+  });
+
+  it('waits while there is too little to say', () => {
+    assert.equal(nextOpeningCut('Welcome.'), -1);
+    assert.equal(nextOpeningCut('Welcome to the sessi'), -1);
+  });
+
+  it('is only used for the opening chunk of a turn', () => {
+    const player = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8');
+    assert.match(player, /opening \? nextOpeningCut\(buffer\) : nextSpeechCut\(buffer\)/);
+    assert.match(player, /openingRef\.current = true;/);
   });
 });

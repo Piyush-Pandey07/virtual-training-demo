@@ -29,7 +29,7 @@ import type { Failure } from '@/lib/failures/codes';
 import { reportFailure } from '@/lib/failures/report-client';
 import { pacedToPlayback } from '@/lib/languages';
 import { pcmToFloat } from '@/lib/pcm';
-import { nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
+import { nextOpeningCut, nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
 import type { SessionLanguage } from '@/lib/types';
 import { fetchSpeech, stallRetryDelayMs } from '@/lib/voice/fetch-speech';
 
@@ -195,6 +195,8 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const doneWaitersRef = useRef<Array<() => void>>([]);
   /** Sentences enqueued and not yet scheduled, in order, for fetching ahead. */
   const queueRef = useRef<QueuedSpeech[]>([]);
+  /** Whether the next chunk is the first of a turn. Every turn starts with an interrupt. */
+  const openingRef = useRef(true);
   const inFlightRef = useRef(0);
   /**
    * How the current hold ends: `true` to try the sentence again, `false` because the turn
@@ -304,6 +306,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     chainRef.current = Promise.resolve();
     queueRef.current = [];
     inFlightRef.current = 0;
+    openingRef.current = true;
 
     abortRef.current?.abort();
     abortRef.current = null;
@@ -638,8 +641,11 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const drain = useCallback(() => {
     for (;;) {
       const buffer = bufferRef.current;
-      const cut = nextSpeechCut(buffer);
+      // The first chunk of a turn is cut short, because it is the one heard as a wait.
+      const opening = openingRef.current;
+      const cut = opening ? nextOpeningCut(buffer) : nextSpeechCut(buffer);
       if (cut === -1) return;
+      openingRef.current = false;
 
       enqueue(buffer.slice(0, cut));
       bufferRef.current = buffer.slice(cut).trimStart();
