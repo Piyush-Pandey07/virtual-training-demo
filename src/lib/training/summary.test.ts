@@ -57,8 +57,16 @@ describe('the closure summary download', () => {
   it('writes attendance, level, score and pass or fail', () => {
     assert.match(
       csv,
-      /"Data Centre Power, Day 1",2026-11-13,Asha Rao,asha@example\.com,present,Intermediate,80,Pass,submitted/,
+      /"Data Centre Power, Day 1",2026-11-13,Asha Rao,asha@example\.com,Present,Intermediate,80,Pass,Given/,
     );
+  });
+
+  it('dates the session by the day in India, not in UTC', () => {
+    const late = summaryCsv(
+      { ...summary, session: { ...summary.session, scheduledFor: '2026-11-12T20:00:00.000Z' } },
+      'Late',
+    );
+    assert.match(late, /^Late,2026-11-13,/m);
   });
 
   it('never lets a name run as a formula', () => {

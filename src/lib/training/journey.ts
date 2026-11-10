@@ -14,6 +14,7 @@ import { feedbackDone, postAssessmentDone, preAssessmentDone } from '../assessme
 import { assessmentHref, feedbackHref } from '../assessments/paths';
 import { assessmentStore } from '../assessments/store';
 import { listDecks } from '../decks/registry';
+import { formatSessionTime } from '../time';
 import type { SignedInPerson } from '../roster/types';
 import { sessionsListing } from './access';
 import type { TrainingSession } from './types';
@@ -37,15 +38,9 @@ export interface SessionJourney {
   steps: JourneyStep[];
 }
 
+/** In India time, said so: this is formatted on the server, which runs on UTC. */
 function formatWhen(iso: string | null): string | null {
-  if (!iso) return null;
-  return new Date(iso).toLocaleString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return iso ? formatSessionTime(iso) : null;
 }
 
 /** The steps for one session, in order, each open only after the one before. */

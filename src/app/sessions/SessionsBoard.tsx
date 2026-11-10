@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
+import { formatSessionTime } from '@/lib/time';
 import type { Batch, TrainingSession } from '@/lib/training/types';
 
 interface PersonOption {
@@ -45,12 +46,7 @@ const STATUS_LABEL: Record<TrainingSession['status'], string> = {
 
 function formatWhen(iso: string | null): string {
   if (!iso) return 'No date set';
-  return new Date(iso).toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatSessionTime(iso);
 }
 
 /** Search box and checkboxes, for choosing participants out of a long list. */

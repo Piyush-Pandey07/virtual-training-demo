@@ -15,6 +15,7 @@ import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { ProviderAlert } from '@/lib/failures/alerts';
+import { formatMoment } from '@/lib/time';
 
 const STEPS = [
   {
@@ -84,13 +85,8 @@ export function HomeForAdmin({
                 <li key={`${alert.provider}-${alert.kind}`}>
                   {ALERT_WORDS[alert.kind] ?? alert.kind} for{' '}
                   {PROVIDER_NAMES[alert.provider] ?? alert.provider}, last at{' '}
-                  {new Date(alert.lastAt).toLocaleString('en-GB', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}{' '}
-                  ({alert.count} {alert.count === 1 ? 'time' : 'times'}).
+                  {formatMoment(alert.lastAt)} ({alert.count} {alert.count === 1 ? 'time' : 'times'}
+                  ).
                 </li>
               ))}
             </ul>

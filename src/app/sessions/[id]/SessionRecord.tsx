@@ -13,7 +13,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { formatMoment } from '@/lib/time';
 import type { AttendanceMark, SummaryRow, TrainingSession } from '@/lib/training/types';
+import { attendanceWord, feedbackWord, resultWord } from '@/lib/training/words';
 
 interface Props {
   session: TrainingSession;
@@ -37,9 +39,7 @@ const BUTTON =
   'bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
 function markLabel(mark: AttendanceMark | undefined): string {
-  if (mark === 'absent') return 'Absent';
-  if (mark === 'present') return 'Present';
-  return 'Not marked';
+  return attendanceWord(mark);
 }
 
 export function SessionRecord({
@@ -98,7 +98,7 @@ export function SessionRecord({
         </h2>
         <p className="text-muted mt-1 text-sm">
           {closed
-            ? `Closed ${new Date(session.closedAt ?? session.createdAt).toLocaleString('en-GB')}.`
+            ? `Closed ${formatMoment(session.closedAt ?? session.createdAt)}.`
             : unmarked > 0
               ? `${unmarked} still to mark. Everybody must be marked before the session can be closed.`
               : 'Everybody is marked.'}
@@ -176,22 +176,14 @@ export function SessionRecord({
                 {summary.rows.map((row) => (
                   <tr key={row.personId} className="border-charcoal-line border-b">
                     <td className="text-mist py-2 pr-4">{row.name}</td>
-                    <td className="py-2 pr-4">
-                      {markLabel(row.attendance === 'not marked' ? undefined : row.attendance)}
-                    </td>
+                    <td className="py-2 pr-4">{attendanceWord(row.attendance)}</td>
                     <td className="py-2 pr-4">{row.preLevel ?? 'Not taken'}</td>
                     <td className="py-2 pr-4">
                       {row.postPercent === null
-                        ? 'Not taken'
-                        : `${row.postPercent}%, ${row.passed ? 'Pass' : 'Fail'}`}
+                        ? resultWord(row)
+                        : `${row.postPercent}%, ${resultWord(row)}`}
                     </td>
-                    <td className="py-2">
-                      {row.feedback === 'submitted'
-                        ? 'Given'
-                        : row.feedback === 'pending'
-                          ? 'Pending'
-                          : 'Not shown'}
-                    </td>
+                    <td className="py-2">{feedbackWord(row.feedback)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -13,7 +13,9 @@ import { resultsForDeck } from '../assessments/service';
 import { LEVEL_LABELS } from '../assessments/types';
 import type { SignedInPerson } from '../roster/types';
 import { sessionFor } from './service';
+import { dayInTrainingZone } from '../time';
 import type { SummaryRow, TrainingSession } from './types';
+import { attendanceWord, feedbackWord, resultWord } from './words';
 
 export type { SummaryRow } from './types';
 
@@ -93,14 +95,14 @@ export function summaryCsv(summary: ClosureSummary, deckTitle: string): string {
   const lines = summary.rows.map((row) =>
     [
       deckTitle,
-      when.slice(0, 10),
+      dayInTrainingZone(when),
       row.name,
       row.email,
-      row.attendance,
-      row.preLevel,
-      row.postPercent,
-      row.passed === null ? '' : row.passed ? 'Pass' : 'Fail',
-      row.feedback ?? '',
+      attendanceWord(row.attendance),
+      row.preLevel ?? 'Not taken',
+      row.postPercent ?? '',
+      resultWord(row),
+      feedbackWord(row.feedback),
     ]
       .map(cell)
       .join(','),
