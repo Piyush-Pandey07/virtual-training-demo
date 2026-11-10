@@ -17,6 +17,8 @@ const config = [
       // Linting a minified vendor bundle produces well over a thousand findings that
       // nobody can act on.
       'public/pdf/**',
+      // Agents' git worktrees: full checkouts with their own build output, linted in place.
+      '.claude/**',
     ],
   },
 ];

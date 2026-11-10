@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
+import { platformAuditHistory } from '../audit/log';
 import type { DeckRecord, DeckSlide } from '../deck-types';
 import { ISMS_DECK } from '../decks/isms';
 import { InMemoryDocumentStore } from '../roster/documents';
@@ -544,8 +545,34 @@ describe('the glossary page and routes', () => {
     assert.doesNotMatch(read('src/lib/trainer-prompt.ts'), /liveGlossary|glossary\/store/);
   });
 
-  it('mark each change point for the audit log', () => {
-    const store = read('src/lib/glossary/store.ts');
-    assert.ok((store.match(/\/\/ AUDIT:/g) ?? []).length >= 6);
+  it('record every change in the platform audit history (AI-40)', async () => {
+    const store = new InMemoryDocumentStore();
+    const added = await addGlossaryEntry(administrator, CDFA, { store });
+    await editGlossaryEntry(
+      administrator,
+      added.id,
+      { ...CDFA, definition: 'Changed.' },
+      { store },
+    );
+    await holdGlossaryEntry(administrator, added.id, 'Wording under review', { store });
+    await releaseGlossaryEntry(administrator, added.id, 'Agreed', { store });
+    await deleteGlossaryEntry(administrator, added.id, { store });
+    await resetGlossary(administrator, { store });
+    // Outside a request the entries are written straight after, not awaited.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const month = new Date().toISOString().slice(0, 7);
+    const history = await platformAuditHistory({ month, subjectType: 'glossary-term' }, { store });
+    assert.deepEqual(history.map((entry) => entry.action).sort(), [
+      'created',
+      'deleted',
+      'updated',
+      'updated',
+      'updated',
+      'updated',
+    ]);
+    assert.ok(history.every((entry) => entry.actorId === administrator.id && !entry.orgId));
+    assert.ok(history.some((entry) => /Held .*: Wording under review/.test(entry.detail)));
+    assert.doesNotMatch(read('src/lib/glossary/store.ts'), /\/\/ AUDIT:/);
   });
 });

@@ -19,6 +19,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { consentAddress, needsConsent } from '../profiles/gate';
 import { rosterStore } from '../roster/registry';
+import { facilitatesDeck } from '../training/access';
 import type { SignedInPerson } from '../roster/types';
 import { currentPerson } from './session';
 
@@ -126,6 +127,28 @@ export function checkAdmin(): Promise<Gate> {
 
 export function checkAssignedDeck(deckId: string): Promise<Gate> {
   return gate(() => requireAssignedDeck(deckId));
+}
+
+/**
+ * For a deck's slide images: whoever may attend it, and also the facilitator of a
+ * trainer-led session on it, who puts the slides on the screen in the room without being
+ * assigned the deck. Only the images: a facilitator still cannot attend it alone or
+ * record progress on it, which `requireAssignedDeck` keeps for the routes that do.
+ */
+export async function requireDeckViewer(deckId: string): Promise<SignedInPerson> {
+  const person = await requireUser();
+  if (person.role !== 'admin') {
+    const allowed =
+      (await rosterStore(person.orgId).isAssigned(person.id, deckId)) ||
+      (await facilitatesDeck(person, deckId));
+    if (!allowed) throw new NotAuthorised(404, 'Not found.');
+  }
+  await refuseWithoutConsent(person);
+  return person;
+}
+
+export function checkDeckViewer(deckId: string): Promise<Gate> {
+  return gate(() => requireDeckViewer(deckId));
 }
 
 // ------------------------------------------------------------------- for pages

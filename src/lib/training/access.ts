@@ -34,6 +34,23 @@ export async function facilitatesPerson(
   );
 }
 
+/**
+ * Whether this facilitator runs a trainer-led session on this deck, so may show its
+ * slides without being assigned it. Only ever true for the facilitator role: everybody
+ * else is assigned the deck or is an administrator.
+ */
+export async function facilitatesDeck(
+  viewer: SignedInPerson,
+  deckId: string,
+  options: { store?: DocumentStore } = {},
+): Promise<boolean> {
+  if (viewer.role !== 'facilitator') return false;
+  const sessions = await trainingStore(viewer.orgId, options.store).sessionsFacilitatedBy(
+    viewer.id,
+  );
+  return sessions.some((session) => session.deckId === deckId);
+}
+
 /** Whether this viewer may see and run this session. */
 export function mayManageSession(viewer: SignedInPerson, session: TrainingSession): boolean {
   if (viewer.platform || viewer.role === 'admin') return true;

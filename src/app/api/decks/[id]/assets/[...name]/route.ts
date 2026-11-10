@@ -17,7 +17,7 @@ import { assertUsableAssetName, contentTypeFor } from '@/lib/decks/assets';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
 
-import { checkAdmin, checkAssignedDeck } from '@/lib/auth/guard';
+import { checkAdmin, checkDeckViewer } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,8 +36,9 @@ export async function GET(request: Request, { params }: RouteContext) {
   const { id, name } = await params;
 
   // Per deck, not merely signed in. Otherwise a trainee who guessed another deck's
-  // id could read every slide out of it.
-  const gate = await checkAssignedDeck(id);
+  // id could read every slide out of it. The facilitator of a session on the deck shows
+  // its slides in the room, so is let in too.
+  const gate = await checkDeckViewer(id);
   if (!gate.ok) return gate.response;
   const assetName = name.join('/');
 
