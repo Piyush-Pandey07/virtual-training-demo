@@ -23,9 +23,17 @@
  * - Single ordinary words are weak evidence. "Server" or "Owner" in a speaker note is not
  *   a reason to define it; the same word in the trainee's question, or in the slide's own
  *   title and bullets, is.
+ *
+ * The glossary decides what terms mean; the deck decides what is taught. The entries are
+ * the administrator's, kept in Firestore and loaded by `store.ts`, and every function
+ * here takes the list it should match against. Each defaults to the imported seed in
+ * `entries.ts`, which the tests and scripts match against. They stay pure functions over
+ * a list so the prompt builders stay synchronous: the route or page that builds a prompt
+ * loads the list first and hands it down.
  */
 
 import type { DeckRecord, DeckSlide } from '../deck-types';
+import { writtenAsCode } from './codes';
 import { GLOSSARY } from './entries';
 import type { GlossaryEntry } from './types';
 
@@ -57,13 +65,6 @@ function normalise(text: string): string {
 
 function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Written like an acronym or a code: UPS, RDHx, N+1, 2N, FM-200, D2C. */
-function writtenAsCode(text: string): boolean {
-  return (
-    /^[A-Z0-9][A-Za-z0-9&+-]{0,9}$/.test(text) && /[A-Z]/.test(text) && /[A-Z0-9]{2}|\+/.test(text)
-  );
 }
 
 interface Matcher {
@@ -105,10 +106,26 @@ function matcherFor(entry: GlossaryEntry): Matcher | null {
   };
 }
 
-/** Every entry the trainer may use. Held entries wait for their owners to confirm them. */
-const MATCHERS: Matcher[] = GLOSSARY.filter((entry) => !entry.held)
-  .map(matcherFor)
-  .filter((matcher): matcher is Matcher => matcher !== null);
+/**
+ * The matchers for a list, built once per list.
+ *
+ * Keyed on the list itself, which the store replaces rather than changes, so an edit
+ * gives a new list and so new matchers, and an old list's matchers go when it does.
+ * Held entries are never matched: they wait for their owners to confirm them, and the
+ * trainer is not given them.
+ */
+const matcherCache = new WeakMap<readonly GlossaryEntry[], Matcher[]>();
+
+function matchersFor(entries: readonly GlossaryEntry[]): Matcher[] {
+  const cached = matcherCache.get(entries);
+  if (cached) return cached;
+  const built = entries
+    .filter((entry) => !entry.held)
+    .map(matcherFor)
+    .filter((matcher): matcher is Matcher => matcher !== null);
+  matcherCache.set(entries, built);
+  return built;
+}
 
 function hits(matcher: Matcher, written: string, normalised: string): boolean {
   if (matcher.codes.some((pattern) => pattern.test(written))) return true;
@@ -120,12 +137,15 @@ function hits(matcher: Matcher, written: string, normalised: string): boolean {
   );
 }
 
-/** The glossary entries a piece of text uses, strongest first. */
-export function termsIn(text: string, options: { includeWeak?: boolean } = {}): GlossaryEntry[] {
+/** The glossary entries a piece of text uses, in the glossary's order. */
+export function termsIn(
+  text: string,
+  options: { includeWeak?: boolean; entries?: readonly GlossaryEntry[] } = {},
+): GlossaryEntry[] {
   const normalised = normalise(text);
-  return MATCHERS.filter(
-    (matcher) => (options.includeWeak || !matcher.weak) && hits(matcher, text, normalised),
-  ).map((matcher) => matcher.entry);
+  return matchersFor(options.entries ?? GLOSSARY)
+    .filter((matcher) => (options.includeWeak || !matcher.weak) && hits(matcher, text, normalised))
+    .map((matcher) => matcher.entry);
 }
 
 function slideText(slide: DeckSlide): { screen: string; notes: string } {
@@ -145,14 +165,22 @@ function slideText(slide: DeckSlide): { screen: string; notes: string } {
  * Whether a deck is about data centres, so its turns get glossary definitions.
  *
  * Said in its title or subject, or shown by its slides using enough of the glossary's
- * stronger terms. Kept per deck version, because it is asked on every turn and the
- * answer only changes when the deck does.
+ * stronger terms. Kept per deck version and per glossary list, because it is asked on
+ * every turn and the answer only changes when the deck or the glossary does.
  */
-const usesGlossaryCache = new Map<string, boolean>();
+const usesGlossaryCache = new WeakMap<readonly GlossaryEntry[], Map<string, boolean>>();
 
-export function usesGlossary(deck: DeckRecord): boolean {
+export function usesGlossary(
+  deck: DeckRecord,
+  entries: readonly GlossaryEntry[] = GLOSSARY,
+): boolean {
+  let answers = usesGlossaryCache.get(entries);
+  if (!answers) {
+    answers = new Map();
+    usesGlossaryCache.set(entries, answers);
+  }
   const key = `${deck.meta.id}|${deck.meta.outlineAnalysedAt ?? ''}|${deck.slides.length}`;
-  const cached = usesGlossaryCache.get(key);
+  const cached = answers.get(key);
   if (cached !== undefined) return cached;
 
   const named = /\bdata ?cent(re|er)s?\b/i.test(
@@ -160,11 +188,12 @@ export function usesGlossary(deck: DeckRecord): boolean {
   );
   const answer =
     named ||
-    termsIn(deck.slides.map((slide) => Object.values(slideText(slide)).join('\n')).join('\n'))
-      .length >= MIN_DECK_TERMS;
+    termsIn(deck.slides.map((slide) => Object.values(slideText(slide)).join('\n')).join('\n'), {
+      entries,
+    }).length >= MIN_DECK_TERMS;
 
-  if (usesGlossaryCache.size > 500) usesGlossaryCache.clear();
-  usesGlossaryCache.set(key, answer);
+  if (answers.size > 500) answers.clear();
+  answers.set(key, answer);
   return answer;
 }
 
@@ -179,13 +208,14 @@ export function termsForTurn(
   deck: DeckRecord,
   slide: DeckSlide,
   question?: string,
+  entries: readonly GlossaryEntry[] = GLOSSARY,
 ): GlossaryEntry[] {
-  if (!usesGlossary(deck)) return [];
+  if (!usesGlossary(deck, entries)) return [];
   const { screen, notes } = slideText(slide);
   const ordered = [
-    ...(question ? termsIn(question, { includeWeak: true }) : []),
-    ...termsIn(screen, { includeWeak: true }),
-    ...termsIn(notes),
+    ...(question ? termsIn(question, { includeWeak: true, entries }) : []),
+    ...termsIn(screen, { includeWeak: true, entries }),
+    ...termsIn(notes, { entries }),
   ];
   return [...new Map(ordered.map((entry) => [entry.id, entry])).values()].slice(
     0,
@@ -225,12 +255,22 @@ ${entries.map((entry) => `- ${nameOf(entry)}: ${clipped(entry.definition)}.`).jo
  * Acronyms are what speech recognition mishears: "CRAH" comes back as "crow" and "HOTO"
  * as "photo". Deepgram's keyterm prompting takes a short list of them, so this is the
  * deck's own acronyms rather than the whole glossary, capped well inside its limit.
+ *
+ * A paired code such as HV/MV is given as its halves. Nobody says the slash, so the
+ * halves are what is heard, and the transcription route accepts only letters, digits
+ * and a few joining marks in a keyterm.
  */
-export function keytermsFor(deck: DeckRecord, max = 40): string[] {
-  if (!usesGlossary(deck)) return [];
+export function keytermsFor(
+  deck: DeckRecord,
+  entries: readonly GlossaryEntry[] = GLOSSARY,
+  max = 40,
+): string[] {
+  if (!usesGlossary(deck, entries)) return [];
   const text = deck.slides.map((slide) => Object.values(slideText(slide)).join('\n')).join('\n');
-  const codes = termsIn(text)
+  const codes = termsIn(text, { entries })
     .map((entry) => entry.acronym ?? (writtenAsCode(entry.term) ? entry.term : undefined))
-    .filter((code): code is string => Boolean(code));
+    .filter((code): code is string => Boolean(code))
+    .flatMap((code) => code.split('/'))
+    .filter((code) => code.length >= 2);
   return [...new Set(codes)].slice(0, max);
 }

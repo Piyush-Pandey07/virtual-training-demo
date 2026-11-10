@@ -39,6 +39,7 @@ import { checkAssignedDeck } from '@/lib/auth/guard';
 import { classifyThrown } from '@/lib/failures/classify';
 import { failurePayload, failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
+import { liveGlossary } from '@/lib/glossary/store';
 import { profileForTrainer } from '@/lib/profiles/for-trainer';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
@@ -133,6 +134,11 @@ export async function POST(request: Request) {
   // The learner's profile is the third, for the same reason. It is read for the person
   // the guard signed in, never from the body, and with PROFILES_ENABLED off it is not
   // read at all: see src/lib/profiles/for-trainer.ts.
+  //
+  // The glossary starts loading alongside all three. Almost always it is this server's
+  // copy, read from Firestore at most once every five minutes, and it never fails: see
+  // src/lib/glossary/store.ts.
+  const glossaryLoad = liveGlossary();
   const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
@@ -141,6 +147,7 @@ export async function POST(request: Request) {
   ]);
   if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
+  const glossary = await glossaryLoad;
 
   const kind = facilitated
     ? facilitated.turn === 'answer'
@@ -292,6 +299,7 @@ export async function POST(request: Request) {
             slide: turnSlide,
             history,
             question: turnKind === 'answer' ? question : undefined,
+            glossary,
             coveredSlideIds,
             learner,
             language,
@@ -316,6 +324,7 @@ export async function POST(request: Request) {
                 askedBy: room.askedBy,
                 attendees: room.attendees,
                 language,
+                glossary,
               }),
             },
           ],

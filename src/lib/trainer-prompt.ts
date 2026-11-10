@@ -30,7 +30,7 @@ import {
   recentClosings,
   turnsOnSlide,
 } from './trainee-read';
-import { renderGlossary, termsForTurn } from './glossary';
+import { renderGlossary, termsForTurn, type GlossaryEntry } from './glossary';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { languageInfo, type LanguageInfo } from './languages';
 import {
@@ -802,6 +802,11 @@ interface TurnPromptArgs {
   learner?: LearnerProfile;
   /** Absent means English, and an English turn is exactly what it was. */
   language?: SessionLanguage;
+  /**
+   * The live glossary, loaded by the route before the prompt is built (AI-21). Absent
+   * means the imported file, which is what the tests and scripts match against.
+   */
+  glossary?: readonly GlossaryEntry[];
 }
 
 /** Builds the user-role prompt for a single turn. */
@@ -819,6 +824,7 @@ function turnPromptFor({
   question,
   coveredSlideIds,
   learner,
+  glossary: glossaryEntries,
 }: TurnPromptArgs): string {
   const meta = deck.meta;
   const conversation = `CONVERSATION SO FAR\n${historyBlock(history)}`;
@@ -870,7 +876,9 @@ function turnPromptFor({
    * deck, and the definitions matter when a term is being explained, not revisited.
    * Empty for every deck that is not about data centres, so those prompts are unchanged.
    */
-  const glossary = wholeDeck ? '' : renderGlossary(termsForTurn(deck, slide, question));
+  const glossary = wholeDeck
+    ? ''
+    : renderGlossary(termsForTurn(deck, slide, question, glossaryEntries));
   const knowledgeAndTerms = glossary ? `${knowledge}\n\n${glossary}` : knowledge;
 
   /** The deck around this turn, at the detail this turn can use. */
@@ -1100,13 +1108,15 @@ export function buildFacilitatedTurnPrompt(args: {
   askedBy?: string;
   attendees: string[];
   language?: SessionLanguage;
+  /** As for `buildTurnPrompt`. */
+  glossary?: readonly GlossaryEntry[];
 }): string {
   const { deck, slide, history, turn, question, askedBy, attendees } = args;
   const knowledge = renderKnowledge(
     selectKnowledge({ deck, slideId: slide.id, question, wholeDeck: false, coveredSlideIds: [] }),
     'slide',
   );
-  const glossary = renderGlossary(termsForTurn(deck, slide, question));
+  const glossary = renderGlossary(termsForTurn(deck, slide, question, args.glossary));
   const context = `CONVERSATION SO FAR
 ${historyBlock(history)}
 

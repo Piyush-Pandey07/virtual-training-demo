@@ -355,11 +355,26 @@ language, and need `SARVAM_API_KEY`.
 
 ### The data centre glossary
 
-The Benchmark team's glossary (`docs/DC Glossary List.docx`, 296 rows) is imported into
-`src/lib/glossary/entries.ts` by `scripts/import-glossary.ts`, which merges terms that appear in
-more than one section (271 entries), fixes plain errors, and writes British spellings. To update it,
-replace the .docx in `docs/`, run `npx tsx scripts/import-glossary.ts "docs/DC Glossary List.docx"`,
-and read the diff.
+The glossary decides what terms mean; the deck decides what is taught. **The administrator manages
+it at `/glossary`** (Technavious only; anybody else gets a 404): search, add a term, change its
+words, hold a definition back or release it with a reason, delete one, or reset the whole glossary
+to the imported file. Terms that are not in the Benchmark team's file, such as CDFA and HV/MV, are
+added there. An acronym is matched only as written, so HV/MV is entered as a code, in capitals.
+
+The live glossary is the `glossary` Firestore collection, outside every customer's data, one
+document per entry, beside `glossaryState`, which records when it was seeded. It is seeded from
+`src/lib/glossary/entries.ts` the first time anything reads it, and that file stays the seed and
+the fallback: without Firestore the glossary is the file held in memory, and if Firestore cannot be
+read a server keeps the list it last had. Each server reads the collection at most once every five
+minutes, and an edit empties the copy on the server that made it, so a change reaches every session
+within five minutes without a read on every turn.
+
+The Benchmark team's file (`docs/DC Glossary List.docx`, 296 rows) is imported into `entries.ts` by
+`scripts/import-glossary.ts`, which merges terms that appear in more than one section (271 entries),
+fixes plain errors, and writes British spellings. To update the seed, replace the .docx in `docs/`,
+run `npx tsx scripts/import-glossary.ts "docs/DC Glossary List.docx"`, and read the diff. A new seed
+reaches a deployment that has already been seeded only through **Reset to the imported file**,
+which also removes every term added on the page.
 
 - **What the trainer gets:** on narration and answer turns, the definitions of up to six terms that
   turn uses (the trainee's question first, then the slide's title and bullets, then its notes), so
@@ -372,7 +387,8 @@ and read the diff.
 - **Live transcription listens for the deck's acronyms** through Deepgram's keyterm prompting. On
   one recording that turned "CRY units", "RDA" and "LOTTO" into CRAH, RDHx and LOTO.
 - **Six definitions are held back** (`held` in the entries) until the glossary's owners confirm
-  them; the reasons are in `scripts/import-glossary.ts`.
+  them; the reasons are in `scripts/import-glossary.ts`. A held term is never given to the trainer,
+  and the page holds and releases terms with a reason kept on the entry.
 
 ### What trainees see when something fails, and the developer log
 

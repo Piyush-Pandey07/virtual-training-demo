@@ -17,6 +17,7 @@ import { toClientView } from '@/lib/deck';
 import { DeckProvider } from '@/lib/deck-context';
 import { loadDeck } from '@/lib/decks/registry';
 import { keytermsFor } from '@/lib/glossary';
+import { liveGlossary } from '@/lib/glossary/store';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
 import { addressName } from '@/lib/training/facilitation';
@@ -41,9 +42,10 @@ export default async function RunSessionPage({ params }: Props) {
     .catch(() => undefined);
   if (!session || !mayManageSession(me, session) || session.status === 'closed') notFound();
 
-  const [deck, people] = await Promise.all([
+  const [deck, people, glossary] = await Promise.all([
     loadDeck(me.orgId, session.deckId).catch(() => undefined),
     rosterStore(me.orgId).listPeople(),
+    liveGlossary(),
   ]);
   if (!deck) notFound();
 
@@ -64,7 +66,7 @@ export default async function RunSessionPage({ params }: Props) {
         </Link>
       </BrandHeader>
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-5 sm:px-8">
-        <DeckProvider deck={{ ...toClientView(deck), listenFor: keytermsFor(deck) }}>
+        <DeckProvider deck={{ ...toClientView(deck), listenFor: keytermsFor(deck, glossary) }}>
           <FacilitatorScreen sessionId={session.id} attendees={attendees} />
         </DeckProvider>
       </main>

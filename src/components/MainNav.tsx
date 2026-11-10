@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { SignOutButton } from './SignOutButton';
 import { roleLabel } from '@/lib/auth/labels';
 import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
-import { mayRunSessions } from '@/lib/auth/permissions';
+import { isAdministrator, mayRunSessions } from '@/lib/auth/permissions';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import { mayUploadParticipants } from '@/lib/profiles/access';
 import type { Role } from '@/lib/roster/types';
@@ -43,7 +43,8 @@ interface MainNavProps {
     | '/platform'
     | '/openai-test'
     | '/profile'
-    | '/profiles/upload';
+    | '/profiles/upload'
+    | '/glossary';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -57,6 +58,8 @@ export function MainNav({ person, current }: MainNavProps) {
   // Trainer-led sessions and batches: facilitators run their own, administrators all.
   if (mayRunSessions(person)) links.push({ href: '/sessions', label: 'Sessions' });
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
+  // The data centre glossary is Technavious's to manage, never a customer's (AI-21).
+  if (isAdministrator(person)) links.push({ href: '/glossary', label: 'Glossary' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
   // Everybody's own, so offered to everybody, but only where learner profiles are
