@@ -336,14 +336,10 @@ export async function POST(request: Request) {
     : turnFor(effectiveKind, effectiveSlide);
 
   // The assessed level (AI-37): the participant's own, or in a trainer-led session the
-  // group's, taken as the middle of the attendees' levels. Null without an assessment,
-  // which leaves the instruction exactly as it was.
+  // group's, the level most of the attendees are at. Null without an assessment, which
+  // leaves the instruction exactly as it was.
   const level = room
-    ? await groupLevel(
-        gate.person.orgId,
-        room.session.participantIds.filter((id) => room.session.attendance[id] !== 'absent'),
-        deck.meta.id,
-      ).catch(() => null)
+    ? await groupLevel(gate.person.orgId, room.session).catch(() => null)
     : await assessedLevel(gate.person.orgId, gate.person.id, deck.meta.id).catch(() => null);
 
   // Built before the stream, so nothing inside it handles the profile.

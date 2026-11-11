@@ -35,22 +35,30 @@ describe('pitching to the assessed level (AI-37)', () => {
     );
   });
 
-  it('takes the middle of a group, so one outlier does not set the pitch', async () => {
+  it('pitches to the level most of the group are at, not one outlier', async () => {
     const store = new InMemoryDocumentStore();
-    const levels = { a: 'beginner', b: 'advanced', c: 'advanced', d: 'intermediate' } as const;
-    for (const [personId, level] of Object.entries(levels)) {
+    const percents = { a: 20, b: 90, c: 80, d: 50 } as const;
+    for (const [personId, percent] of Object.entries(percents)) {
       const id = resultId(personId, 'd', 'pre');
       await store.set(`orgs/acme/${ASSESSMENT_RESULTS}`, id, {
         id,
         personId,
         deckId: 'd',
         kind: 'pre',
-        level,
+        percent,
       });
     }
-    const level = await groupLevel('acme', ['a', 'b', 'c', 'd'], 'd', { store });
-    assert.equal(level, 'intermediate');
-    assert.equal(await groupLevel('acme', ['nobody'], 'd', { store }), null);
+    const session = {
+      deckId: 'd',
+      participantIds: ['a', 'b', 'c', 'd'],
+      attendance: {},
+      levelBands: { intermediateFrom: 40, advancedFrom: 71 },
+    };
+    assert.equal(await groupLevel('acme', session, { store }), 'advanced');
+    assert.equal(
+      await groupLevel('acme', { ...session, participantIds: ['nobody'] }, { store }),
+      null,
+    );
   });
 });
 
@@ -130,5 +138,31 @@ describe('a trainer-led session (AI-01, AI-02)', () => {
     assert.match(answer, /RELAYED A QUESTION FROM RAVI/);
     assert.match(answer, /addressing Ravi by name/);
     assert.match(answer, /hand back to the facilitator/);
+  });
+
+  it('knows all fifty in a room of fifty, but greets that many as a group (AI-28)', () => {
+    const fifty = Array.from({ length: 50 }, (_, index) => `Person${index}`);
+    const instruction = buildFacilitatedSystemInstruction(deck, { attendees: fifty });
+    for (const name of fifty) assert.ok(instruction.includes(name), name);
+    const slide = deck.slides[0]!;
+    const greet = buildFacilitatedTurnPrompt({
+      deck,
+      slide,
+      history: [],
+      turn: 'greet',
+      attendees: fifty,
+    });
+    assert.match(greet, /all 50 of them as a group, without reading out their names/);
+    assert.doesNotMatch(greet, /Person49/);
+    const answer = buildFacilitatedTurnPrompt({
+      deck,
+      slide,
+      history: [],
+      turn: 'answer',
+      question: 'Why?',
+      askedBy: 'Person49',
+      attendees: fifty,
+    });
+    assert.match(answer, /addressing Person49 by name/);
   });
 });

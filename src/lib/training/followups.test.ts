@@ -9,8 +9,9 @@ import { trainingStore } from './store';
 import type { Batch, TrainingSession } from './types';
 
 /**
- * The fixes after the UAT review: the pre-session assessment closes when a trainer-led
- * session starts, and writes to sessions and batches never put back a stale copy.
+ * The fixes after the UAT review: the pre-session assessment closes for each participant
+ * when they are marked in a trainer-led session (AI-26), and writes to sessions and
+ * batches never put back a stale copy.
  */
 
 const ORG = 'acme';
@@ -65,14 +66,27 @@ function batch(overrides: Partial<Batch> = {}): Batch {
 }
 
 describe('the pre-session assessment', () => {
-  it('stays open until a trainer-led session starts, then closes', () => {
-    assert.equal(preAssessmentClosed(session()), false);
-    assert.equal(preAssessmentClosed(session({ status: 'open', openedAt: 'x' })), true);
-    assert.equal(preAssessmentClosed(session({ status: 'closed', openedAt: 'x' })), true);
+  it('stays open to a participant until they are marked, even once the session is under way', () => {
+    assert.equal(preAssessmentClosed(session(), 'asha'), false);
+    const open = session({ status: 'open', openedAt: 'x', attendance: { ravi: 'present' } });
+    // Asha is late and not marked yet: she can still do it before she joins.
+    assert.equal(preAssessmentClosed(open, 'asha'), false);
+    assert.equal(preAssessmentClosed(open, 'ravi'), true);
+  });
+
+  it('closes for a participant marked absent, or marked before the session started', () => {
+    assert.equal(preAssessmentClosed(session({ attendance: { asha: 'absent' } }), 'asha'), true);
+    assert.equal(preAssessmentClosed(session({ attendance: { asha: 'present' } }), 'asha'), true);
+  });
+
+  it('closes for everybody once the session is closed or cancelled', () => {
+    const closed = session({ status: 'closed', openedAt: 'x', attendance: {} });
+    assert.equal(preAssessmentClosed(closed, 'asha'), true);
+    assert.equal(preAssessmentClosed(session({ status: 'cancelled' }), 'asha'), true);
   });
 
   it('never closes for a one-to-one session, whose start it gates', () => {
-    assert.equal(preAssessmentClosed(null), false);
+    assert.equal(preAssessmentClosed(null, 'asha'), false);
   });
 });
 
@@ -88,6 +102,14 @@ describe('deleting a session', () => {
     const kept = await training.getSession('s-one');
     assert.equal(kept?.status, 'open');
     assert.equal(kept?.cancelledAt, undefined);
+  });
+
+  it('deletes one that was cancelled, for an administrator clearing up', async () => {
+    const store = new InMemoryDocumentStore();
+    const training = trainingStore(ORG, store);
+    await training.saveSession(session({ status: 'cancelled', cancelledAt: 'x' }));
+    await removeSession(admin, 's-one', { store });
+    assert.equal(await training.getSession('s-one'), undefined);
   });
 
   it('deletes one that has not started', async () => {
@@ -106,9 +128,12 @@ describe('removing somebody from training', () => {
     await training.saveBatch(batch());
     await training.saveSession(session());
     await training.saveSession(session({ id: 's-two', status: 'open', openedAt: 'x' }));
+    await training.saveSession(session({ id: 's-three', status: 'cancelled', cancelledAt: 'x' }));
     await removeFromTraining(admin, 'ravi', { store });
     assert.deepEqual((await training.getBatch('b-one'))?.participantIds, ['asha']);
     assert.deepEqual((await training.getSession('s-one'))?.participantIds, ['asha']);
+    // A cancelled session never happened either.
+    assert.deepEqual((await training.getSession('s-three'))?.participantIds, ['asha']);
     // A session that ran keeps them: attendance is a record.
     assert.deepEqual((await training.getSession('s-two'))?.participantIds, ['asha', 'ravi']);
   });

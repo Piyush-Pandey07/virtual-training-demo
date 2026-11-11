@@ -22,13 +22,19 @@ import type { Person, SignedInPerson } from '../roster/types';
 import type { UploadRow } from './csv';
 import { saveUploadedProfile, type UploadOutcome } from './store';
 
-/** What happened to one row, as the uploader is shown it. */
+/**
+ * What happened to one row, as the uploader is shown it: imported, as a new person or
+ * one already here; a duplicate of an earlier row, which is the one kept; or failed,
+ * with the reason (AI-28).
+ */
 export interface UploadResult {
   line: number;
   email: string;
-  status: 'created' | 'updated' | 'rejected';
-  /** Why a row was refused. */
+  status: 'created' | 'updated' | 'duplicate' | 'rejected';
+  /** Why a row was refused, or which row it repeats. */
   reason?: string;
+  /** For a duplicate, the row whose address it repeats. */
+  duplicateOf?: number;
   /** Required fields the participant will be asked for on their first visit. */
   missing?: string[];
   /** Whether the profile was prefilled, or kept because the participant had confirmed it. */
@@ -38,6 +44,7 @@ export interface UploadResult {
 export interface UploadSummary {
   created: number;
   updated: number;
+  duplicates: number;
   rejected: number;
   incomplete: number;
 }
@@ -54,7 +61,8 @@ export interface ImportOptions {
 /**
  * A few rows at a time rather than one, so a batch of fifty takes a second or two
  * rather than ten, and not all at once, so a thousand rows does not open a thousand
- * writes against Firestore together.
+ * writes against Firestore together. Each row is its own writes, never a batched
+ * write, so there is no 500-write ceiling on a file either.
  */
 const CONCURRENCY = 8;
 
@@ -88,7 +96,15 @@ export async function importParticipants(
 
   return pooled(rows, options.concurrency ?? CONCURRENCY, async (row): Promise<UploadResult> => {
     if (!row.ok) {
-      return { line: row.line, email: row.email, status: 'rejected', reason: row.error };
+      return row.duplicateOf !== undefined
+        ? {
+            line: row.line,
+            email: row.email,
+            status: 'duplicate',
+            reason: row.error,
+            duplicateOf: row.duplicateOf,
+          }
+        : { line: row.line, email: row.email, status: 'rejected', reason: row.error };
     }
 
     const existing = people.get(row.emailKey);
@@ -161,6 +177,7 @@ export function summarise(results: readonly UploadResult[]): UploadSummary {
   return {
     created: results.filter((result) => result.status === 'created').length,
     updated: results.filter((result) => result.status === 'updated').length,
+    duplicates: results.filter((result) => result.status === 'duplicate').length,
     rejected: results.filter((result) => result.status === 'rejected').length,
     incomplete: results.filter((result) => (result.missing?.length ?? 0) > 0).length,
   };

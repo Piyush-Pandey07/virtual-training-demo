@@ -7,17 +7,20 @@ import type { Role, SignedInPerson } from '../roster/types';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
 import { mayManageBanks, mayOpenResults, maySeeFeedbackOf, maySeeResultsOf } from './access';
-import { AnswersRejected } from './scoring';
 import {
   AlreadySubmitted,
   assessedLevel,
   assessmentPaper,
+  assessmentPaperFor,
+  bankVersionsForAdministrator,
   feedbackDone,
+  groupLevel,
   nextStepAfterSession,
   postAssessmentDone,
   preAssessmentDone,
   preAssessmentRequired,
   Refused,
+  removeBank,
   resultsForDeck,
   saveBank,
   setLevelBands,
@@ -25,8 +28,8 @@ import {
   submitFeedback,
   type ServiceOptions,
 } from './service';
-import { assessmentStore } from './store';
-import { CURRENT_FEEDBACK_SET, type BankKind, type BankQuestion } from './types';
+import { assessmentStore, QUESTION_BANKS } from './store';
+import { CURRENT_FEEDBACK_SET, type BankKind, type BankQuestion, type QuestionBank } from './types';
 
 /**
  * Who may submit, how often, in what order, and who sees what.
@@ -116,7 +119,8 @@ async function trainerLed(overrides: Partial<TrainingSession> = {}): Promise<Tra
     participantIds: [asha.id, ben.id],
     scheduledFor: '2026-11-13T09:00:00.000Z',
     status: 'open',
-    attendance: {},
+    // Both in the room: the post-session steps are for those marked present.
+    attendance: { [asha.id]: 'present', [ben.id]: 'present' },
     createdBy: companyAdmin.id,
     createdAt: '2026-11-08T00:00:00.000Z',
     openedAt: '2026-11-13T09:00:00.000Z',
@@ -183,20 +187,34 @@ describe('the pre-session assessment', () => {
     assert.deepEqual(replaced.bands, { intermediateFrom: 30, advancedFrom: 60 });
   });
 
-  it('refuses a paper that changed while somebody was answering', async () => {
-    await bank('pre');
+  it('marks a paper against the version it was taken on, after the bank is replaced', async () => {
+    const first = await bank('pre');
     const paper = await assessmentPaper(ORG, DECK, 'pre', options);
+    // New questions, whose right answer is the second option, uploaded mid-paper.
+    await saveBank(
+      benchmark,
+      DECK,
+      'pre',
+      QUESTIONS.map((question) => ({ ...question, correctIndex: 1 })),
+      'upload',
+      options,
+    );
+    const result = await submitAssessment(
+      asha,
+      { deckId: DECK, kind: 'pre', version: paper!.version, answers: answers(10), sessionId: null },
+      options,
+    );
+    assert.equal(result.percent, 100, 'marked against the first version, not the second');
+    assert.equal(result.bankVersion, first.version);
+    assert.equal(result.bankVersionNumber, 1);
+  });
+
+  it('refuses a version this server never gave out, without using up the attempt', async () => {
     await bank('pre');
     await assert.rejects(
       submitAssessment(
         asha,
-        {
-          deckId: DECK,
-          kind: 'pre',
-          version: paper!.version,
-          answers: answers(10),
-          sessionId: null,
-        },
+        { deckId: DECK, kind: 'pre', version: 'made-up', answers: answers(10), sessionId: null },
         options,
       ),
       (error: unknown) => error instanceof Refused && error.status === 409,
@@ -204,20 +222,133 @@ describe('the pre-session assessment', () => {
     assert.equal(await preAssessmentDone(ORG, asha.id, DECK, options), false);
   });
 
-  it('refuses an incomplete paper without using up the attempt', async () => {
+  it('marks a paper with blanks, which count as Not attempted and score nothing', async () => {
     await bank('pre');
     const paper = await assessmentPaper(ORG, DECK, 'pre', options);
-    const partial = answers(10);
-    delete partial.q3;
-    await assert.rejects(
-      submitAssessment(
-        asha,
-        { deckId: DECK, kind: 'pre', version: paper!.version, answers: partial, sessionId: null },
-        options,
-      ),
-      AnswersRejected,
+    const partial: Record<string, number> = answers(8);
+    delete partial.q1;
+    delete partial.q2;
+    const result = await submitAssessment(
+      asha,
+      { deckId: DECK, kind: 'pre', version: paper!.version, answers: partial, sessionId: null },
+      options,
     );
-    assert.equal((await take(asha, 'pre', 10)).percent, 100);
+    assert.equal(result.correct, 6);
+    assert.equal(result.wrong, 2);
+    assert.equal(result.notAttempted, 2);
+    assert.equal(result.percent, 60);
+    assert.equal(result.answers.filter((answer) => answer.outcome === 'not-attempted').length, 2);
+    // The attempt is used: there is no second go to fill the blanks in.
+    await assert.rejects(take(asha, 'pre', 10), AlreadySubmitted);
+  });
+
+  it('places 40% and 70% at Intermediate, below 40% at Beginner and above 70% at Advanced', async () => {
+    await bank('pre');
+    const dev = person('dev', 'trainee');
+    const esha = person('esha', 'trainee');
+    for (const who of [dev, esha]) {
+      await options.roster.upsertPerson({
+        id: who.id,
+        email: who.email,
+        name: who.name,
+        orgId: ORG,
+      });
+      await options.roster.assign({ personId: who.id, deckId: DECK, assignedBy: companyAdmin.id });
+    }
+    assert.equal((await take(asha, 'pre', 3)).level, 'beginner');
+    assert.equal((await take(ben, 'pre', 4)).level, 'intermediate');
+    assert.equal((await take(cara, 'pre', 7)).level, 'intermediate');
+    assert.equal((await take(dev, 'pre', 8)).level, 'advanced');
+    const zero = await take(esha, 'pre', 0);
+    // Nobody fails the pre-session assessment: no pass or fail is recorded at all.
+    assert.equal(zero.level, 'beginner');
+    assert.equal(zero.passed, undefined);
+    assert.equal(zero.passMark, undefined);
+  });
+
+  it("gives each participant's paper its own order, the same on every reload", async () => {
+    await bank('pre');
+    const mine = await assessmentPaperFor(asha, DECK, 'pre', options);
+    const again = await assessmentPaperFor(asha, DECK, 'pre', options);
+    const ids = (paper: typeof mine) => paper!.questions.map((question) => question.id);
+    assert.deepEqual(ids(mine), ids(again));
+    assert.equal(mine!.version, (await assessmentPaper(ORG, DECK, 'pre', options))!.version);
+    assert.deepEqual([...ids(mine)].sort(), [...QUESTIONS.keys()].map((i) => `q${i + 1}`).sort());
+  });
+});
+
+describe('versions of a bank', () => {
+  it('keeps every version, numbered, and the current one is the newest', async () => {
+    const first = await bank('post');
+    const second = await bank('post');
+    assert.equal(first.versionNumber, 1);
+    assert.equal(second.versionNumber, 2);
+    const kept = await bankVersionsForAdministrator(benchmark, DECK, 'post', options);
+    assert.deepEqual(
+      kept.map((each) => [each.versionNumber, each.version]),
+      [
+        [1, first.version],
+        [2, second.version],
+      ],
+    );
+    const stored = await assessmentStore(ORG, options.store).getBankVersion(
+      DECK,
+      'post',
+      first.version,
+    );
+    assert.equal(stored?.questions.length, 10);
+  });
+
+  it('records the version on each result', async () => {
+    await bank('post');
+    const current = await bank('post');
+    await attend(asha);
+    const result = await take(asha, 'post', 8);
+    assert.equal(result.bankVersion, current.version);
+    assert.equal(result.bankVersionNumber, 2);
+    const report = await resultsForDeck(benchmark, DECK, null, options);
+    const row = report.rows.find((each) => each.personId === asha.id)!;
+    assert.equal(row.post?.versionNumber, 2);
+    assert.equal(row.post?.wrong, 2);
+    assert.equal(row.post?.notAttempted, 0);
+  });
+
+  it('keeps a bank saved before versions were, when it is replaced or removed', async () => {
+    const legacy: QuestionBank = {
+      id: `${DECK}__pre`,
+      deckId: DECK,
+      kind: 'pre',
+      questions: QUESTIONS.map((question, index) => ({ ...question, id: `q${index + 1}` })),
+      bands: { intermediateFrom: 40, advancedFrom: 75 },
+      source: 'upload',
+      version: 'legacy',
+      savedBy: benchmark.id,
+      savedAt: '2026-11-01T00:00:00.000Z',
+    };
+    const docs = `orgs/${ORG}/${QUESTION_BANKS}`;
+    await options.store.set(docs, legacy.id, legacy);
+    const replaced = await bank('pre');
+    assert.equal(replaced.versionNumber, 2);
+    // The earlier defaults nobody chose are replaced by the current ones.
+    assert.deepEqual(replaced.bands, { intermediateFrom: 40, advancedFrom: 71 });
+    const kept = await bankVersionsForAdministrator(benchmark, DECK, 'pre', options);
+    assert.deepEqual(
+      kept.map((each) => [each.versionNumber, each.version]),
+      [
+        [1, 'legacy'],
+        [2, replaced.version],
+      ],
+    );
+
+    await options.store.set(docs, legacy.id, { ...legacy, version: 'legacy-2' });
+    await removeBank(benchmark, DECK, 'pre', options);
+    const afterRemoval = await bankVersionsForAdministrator(benchmark, DECK, 'pre', options);
+    assert.deepEqual(
+      afterRemoval.map((each) => each.version),
+      ['legacy', replaced.version, 'legacy-2'],
+    );
+    // A new bank after a removal carries the numbering on.
+    assert.equal((await bank('pre')).versionNumber, 4);
   });
 });
 
@@ -242,6 +373,11 @@ describe('the post-session assessment', () => {
     assert.equal(pass.passMark, 70);
     const fail = await take(ben, 'post', 6);
     assert.equal(fail.passed, false);
+    // A single pass mark, and no level bands, after the session.
+    for (const result of [pass, fail]) {
+      assert.equal(result.level, undefined);
+      assert.equal(result.bands, undefined);
+    }
   });
 
   it('cannot be retaken, and the first result stands', async () => {
@@ -321,6 +457,41 @@ describe('trainer-led sessions', () => {
     );
   });
 
+  it('keep the pre-session assessment open to a late arrival until they are marked (AI-26)', async () => {
+    await bank('pre');
+    const session = await trainerLed({ attendance: { ben: 'present' } });
+    // Under way, and Asha not marked yet: she takes it on her own device, then joins.
+    const result = await take(asha, 'pre', 8, session.id);
+    assert.equal(result.sessionId, session.id);
+    // Ben was marked present before taking it, so it closed for him.
+    await assert.rejects(
+      take(ben, 'pre', 8, session.id),
+      (e: unknown) => e instanceof Refused && e.status === 409,
+    );
+  });
+
+  it('take nothing for a cancelled session', async () => {
+    await bank('pre');
+    await bank('post');
+    const session = await trainerLed({
+      status: 'cancelled',
+      openedAt: null,
+      cancelledAt: '2026-11-12T09:00:00.000Z',
+      cancelledBy: companyAdmin.id,
+    });
+    for (const kind of ['pre', 'post'] as const) {
+      await assert.rejects(
+        take(asha, kind, 8, session.id),
+        (e: unknown) => e instanceof Refused && e.status === 409,
+        kind,
+      );
+    }
+    await assert.rejects(
+      feedback(asha, session.id),
+      (e: unknown) => e instanceof Refused && e.status === 409,
+    );
+  });
+
   it('ask for feedback once per session', async () => {
     await trainerLed();
     await trainerLed({ id: 's-room2' });
@@ -329,6 +500,83 @@ describe('trainer-led sessions', () => {
     await assert.rejects(feedback(asha, 's-room1'), AlreadySubmitted);
     assert.equal(await feedbackDone(ORG, asha.id, DECK, 's-room1', options), true);
     assert.equal(await feedbackDone(ORG, asha.id, DECK, null, options), false);
+  });
+});
+
+describe('levels in a trainer-led session', () => {
+  async function preFor(who: SignedInPerson, right: number, sessionId: string) {
+    return take(who, 'pre', right, sessionId);
+  }
+
+  it("places a participant by the session's own bands", async () => {
+    await bank('pre');
+    // Not yet marked: the pre-session assessment closes for each person once they are.
+    const session = await trainerLed({
+      status: 'scheduled',
+      openedAt: null,
+      attendance: {},
+      levelBands: { intermediateFrom: 20, advancedFrom: 50 },
+    });
+    const result = await preFor(asha, 5, session.id);
+    assert.equal(result.level, 'advanced');
+    assert.deepEqual(result.bands, { intermediateFrom: 20, advancedFrom: 50 });
+  });
+
+  it('pitches to the level most attendees are at, the lower on a tie, with nobody assessed as Beginner', async () => {
+    await bank('pre');
+    const dev = person('dev', 'trainee');
+    for (const who of [dev]) {
+      await options.roster.upsertPerson({
+        id: who.id,
+        email: who.email,
+        name: who.name,
+        orgId: ORG,
+      });
+      await options.roster.assign({ personId: who.id, deckId: DECK, assignedBy: companyAdmin.id });
+    }
+    // Asha and Ben Advanced, Cara Intermediate, Dev never took it.
+    await take(asha, 'pre', 9);
+    await take(ben, 'pre', 8);
+    await take(cara, 'pre', 5);
+    const base = await trainerLed({
+      participantIds: [asha.id, ben.id, cara.id, dev.id],
+      levelBands: { intermediateFrom: 40, advancedFrom: 71 },
+    });
+    assert.equal(await groupLevel(ORG, base, options), 'advanced');
+
+    // Ben absent: one Advanced, one Intermediate, one Beginner, a three-way tie.
+    const benAway = { ...base, attendance: { [ben.id]: 'absent' as const } };
+    assert.equal(await groupLevel(ORG, benAway, options), 'beginner');
+
+    // Asha and Cara only: a tie between Advanced and Intermediate takes Intermediate.
+    const pair = { ...base, participantIds: [asha.id, cara.id] };
+    assert.equal(await groupLevel(ORG, pair, options), 'intermediate');
+
+    // The session's bands decide: with Advanced above 90%, Asha and Ben are Intermediate.
+    const strict = { ...base, levelBands: { intermediateFrom: 40, advancedFrom: 91 } };
+    assert.equal(await groupLevel(ORG, strict, options), 'intermediate');
+
+    // Everybody marked absent is nobody to pitch to.
+    const empty = {
+      ...base,
+      attendance: Object.fromEntries(base.participantIds.map((id) => [id, 'absent' as const])),
+    };
+    assert.equal(await groupLevel(ORG, empty, options), null);
+  });
+
+  it('has no level for a deck with no pre-session assessment', async () => {
+    const session = await trainerLed();
+    assert.equal(await groupLevel(ORG, session, options), null);
+  });
+
+  it("shows each participant's level by the session's bands when narrowed to it", async () => {
+    await bank('pre');
+    await take(asha, 'pre', 6);
+    await trainerLed({ levelBands: { intermediateFrom: 30, advancedFrom: 51 } });
+    const wide = await resultsForDeck(benchmark, DECK, null, options);
+    assert.equal(wide.rows.find((row) => row.personId === asha.id)?.pre?.level, 'intermediate');
+    const narrow = await resultsForDeck(benchmark, DECK, 's-room1', options);
+    assert.equal(narrow.rows.find((row) => row.personId === asha.id)?.pre?.level, 'advanced');
   });
 });
 

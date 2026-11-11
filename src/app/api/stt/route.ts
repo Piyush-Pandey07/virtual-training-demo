@@ -11,7 +11,12 @@
  * preferred when available because it also gives live partial transcripts.
  */
 
-import { CAPTURE_SAMPLE_RATE, DEEPGRAM_STT_MODEL, requireEnv } from '@/lib/config';
+import {
+  CAPTURE_SAMPLE_RATE,
+  DEEPGRAM_STT_MODEL,
+  deepgramMipOptOut,
+  requireEnv,
+} from '@/lib/config';
 import { listeningLanguage, sessionLanguage } from '@/lib/language';
 
 import { checkUser } from '@/lib/auth/guard';
@@ -89,6 +94,8 @@ export async function POST(request: Request) {
   url.searchParams.set('model', DEEPGRAM_STT_MODEL());
   url.searchParams.set('smart_format', 'true');
   url.searchParams.set('punctuate', 'true');
+  // Not kept by Deepgram for model training either (AI-45).
+  if (deepgramMipOptOut()) url.searchParams.set('mip_opt_out', 'true');
   // The session's language, from the browser and so narrowed: anything but Hindi is
   // English, which is what this route always listened for.
   const query = new URL(request.url).searchParams;

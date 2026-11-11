@@ -6,7 +6,7 @@ import { DocumentRosterStore } from '../roster/store-documents';
 import type { SignedInPerson } from '../roster/types';
 import {
   isUsableEmail,
-  MAX_UPLOAD_ROWS,
+  MAX_UPLOAD_BYTES,
   parseCsv,
   readUpload,
   TEMPLATE_COLUMNS,
@@ -94,17 +94,20 @@ describe('reading CSV', () => {
     assert.equal(parsed.ok, false);
   });
 
-  it('stops at the row cap without reading the rest', () => {
-    const lines = [
-      HEADER,
-      ...Array.from({ length: MAX_UPLOAD_ROWS + 1 }, (_, i) => row(`p${i}@acme.com`)),
-    ];
-    const read = readUpload(lines.join('\n'));
-    assert.equal(read.ok, false);
-    if (!read.ok) assert.match(read.error, /more than 1000 participants/);
-    const atCap = readUpload(lines.slice(0, MAX_UPLOAD_ROWS + 1).join('\n'));
-    assert.ok(atCap.ok);
-    assert.equal(atCap.rows.length, MAX_UPLOAD_ROWS);
+  it('has no cap on how many participants a file holds (AI-28)', () => {
+    const lines = [HEADER, ...Array.from({ length: 2500 }, (_, i) => row(`p${i}@acme.com`))];
+    const text = lines.join('\n');
+    // Only the size of the file is bounded, and this many full rows fit inside it.
+    assert.ok(new TextEncoder().encode(text).length < MAX_UPLOAD_BYTES);
+    const read = readUpload(text);
+    assert.ok(read.ok);
+    assert.equal(read.rows.length, 2500);
+    assert.ok(read.rows.every((entry) => entry.ok));
+  });
+
+  it('still stops early when a caller does give it a cap', () => {
+    const parsed = parseCsv('a\nb\nc\nd\n', 3);
+    assert.equal(parsed.ok, false);
   });
 });
 
@@ -150,7 +153,7 @@ describe('reading an upload', () => {
       'No email address.',
       'Not an email address.',
       'Not an email address.',
-      'This address is already on line 2. Each person once.',
+      'Duplicate of row 2, which is the one kept.',
       'How you rate your own proficiency must be Beginner, Intermediate or Advanced.',
       'Total years of experience must be a number of years from 0 to 60.',
       'Your city can be at most 60 characters.',
@@ -244,7 +247,13 @@ describe('importing the rows', () => {
   it('creates fifty new participants with unconfirmed profiles', async () => {
     const lines = [HEADER, ...Array.from({ length: 50 }, (_, i) => row(`p${i}@acme.com`))];
     const { roster, store, results } = await run(lines.join('\n'));
-    assert.deepEqual(summarise(results), { created: 50, updated: 0, rejected: 0, incomplete: 0 });
+    assert.deepEqual(summarise(results), {
+      created: 50,
+      updated: 0,
+      duplicates: 0,
+      rejected: 0,
+      incomplete: 0,
+    });
     const people = await roster.listPeople();
     assert.equal(people.length, 50);
     assert.ok(people.every((person) => person.role === 'trainee' && person.lastSeenAt === null));
@@ -311,7 +320,73 @@ describe('importing the rows', () => {
       ],
     );
     assert.deepEqual(results[1]!.missing, ['Education, with stream']);
-    assert.deepEqual(summarise(results), { created: 2, updated: 0, rejected: 1, incomplete: 1 });
+    assert.deepEqual(summarise(results), {
+      created: 2,
+      updated: 0,
+      duplicates: 0,
+      rejected: 1,
+      incomplete: 1,
+    });
+  });
+
+  it('keeps the first of an address given twice, and reports the other as its duplicate', async () => {
+    const { roster, results } = await run(
+      [
+        HEADER,
+        row('asha@acme.com', { department: 'First' }),
+        row('bina@acme.com'),
+        row('Asha@ACME.com', { department: 'Second' }),
+        row('asha@acme.com'),
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      results.map((result) => [result.line, result.status, result.duplicateOf]),
+      [
+        [2, 'created', undefined],
+        [3, 'created', undefined],
+        [4, 'duplicate', 2],
+        [5, 'duplicate', 2],
+      ],
+    );
+    assert.equal(results[2]!.reason, 'Duplicate of row 2, which is the one kept.');
+    assert.equal(results[2]!.email, 'Asha@ACME.com');
+    assert.equal((await roster.listPeople()).length, 2);
+    assert.equal(summarise(results).duplicates, 2);
+  });
+
+  it('imports the valid rows of fifty and lists the failed ones with the reason (AI-28)', async () => {
+    const lines = [
+      HEADER,
+      ...Array.from({ length: 50 }, (_, i) =>
+        i === 10
+          ? row('not an address')
+          : i === 20
+            ? row('p0@acme.com')
+            : i === 30
+              ? row(`p${i}@acme.com`, { proficiency: 'Expert' })
+              : row(`p${i}@acme.com`),
+      ),
+    ];
+    const { roster, results } = await run(lines.join('\n'));
+    assert.equal(results.length, 50);
+    assert.deepEqual(summarise(results), {
+      created: 47,
+      updated: 0,
+      duplicates: 1,
+      rejected: 2,
+      incomplete: 0,
+    });
+    assert.equal((await roster.listPeople()).length, 47);
+    const failed = results.filter((result) => result.status === 'rejected');
+    assert.deepEqual(
+      failed.map((result) => [result.line, result.reason]),
+      [
+        [12, 'Not an email address.'],
+        [32, 'How you rate your own proficiency must be Beginner, Intermediate or Advanced.'],
+      ],
+    );
+    const duplicate = results.find((result) => result.status === 'duplicate');
+    assert.deepEqual([duplicate?.line, duplicate?.duplicateOf], [22, 2]);
   });
 
   it('writes into the uploader organisation and no other', async () => {

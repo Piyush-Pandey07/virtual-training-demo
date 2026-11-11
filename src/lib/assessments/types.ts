@@ -66,14 +66,28 @@ export const LEVEL_LABELS: Record<Level, string> = {
  * Below `intermediateFrom` is Beginner, from it up to `advancedFrom` is Intermediate, and
  * `advancedFrom` and over is Advanced. Two numbers rather than three ranges, so the
  * ranges cannot overlap or leave a gap.
+ *
+ * Scores are whole percentages, rounded down, so "above 70%" is `advancedFrom: 71`. The
+ * screens show and take that edge as "Advanced above 70%", in the words the bands were
+ * asked for, and the stored shape stays the one every bank and result already has.
  */
 export interface LevelBands {
   intermediateFrom: number;
   advancedFrom: number;
 }
 
-/** Under 40% Beginner, 40% to under 75% Intermediate, 75% and over Advanced. */
-export const DEFAULT_LEVEL_BANDS: LevelBands = { intermediateFrom: 40, advancedFrom: 75 };
+/**
+ * Below 40% Beginner, 40% to 70% Intermediate, above 70% Advanced, as the product owner
+ * set them for UAT: 40% exactly and 70% exactly are both Intermediate.
+ */
+export const DEFAULT_LEVEL_BANDS: LevelBands = { intermediateFrom: 40, advancedFrom: 71 };
+
+/**
+ * The defaults before November 2026. Every pre-session bank saved then stored them,
+ * because a bank was given the defaults whether or not anybody chose bands, so a bank
+ * still holding them without `bandsChosen` is read as having the current defaults.
+ */
+export const EARLIER_DEFAULT_LEVEL_BANDS: LevelBands = { intermediateFrom: 40, advancedFrom: 75 };
 
 /** The post-session pass mark, as a percentage. 70% and above passes (AI-29). */
 export const PASS_MARK = 70;
@@ -98,14 +112,54 @@ export interface QuestionBank {
   questions: BankQuestion[];
   /** The pre-session bank's level bands. Absent on a post-session bank. */
   bands?: LevelBands;
+  /**
+   * Set once an administrator has saved bands themselves, so bands they chose are never
+   * mistaken for the earlier defaults (see `EARLIER_DEFAULT_LEVEL_BANDS`).
+   */
+  bandsChosen?: boolean;
   source: BankSource;
   /**
-   * Changes every time the questions do, so a submission against a bank that was
-   * replaced while somebody was answering is refused rather than scored against
-   * questions they never saw.
+   * Changes every time the questions do. Every version is kept in `questionBankVersions`,
+   * so a submission against a bank that was replaced while somebody was answering is
+   * marked against the questions they were shown, not the new ones.
    */
   version: string;
+  /**
+   * 1 for a deck's first set of questions of this kind, counting up with each upload or
+   * sample, for people to read. Absent on a bank saved before versions were kept.
+   */
+  versionNumber?: number;
   savedBy: string;
+  savedAt: string;
+}
+
+/**
+ * One version of a bank, kept for good: the questions a participant was shown, so their
+ * result can always be marked and read against them. Written when the version is saved,
+ * and never changed or removed, even when the bank is replaced or removed. Bands are not
+ * kept here, being a decision about the deck rather than about one set of questions.
+ */
+export interface QuestionBankVersion {
+  /** `${deckId}__${kind}__${version}`. Carried in the row so a purge can rebuild the key. */
+  id: string;
+  /** The bank it is a version of, `${deckId}__${kind}`, to list a bank's versions by. */
+  bankId: string;
+  deckId: string;
+  kind: BankKind;
+  version: string;
+  versionNumber: number;
+  questions: BankQuestion[];
+  source: BankSource;
+  savedBy: string;
+  savedAt: string;
+}
+
+/** A version as the administrator's screen lists it: when, from where, and how long. */
+export interface BankVersionSummary {
+  version: string;
+  versionNumber: number;
+  source: BankSource;
+  questions: number;
   savedAt: string;
 }
 
@@ -118,11 +172,35 @@ export interface AssessmentPaper {
   questions: ParticipantQuestion[];
 }
 
-/** One answer, as stored for audit: which option was chosen, and whether it was right. */
+/**
+ * How one question went. A question left blank is not attempted and scores nothing, the
+ * same as a wrong answer, but is told apart from one because they mean different things
+ * to a facilitator: somebody who ran out of patience, or did not understand the question,
+ * rather than somebody who thought they knew.
+ */
+export type AnswerOutcome = 'correct' | 'wrong' | 'not-attempted';
+
+export const OUTCOME_LABELS: Record<AnswerOutcome, string> = {
+  correct: 'Correct',
+  wrong: 'Wrong',
+  'not-attempted': 'Not attempted',
+};
+
+/** One answer, as stored for audit: which option was chosen, and how it went. */
 export interface RecordedAnswer {
   questionId: string;
-  chosenIndex: number;
+  /** Null when the question was left blank. */
+  chosenIndex: number | null;
   correct: boolean;
+  /** Absent on a result stored before blanks were allowed, when every answer was given. */
+  outcome?: AnswerOutcome;
+}
+
+/** How many questions went each way. */
+export interface OutcomeCounts {
+  correct: number;
+  wrong: number;
+  notAttempted: number;
 }
 
 /**
@@ -139,6 +217,11 @@ export interface AssessmentResult {
   sessionId: string | null;
   answers: RecordedAnswer[];
   correct: number;
+  /** Answered, but not with the right option. Absent before blanks were allowed. */
+  wrong?: number;
+  /** Left blank, scoring nothing. Absent before blanks were allowed. */
+  notAttempted?: number;
+  /** Every question on the paper, answered or not: the score is a share of all of them. */
   total: number;
   /** Whole percent, rounded down, so 69.9% is not shown as a pass of 70%. */
   percent: number;
@@ -149,7 +232,10 @@ export interface AssessmentResult {
   /** The pass mark or bands in force when it was scored, so a later change cannot rewrite it. */
   passMark?: number;
   bands?: LevelBands;
+  /** The version of the bank it was taken on, and marked against. */
   bankVersion: string;
+  /** That version's number, for people to read. Absent before versions were kept. */
+  bankVersionNumber?: number;
   bankSource: BankSource;
   submittedAt: string;
   /**
@@ -160,10 +246,15 @@ export interface AssessmentResult {
   retention?: { restrictedAt: string; lastUsedAt: string };
 }
 
-/** What a participant is told about their own result. No answer key, and no per-question marks. */
+/**
+ * What a participant is told about their own result. No answer key, and no per-question
+ * marks: how many were right, wrong and left blank, but not which.
+ */
 export interface ResultSummary {
   kind: BankKind;
   correct: number;
+  wrong: number;
+  notAttempted: number;
   total: number;
   percent: number;
   level?: Level;
@@ -271,14 +362,25 @@ export interface ResultsRow {
   personId: string;
   name: string;
   email: string;
-  pre: { percent: number; level: Level | null; submittedAt: string } | null;
-  post: {
-    percent: number;
-    passed: boolean;
-    submittedAt: string;
-    /** The trainer-led session it was taken after, or null for a one-to-one session. */
-    sessionId: string | null;
-  } | null;
+  pre:
+    | (OutcomeCounts & {
+        percent: number;
+        level: Level | null;
+        submittedAt: string;
+        /** The version of the questions it was taken on, when known. */
+        versionNumber: number | null;
+      })
+    | null;
+  post:
+    | (OutcomeCounts & {
+        percent: number;
+        passed: boolean;
+        submittedAt: string;
+        /** The trainer-led session it was taken after, or null for a one-to-one session. */
+        sessionId: string | null;
+        versionNumber: number | null;
+      })
+    | null;
   /** Null when the viewer may not see feedback; otherwise whether it has been given. */
   feedback: 'submitted' | 'pending' | null;
   /**

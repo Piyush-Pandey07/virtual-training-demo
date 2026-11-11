@@ -61,8 +61,8 @@ export function MainNav({ person, current }: MainNavProps) {
   if (person.platform) links.push({ href: '/platform', label: 'Customers' });
   // Every Technavious administrator: what went wrong behind the standard messages (AI-11).
   if (isAdministrator(person)) links.push({ href: '/platform/errors', label: 'Developer log' });
-  // The administrator's alone (AI-40): who viewed or changed profiles, results, banks,
-  // deck approvals and the glossary.
+  // The administrator's alone (AI-40): who viewed or changed the customer's data, and what
+  // every administrator did.
   if (isAdministrator(person)) links.push({ href: '/audit', label: 'Audit history' });
   // The data centre glossary is Technavious's to manage, never a customer's (AI-21).
   if (isAdministrator(person)) links.push({ href: '/glossary', label: 'Glossary' });

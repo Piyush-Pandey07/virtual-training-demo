@@ -3,8 +3,9 @@
  *
  * The daily retention job (AI-41), called by Vercel Cron once a day as `vercel.json`
  * schedules it. Restricts profiles, assessment results and feedback 90 days after the
- * participant's last session, and deletes them a year after last use. The rules and the
- * reasoning are in src/lib/retention/.
+ * participant's last session; a year after last use deletes the profile and the
+ * assessment answers, keeping the score; and five years after it deletes the rest of the
+ * training record. The rules and the reasoning are in src/lib/retention/.
  *
  * Nobody signs in to call this. Vercel sends `Authorization: Bearer <CRON_SECRET>`, and
  * anything else, a missing header, a wrong secret or a deployment with no secret set, is

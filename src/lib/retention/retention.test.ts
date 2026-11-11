@@ -12,29 +12,37 @@ import { PROFILES, profileDocuments, saveProfile } from '../profiles/store';
 import type { LearnerProfileRecord } from '../profiles/types';
 import { viewProfile } from '../profiles/view';
 import { InMemoryDocumentStore } from '../roster/documents';
+import { LEAVERS, leaverDocuments, recordLeaver } from '../roster/leavers';
 import type { RosterStore } from '../roster/store';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Attempt, Role, SignedInPerson } from '../roster/types';
 import { scopedDocuments } from '../orgs/scope';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
-import { runRetention, RETENTION } from './job';
+import { runRetention, RETENTION, zeroCounts, type Counts } from './job';
 import {
   attendedAt,
   deletionDue,
   DELETE_AFTER_DAYS,
   lastSessionAt,
+  RECORD_KEPT_YEARS,
+  recordDeletionDue,
   RESTRICT_AFTER_DAYS,
   stepFor,
+  yearsAfter,
+  type RetentionMark,
 } from './policy';
 import { isRestricted, visibleOnly, visibleTo } from './restricted';
 
 /**
- * Retention (AI-41): profile, assessment and feedback data in use for 90 days after the
- * participant's last session, then restricted to administrators, then deleted a year
- * after last use. Training progress, attendance and consent are never touched.
+ * Retention (AI-27, AI-41, AI-42), as the product owner decided it: profiles, results and
+ * feedback restricted to administrators 90 days after the participant's last session;
+ * the profile and the assessment answers deleted a year after last use, with the score,
+ * pass or fail, level, ratings and dates kept; and the rest of the training record,
+ * attempts, attendance and the names of people who have left included, deleted five
+ * years after last use. Consent records are never touched.
  *
- * Driven against the in-memory store with fixed dates, so a year passes in a line.
+ * Driven against the in-memory store with fixed dates, so five years pass in a line.
  */
 
 const ORG = 'acme';
@@ -79,20 +87,38 @@ function attempt(personId: string, lastSeenDay: number): Attempt {
   };
 }
 
-/** A roster that answers only what the job asks, with attempts the test controls. */
+/**
+ * A roster that answers only what the job asks, with attempts the test controls. Removing
+ * an attempt takes it out of the array the test passed in, so the test can look.
+ */
 function fakeRoster(attempts: Attempt[], options: { failing?: boolean } = {}): RosterStore {
+  const find = (personId: string, deckId: string) =>
+    attempts.findIndex((each) => each.personId === personId && each.deckId === deckId);
   return {
     kind: 'firestore',
     writable: true,
     async getPersonByEmail() {
       return undefined;
     },
-    async listAttemptsForPerson(personId: string) {
+    async listAttempts() {
       if (options.failing) throw new Error('Firestore is down');
-      return attempts.filter((each) => each.personId === personId);
+      return [...attempts];
+    },
+    async getAttempt(personId: string, deckId: string) {
+      return attempts[find(personId, deckId)];
+    },
+    async removeAttempt(personId: string, deckId: string) {
+      const index = find(personId, deckId);
+      if (index >= 0) attempts.splice(index, 1);
     },
   } as unknown as RosterStore;
 }
+
+/** Counts with only the kinds named, so a comparison says what changed and nothing else. */
+const only = (counts: Partial<Counts>): Counts => ({ ...zeroCounts(), ...counts });
+
+/** A day this many years and days after T0, on the calendar. */
+const yearsOn = (years: number, days = 0) => new Date(yearsAfter(T0, years) + days * DAY);
 
 function profile(personId: string, day: number): LearnerProfileRecord {
   return {
@@ -116,7 +142,7 @@ function result(personId: string, kind: 'pre' | 'post', day: number): Assessment
     deckId: DECK,
     kind,
     sessionId: null,
-    answers: [],
+    answers: [{ questionId: 'q1', chosenIndex: 2, correct: true }],
     correct: 8,
     total: 10,
     percent: 80,
@@ -182,13 +208,24 @@ async function records(store: InMemoryDocumentStore) {
 }
 
 describe('the policy', () => {
-  it('keeps for 90 days, restricts until a year, then deletes', () => {
+  it('keeps for 90 days, restricts until a year, erases detail until five years, then deletes', () => {
     assert.equal(RESTRICT_AFTER_DAYS, 90);
     assert.equal(DELETE_AFTER_DAYS, 365);
+    assert.equal(RECORD_KEPT_YEARS, 5);
     assert.equal(stepFor(T0, at(89).getTime()), 'keep');
     assert.equal(stepFor(T0, at(90).getTime()), 'restrict');
     assert.equal(stepFor(T0, at(364).getTime()), 'restrict');
-    assert.equal(stepFor(T0, at(365).getTime()), 'delete');
+    assert.equal(stepFor(T0, at(365).getTime()), 'erase');
+    assert.equal(stepFor(T0, yearsOn(5, -1).getTime()), 'erase');
+    assert.equal(stepFor(T0, yearsOn(5).getTime()), 'delete');
+  });
+
+  it('counts five years on the calendar, leap days included', () => {
+    // 2028 is a leap year, so five years from 1 January 2026 is 1826 days, and from
+    // 1 March 2027 it is 1827, since 2028 and 2032 both fall inside.
+    assert.equal(yearsAfter(T0, 5), Date.parse('2031-01-01T00:00:00.000Z'));
+    const march = Date.parse('2027-03-01T00:00:00.000Z');
+    assert.equal(yearsAfter(march, 5), Date.parse('2032-03-01T00:00:00.000Z'));
   });
 
   it('never acts on a record whose last use cannot be read', () => {
@@ -215,11 +252,10 @@ describe('the policy', () => {
     );
   });
 
-  it('says when a restricted record will be deleted', () => {
-    assert.equal(
-      deletionDue({ restrictedAt: iso(100), lastUsedAt: iso(10) }),
-      at(10 + DELETE_AFTER_DAYS).toISOString(),
-    );
+  it('says when a restricted record loses its detail, and when the rest of it goes', () => {
+    const mark = { restrictedAt: iso(100), lastUsedAt: iso(10) };
+    assert.equal(deletionDue(mark), at(10 + DELETE_AFTER_DAYS).toISOString());
+    assert.equal(recordDeletionDue(mark), new Date(yearsAfter(at(10).getTime(), 5)).toISOString());
   });
 });
 
@@ -247,7 +283,7 @@ describe('the daily job', () => {
 
   it('restricts the profile, results and feedback 90 days after the last session', async () => {
     const report = await run(101);
-    assert.deepEqual(report.totals.restricted, { profiles: 1, results: 2, feedback: 1 });
+    assert.deepEqual(report.totals.restricted, only({ profiles: 1, results: 2, feedback: 1 }));
     const { profile: stored, pre, feedback: given } = await records(store);
     assert.deepEqual(stored?.retention, { restrictedAt: iso(101), lastUsedAt: iso(10) });
     assert.ok(isRestricted(pre));
@@ -266,23 +302,101 @@ describe('the daily job', () => {
     assert.equal((await records(store)).profile?.retention?.restrictedAt, iso(101));
   });
 
-  it('deletes them a year after last use, and keeps consent, attempts and attendance', async () => {
+  it('a year after last use deletes the profile and the answers, and keeps the score', async () => {
     await trainingStore(ORG, store).saveSession(trainerLed({ closedAt: iso(5), openedAt: iso(5) }));
+    const attempts = [attempt(asha.id, 10)];
     await run(101);
-    const report = await run(10 + 365);
-    assert.deepEqual(report.totals.deleted, { profiles: 1, results: 2, feedback: 1 });
+    const report = await run(10 + 365, { roster: () => fakeRoster(attempts) });
+    assert.deepEqual(report.totals.deleted, only({ profiles: 1 }));
+    assert.deepEqual(report.totals.erased, only({ results: 2, feedback: 1 }));
+
     const left = await records(store);
-    assert.equal(left.profile, undefined);
+    assert.equal(left.profile, undefined, 'the profile was kept past a year');
+    // The result stays, without its answers: score, level, pass or fail and dates kept.
+    assert.ok(left.pre, 'the result was deleted at a year');
+    assert.deepEqual(left.pre.answers, []);
+    assert.equal(left.pre.percent, 80);
+    assert.equal(left.pre.correct, 8);
+    assert.equal(left.pre.level, 'advanced');
+    assert.equal(left.pre.submittedAt, iso(0));
+    // The result's own type writes the mark inline and without `erasedAt`, to stay free of
+    // imports; the job writes the full `RetentionMark`.
+    const mark = left.pre.retention as RetentionMark | undefined;
+    assert.equal(mark?.erasedAt, at(375).toISOString());
+    assert.ok(isRestricted(left.pre), 'an erased result is still restricted');
+    const post = await assessmentDocuments(ORG, store).get<AssessmentResult>(
+      ASSESSMENT_RESULTS,
+      `asha__${DECK}__post`,
+    );
+    assert.equal(post?.passed, true);
+    // Feedback keeps its ratings and loses what was written.
+    assert.deepEqual(left.feedback?.comments, {});
+    assert.deepEqual(left.feedback?.ratings, { trainer: 5 });
+    // Consent, completion and attendance are untouched.
+    assert.equal(left.consents.length, 1, 'a consent record was deleted');
+    assert.equal(attempts.length, 1, 'an attempt was deleted at a year');
+    assert.equal((await trainingStore(ORG, store).listSessions()).length, 1);
+  });
+
+  it('erases only once', async () => {
+    await run(10 + 365);
+    const again = await run(10 + 366);
+    assert.equal(again.writes, 0);
+  });
+
+  it('five years after last use deletes the rest: results, feedback, completion and attendance', async () => {
+    await trainingStore(ORG, store).saveSession(trainerLed({ closedAt: iso(5), openedAt: iso(5) }));
+    const attempts = [attempt(asha.id, 10)];
+    const roster = () => fakeRoster(attempts);
+    await run(10 + 365, { roster });
+
+    const before = await run(0, { roster, asOf: new Date(yearsAfter(at(10).getTime(), 5) - DAY) });
+    assert.deepEqual(before.totals.deleted, zeroCounts(), 'deleted before five years');
+
+    const report = await run(0, { roster, asOf: new Date(yearsAfter(at(10).getTime(), 5)) });
+    assert.deepEqual(
+      report.totals.deleted,
+      only({ results: 2, feedback: 1, attempts: 1, sessions: 1 }),
+    );
+    const left = await records(store);
     assert.equal(left.pre, undefined);
     assert.equal(left.feedback, undefined);
+    assert.equal(attempts.length, 0, 'the attempt outlived five years');
+    assert.equal((await trainingStore(ORG, store).listSessions()).length, 0);
     assert.equal(left.consents.length, 1, 'a consent record was deleted');
+  });
+
+  it('keeps a trainer-led session while anybody on it trained inside five years', async () => {
+    await trainingStore(ORG, store).saveSession(
+      trainerLed({
+        participantIds: [asha.id, 'ben'],
+        attendance: { asha: 'present', ben: 'present' },
+      }),
+    );
+    // Ben trained again in year four; Asha last trained on day 10.
+    const attempts = [attempt(asha.id, 10), attempt('ben', 4 * 365)];
+    const report = await run(0, { roster: () => fakeRoster(attempts), asOf: yearsOn(5, 30) });
+    assert.equal(report.totals.deleted.sessions, 0, 'the session went with Ben still in use');
+    assert.equal(report.totals.deleted.attempts, 1, "Asha's attempt alone should go");
     assert.equal((await trainingStore(ORG, store).listSessions()).length, 1);
+  });
+
+  it("keeps a leaver's name and address for five years after their last use, then deletes it", async () => {
+    await recordLeaver(ORG, asha, companyAdmin.id, { store, now: at(20) });
+    const roster = () => fakeRoster([attempt(asha.id, 10)]);
+    const inside = await run(0, { roster, asOf: yearsOn(5, 10) });
+    assert.equal(inside.totals.deleted.leavers, 0, 'measured from when they left, day 20');
+    assert.ok(await leaverDocuments(ORG, store).get(LEAVERS, asha.id));
+
+    const after = await run(0, { roster, asOf: yearsOn(5, 20) });
+    assert.equal(after.totals.deleted.leavers, 1);
+    assert.equal(await leaverDocuments(ORG, store).get(LEAVERS, asha.id), undefined);
   });
 
   it('lifts a restriction once a later session puts the records back in use', async () => {
     await run(101);
     const report = await run(120, { roster: () => fakeRoster([attempt(asha.id, 115)]) });
-    assert.deepEqual(report.totals.lifted, { profiles: 1, results: 2, feedback: 1 });
+    assert.deepEqual(report.totals.lifted, only({ profiles: 1, results: 2, feedback: 1 }));
     const { profile: stored } = await records(store);
     assert.equal(stored?.retention, undefined);
     assert.ok(!('retention' in (stored ?? {})));
@@ -303,17 +417,17 @@ describe('the daily job', () => {
     assert.equal(report.totals.restricted.results, 2);
   });
 
-  it('skips a participant whose attempts cannot be read, rather than judging them idle', async () => {
+  it('skips an organisation whose attempts cannot be read, rather than judging people idle', async () => {
     const report = await run(500, { roster: () => fakeRoster([], { failing: true }) });
     assert.equal(report.writes, 0);
-    assert.equal(report.totals.skipped, 4);
+    assert.match(report.orgs[0]!.error ?? '', /Firestore is down/);
     assert.ok((await records(store)).profile, 'a profile was deleted on a failed read');
   });
 
   it('reports what it would do in a dry run, and changes nothing', async () => {
     const report = await run(101, { dryRun: true });
     assert.equal(report.dryRun, true);
-    assert.deepEqual(report.totals.restricted, { profiles: 1, results: 2, feedback: 1 });
+    assert.deepEqual(report.totals.restricted, only({ profiles: 1, results: 2, feedback: 1 }));
     assert.equal(report.writes, 0);
     assert.ok(report.orgs[0]!.examples!.includes(`restrict profiles ${asha.id}`));
     assert.equal(isRestricted((await records(store)).profile), false);

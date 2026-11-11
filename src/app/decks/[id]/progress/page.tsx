@@ -14,8 +14,11 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { ProgressBar } from '@/components/ProgressBar';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { currentPerson } from '@/lib/auth/session';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import type { DeckStatus } from '@/lib/decks/store';
+import type { SignedInPerson } from '@/lib/roster/types';
 import { progressForDeck } from '@/lib/roster/report';
 
 export const dynamic = 'force-dynamic';
@@ -29,11 +32,22 @@ export async function generateMetadata({ params }: ProgressPageProps): Promise<M
   // Asks who is signed in rather than reading blind. `generateMetadata` runs before
   // the page body and so outside its guard, so without this it would read a deck by
   // id for somebody with no right to it -- and now, with no customer to read it from.
+  // The same rule as the page, so the title is not in the tab for anybody it refuses.
   const viewer = await currentPerson();
-  if (!viewer) return {};
+  if (!viewer || viewer.role !== 'admin') return { title: 'Technavious' };
 
   const stored = await loadStoredDeck(viewer.orgId, id).catch(() => undefined);
-  return { title: stored ? `Progress: ${stored.record.meta.title}` : 'Technavious' };
+  return {
+    title:
+      stored && seesDeck(viewer, stored.status)
+        ? `Progress: ${stored.record.meta.title}`
+        : 'Technavious',
+  };
+}
+
+/** Technavious sees any deck's progress; a company administrator a published deck's. */
+function seesDeck(viewer: SignedInPerson, status: DeckStatus): boolean {
+  return isAdministrator(viewer) || status === 'published';
 }
 
 function formatDate(iso: string | null): string {
@@ -50,7 +64,7 @@ export default async function DeckProgressPage({ params }: ProgressPageProps) {
   const admin = await requireAdminPage(`/decks/${encodeURIComponent(id)}/progress`);
 
   const stored = await loadStoredDeck(admin.orgId, id).catch(() => undefined);
-  if (!stored) notFound();
+  if (!stored || !seesDeck(admin, stored.status)) notFound();
 
   const rows = await progressForDeck(admin.orgId, id);
   const complete = rows.filter((row) => row.completedAt !== null).length;

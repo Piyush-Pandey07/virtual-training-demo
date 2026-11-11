@@ -480,7 +480,10 @@ describe('the trainer speaking each OpenAI language', () => {
     assert.equal(
       sha, // Changed on 9 November 2026 for AI-08 only: the named-trainee line now asks for the
       // name on every answer. Checked by reverting that one sentence and matching the old hash.
-      'd30ac9304f0da242600baa36ee8e85793b426d7b99fd79cfcf1a9778f13b42fe',
+      // Changed on 11 November 2026 for AI-46 and AI-44 only. Reverting the short opening
+      // line of a narration (AI-44) reproduces 05daa605..., and reverting the authority
+      // rules and the approved material markers (AI-46) as well reproduces d30ac930...
+      '3628410e147ea85219dd070c14b6224d396be0ed0e7ba839a1d9a80cd1acefff',
     );
   });
 });

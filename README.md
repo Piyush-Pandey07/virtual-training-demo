@@ -34,15 +34,30 @@ speech. Firebase does sign-in and holds the roster.
 
 ## Who can do what
 
-Two roles, and the same URL takes each of them somewhere different.
+The same URL takes each kind of person somewhere different. The Benchmark administrator is
+Technavious (platform staff, including while looking inside a customer, and the administrators of
+Technavious's own organisation); a company administrator is an administrator of a customer.
 
-|                           | A trainee sees                                      | An administrator sees                                |
-| ------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
-| `/`                       | Their assigned training, ordered by what to do next | The deck library, the upload, and the reports        |
-| `/decks`, `/decks/{id}`   | 404                                                 | The library and the review screen                    |
-| `/people`, `/people/{id}` | 404                                                 | Everybody, and where each of them has got to         |
-| `/decks/{id}/progress`    | 404                                                 | Everybody assigned that deck, least progressed first |
-| `/session?deck={id}`      | Only a deck they were assigned                      | Any deck, including a draft, for previewing          |
+|                           | A trainee sees                                      | A company administrator sees                                | The Benchmark administrator sees                    |
+| ------------------------- | --------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| `/`                       | Their assigned training, ordered by what to do next | Published decks, their people and the company's progress    | The deck library, the upload, and the reports       |
+| `/decks`, `/decks/{id}`   | 404                                                 | Published decks, read-only, to assign; a draft is a 404     | The library and the review screen                   |
+| `/decks/new`              | 404                                                 | 404                                                         | The upload                                          |
+| `/people`, `/people/{id}` | 404                                                 | Everybody, and where each of them has got to                | The same, in whichever customer they are looking at |
+| `/decks/{id}/progress`    | 404                                                 | Everybody assigned a published deck, least progressed first | Everybody assigned that deck                        |
+| `/session?deck={id}`      | Only a deck they were assigned                      | A published deck, or one they were assigned                 | Any deck, including a draft, for previewing         |
+| `/audit`                  | 404                                                 | 404                                                         | The audit history                                   |
+
+**Decks are Technavious's.** Uploading, editing, analysing, publishing and withdrawing, approving,
+deleting and question banks are the Benchmark administrator's alone, in the pages and in the API
+(`checkAdministrator` / `requireAdministratorPage` in `src/lib/auth/guard.ts`). A company
+administrator assigns approved decks, manages facilitators and participants, and sees their
+company's progress and results.
+
+**Across companies.** Every route and page that takes an id (deck, person, session, batch, result,
+bank, profile) resolves it in the caller's own organisation, and an id from another customer is a
+404, through direct links and the API as much as on screen. Technavious staff see inside a customer
+only by choosing it. `src/lib/auth/cross-company.test.ts` lists every such file and checks it.
 
 The refusals are 404 rather than 403 wherever a particular deck is involved. Deck ids are a title
 slug plus six random characters, so a 403 on `/session?deck=redundancy-plan-2026-a7f3k2` confirms
@@ -134,6 +149,13 @@ Open http://localhost:3000.
 | `DEEPGRAM_TTS_MODEL`         | `aura-2-thalia-en` | Any Aura voice. See the [voice list](https://developers.deepgram.com/docs/tts-models). |
 | `DEEPGRAM_TOKEN_TTL_SECONDS` | `300`              | Lifetime of the browser token. Only needs to outlive the initial handshake.            |
 | `SARVAM_TTS_MODEL`           | `bulbul:v3`        | Hindi voice model. Only read when `SARVAM_API_KEY` is set.                             |
+| `PROFILES_ENABLED`           | on for everybody   | Learner profiles and the privacy notice. `staff` is Technavious only; `off` turns off. |
+
+`PROFILES_ENABLED` is on when unset or blank, as the product owner asked for UAT, where every login
+is a test account. `true` is the same; `staff` limits it to Technavious's own people; `off` or
+`false` switches it off, and so does any other value, so a typo collects nothing. The privacy notice
+is still a draft awaiting approval: a deployment real customers use should set `staff` or `off`
+until it is approved.
 
 ---
 
@@ -404,17 +426,26 @@ The log is the `devlog` Firestore collection, outside every customer's data. Ent
 
 ### Retention: the daily job
 
-Learner profiles, assessment results and feedback follow the rule in the privacy notice (AI-41). The
-code is in `src/lib/retention/`, and the arithmetic in `policy.ts`.
+The training record follows the rule the product owner decided and the privacy notice states
+(AI-27, AI-41, AI-42), fully switched on. The code is in `src/lib/retention/`, and the arithmetic in
+`policy.ts`.
 
-| Days after last use | What happens                                                                 |
-| ------------------- | ---------------------------------------------------------------------------- |
-| 0 to 89             | In use, by everybody the record's own rules allow                            |
-| 90 to 364           | **Restricted**: only Technavious administrators see it; the trainer does not |
-| 365 and after       | **Deleted**                                                                  |
+| After last use     | What happens                                                                                                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 to 89 days       | In use, by everybody the record's own rules allow                                                                                                                                                                                |
+| 90 to 364 days     | Profiles, results and feedback **restricted**: only Technavious administrators see them; the trainer does not                                                                                                                    |
+| 1 year to 5 years  | The **profile is deleted**, and so are the **assessment answers**: the per-question answers on each result (emptied, `retention.erasedAt` set) and any free text in feedback. Score, pass or fail, level, ratings and dates stay |
+| 5 years (calendar) | **Everything else is deleted**: the rest of each result and feedback, attempts (completion), trainer-led sessions with their attendance, and the name and email of people who have left (`leavers`)                              |
 
-Training progress (attempts), trainer-led attendance and consent records are kept for at least five
-years and the job never changes them.
+Consent records are never touched by the job; the notice keeps them for at least five years. A
+trainer-led session is deleted only once every participant on it is past five years, so somebody who
+trained recently keeps the record of a session they shared.
+
+**Removing somebody** (`DELETE /api/people/{id}`) applies the one-year step at once: their login,
+learner profile, assessment answers and feedback comments are deleted. Their name and email go into
+the `leavers` collection, and their attempts, scores, pass or fail, ratings and attendance are kept,
+until the job deletes them five years after their last use. Attempts need Firestore (or the
+filesystem store) for this: the legacy blob roster finds attempts through assignments.
 
 - **Last use.** A participant's last session is the latest of their AI-led attempt activity
   (`lastSeenAt`) and any trainer-led session they attended (`closedAt`, or `openedAt` while it is
@@ -433,19 +464,39 @@ years and the job never changes them.
   as taken, so nobody is offered the paper again.
 - **The route.** `GET /api/cron/retention`, scheduled in `vercel.json` once a day at 21:30 UTC
   (03:00 in India; Hobby runs it at some point in that hour). Vercel sends `Authorization: Bearer
-  <CRON_SECRET>`; **set `CRON_SECRET`** under Settings, Environment Variables, to a long random
+<CRON_SECRET>`; **set `CRON_SECRET`** under Settings, Environment Variables, to a long random
   value, or the route answers 404 to everybody, Vercel included.
 - **Bounded and idempotent.** It stops itself at 45 seconds or 2,000 writes, records the
   organisation it reached in the `retention` collection, and starts there the next day. Running it
-  twice changes nothing the second time. Anything it cannot read, a person's attempts or an
-  organisation's sessions, is skipped for the day rather than judged.
+  twice changes nothing the second time. Anything it cannot read, an organisation's attempts or
+  sessions, is skipped for the day rather than judged.
+- **Backups.** The app keeps no backups of its own. Firestore's do: scheduled backups and
+  point-in-time recovery (PITR) hold a deleted document until the backup, or the PITR window,
+  expires. For "deleted data drops out of backups when they expire" to hold, **keep every Firestore
+  backup schedule's retention at 30 days or less** (`gcloud firestore backups schedules create
+--retention=30d`, or the console), keep PITR at its 7-day window or off, and do not export the
+  database to Cloud Storage without a bucket lifecycle rule deleting objects after the same 30
+  days. A record the job deletes today is then gone from every copy within 30 days. Vercel Blob,
+  which holds slide images, keeps no versions.
 - **Dry run, for UAT.** Add `?dryRun=1` to report what it would do without changing anything, with
   up to 25 record ids per organisation. `&asOf=2027-03-01` judges as of that date, which only a dry
-  run accepts:
+  run accepts (`&asOf=2031-12-01` shows the five-year step):
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET"   "https://your-deployment.vercel.app/api/cron/retention?dryRun=1&asOf=2027-03-01"
 ```
+
+### Audit history
+
+`/audit` (AI-40) is the Benchmark administrator's alone; anybody else gets a 404. It records views
+and changes of learner profiles, results and question banks; consent given and withdrawn; role
+changes; downloads (the participant upload template, and the session summary); deletions of people,
+decks, banks and sessions; attendance edits; and the administrators' own actions: decks uploaded,
+edited, analysed, published, withdrawn and approved, assignments, batches and sessions set up and
+changed, and glossary changes. Entries live in each customer's `audit` collection (the glossary's in
+`platformAudit`) with `expireAt` 400 days ahead: **enable a TTL policy on `audit` / `expireAt` and
+`platformAudit` / `expireAt`**. The question bank CSV template is built in the browser and never
+reaches the server, so downloading it is not recorded.
 
 ### Why sentence chunking
 

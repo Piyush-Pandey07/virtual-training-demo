@@ -113,6 +113,18 @@ describe('the first chunk of a turn (AI-44)', () => {
     assert.equal(nextOpeningCut(text), text.indexOf(',') + 1);
   });
 
+  it('failing punctuation, cuts before a joining word after 30 characters', () => {
+    // As measured on the live site: the only comma comes after two words.
+    const text = 'So, we have just covered what a data centre is and why it matters to every';
+    assert.equal(nextOpeningCut(text), text.indexOf(' and '));
+    assert.equal(nextOpeningCut('So, we have covered what and why'), -1);
+  });
+
+  it('cuts Hindi before a joining word too', () => {
+    const text = 'डेटा सेंटर हमारे डिजिटल जीवन का आधार हैं और इनके बिना कुछ नहीं';
+    assert.equal(nextOpeningCut(text), text.indexOf(' और '));
+  });
+
   it('waits while there is too little to say', () => {
     assert.equal(nextOpeningCut('Welcome.'), -1);
     assert.equal(nextOpeningCut('Welcome to the sessi'), -1);

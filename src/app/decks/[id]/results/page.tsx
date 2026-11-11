@@ -3,8 +3,9 @@
  * AI-04, AI-29, AI-31).
  *
  * One row per participant: where the pre-session assessment placed them, their
- * post-session score and whether it passed, and whether they have given feedback. Below,
- * the feedback itself, averaged, with the comments.
+ * post-session score and whether it passed, how many questions of each they got wrong
+ * or did not attempt, which version of the questions they took, and whether they have
+ * given feedback. Below, the feedback itself, averaged, with the comments.
  *
  * Open to the administrator, a company administrator and a facilitator, each seeing
  * what `access.ts` allows: a facilitator sees only the people in their own sessions and
@@ -30,6 +31,7 @@ import {
   resultsForDeck,
   type DeckResults,
 } from '@/lib/assessments/service';
+import { describeBands } from '@/lib/assessments/scoring';
 import { LEVEL_LABELS, PASS_MARK, RATING_MAX, SAMPLE_LABEL } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
@@ -54,6 +56,21 @@ function onDate(iso: string): string {
   return Number.isNaN(at.getTime())
     ? ''
     : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/** "2 wrong, 1 not attempted, version 3": the detail under a score. */
+function ScoreDetail({
+  wrong,
+  notAttempted,
+  versionNumber,
+}: {
+  wrong: number;
+  notAttempted: number;
+  versionNumber: number | null;
+}) {
+  const parts = [`${wrong} wrong`, `${notAttempted} not attempted`];
+  if (versionNumber !== null) parts.push(`version ${versionNumber}`);
+  return <span className="text-muted block text-xs">{parts.join(', ')}</span>;
 }
 
 function Tile({ label, value, tone }: { label: string; value: number; tone?: string }) {
@@ -189,7 +206,11 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{stored.record.meta.title}</h1>
         <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
           {session?.scheduledFor ? `The session planned for ${onDate(session.scheduledFor)}. ` : ''}
-          The pass mark for the post-session assessment is {PASS_MARK}%.
+          A score is the share of all the questions answered correctly; a question left blank is Not
+          attempted and scores nothing. The pre-session assessment only sets a starting level, and
+          nobody fails it. The pass mark for the post-session assessment is {PASS_MARK}%.
+          {session?.levelBands &&
+            ` Starting levels here use this session's bands: ${describeBands(session.levelBands)}`}
           {showFeedback ? '' : ' Feedback is seen by the administrator and facilitators only.'}
           {session && (
             <>
@@ -273,6 +294,11 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                           <>
                             {row.pre.level ? LEVEL_LABELS[row.pre.level] : 'Recorded'}
                             <span className="text-muted block text-xs">{row.pre.percent}%</span>
+                            <ScoreDetail
+                              wrong={row.pre.wrong}
+                              notAttempted={row.pre.notAttempted}
+                              versionNumber={row.pre.versionNumber}
+                            />
                           </>
                         ) : row.restricted ? (
                           <Restricted />
@@ -289,6 +315,11 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                             <span className="text-muted block text-xs">
                               {onDate(row.post.submittedAt)}
                             </span>
+                            <ScoreDetail
+                              wrong={row.post.wrong}
+                              notAttempted={row.post.notAttempted}
+                              versionNumber={row.post.versionNumber}
+                            />
                           </>
                         ) : row.restricted ? (
                           <Restricted />

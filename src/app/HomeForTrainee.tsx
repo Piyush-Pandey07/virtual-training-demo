@@ -135,9 +135,34 @@ const STEP_MARK: Record<JourneyStep['state'], string> = {
 
 /** One trainer-led session's steps, in the order they have to be done (AI-26). */
 function JourneyCard({ journey }: { journey: SessionJourney }) {
+  if (journey.cancelled) {
+    // Shown rather than hidden, so somebody told about it is not left wondering where it
+    // went, and with nothing to do.
+    return (
+      <li className="border-charcoal-line rounded-xl border border-dashed p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="text-muted font-semibold">{journey.deckTitle}</p>
+          <span className="bg-charcoal-line text-muted shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold">
+            Cancelled
+          </span>
+        </div>
+        <p className="text-muted mt-1 text-sm">
+          Trainer-led{journey.when ? `, ${journey.when}` : ''}. This session was cancelled, so there
+          is nothing to do for it.
+        </p>
+      </li>
+    );
+  }
   return (
     <li className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5">
-      <p className="text-mist font-semibold">{journey.deckTitle}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-mist font-semibold">{journey.deckTitle}</p>
+        {journey.joinedLate && (
+          <span className="bg-azure/20 text-azure-bright shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold">
+            Joined late
+          </span>
+        )}
+      </div>
       <p className="text-muted mt-1 text-sm">
         Trainer-led{journey.when ? `, ${journey.when}` : ''}
       </p>
@@ -174,6 +199,8 @@ export function HomeForTrainee({
 }) {
   // A deck taught in a trainer-led session is assigned so its steps can be done here,
   // but it is attended in the room, so it is not offered as a session to start alone.
+  // Nor once its session is cancelled: the deck was given to them for the room, and the
+  // next session of it is what they wait for.
   const inTheRoom = new Set(journeys.map((journey) => journey.deckId));
   const rows = allRows.filter((row) => !inTheRoom.has(row.deckId));
   const outstanding = rows.filter((row) => row.completedAt === null);

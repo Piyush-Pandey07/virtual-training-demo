@@ -62,7 +62,7 @@ const STORES = [
   'resume',
   // Batches and trainer-led sessions, with their attendance.
   'trainingStore',
-  // The middle of a group's assessed levels, read from their assessment results.
+  // The level most of a group are at, read from their assessment results.
   'groupLevel',
   'trainingDocuments',
   // Question banks, assessment results and feedback, and what the participant journey and
@@ -86,6 +86,11 @@ const STORES = [
   // The audit history of who viewed or changed a customer's data.
   'auditDocuments',
   'auditHistory',
+  // The names and addresses of people who have left, kept for the five-year record.
+  'leaverDocuments',
+  'recordLeaver',
+  // What removing somebody deletes at once: their assessment answers and comments.
+  'eraseLeaverAnswers',
 ] as const;
 
 /**

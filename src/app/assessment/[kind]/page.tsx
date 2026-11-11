@@ -18,7 +18,7 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { assessmentHref, feedbackHref, sessionHref } from '@/lib/assessments/paths';
 import { summaryOf } from '@/lib/assessments/scoring';
 import {
-  assessmentPaper,
+  assessmentPaperFor,
   feedbackDone,
   hasAttended,
   preAssessmentClosed,
@@ -26,7 +26,13 @@ import {
   participation,
   Refused,
 } from '@/lib/assessments/service';
-import { BANK_KIND_LABELS, isBankKind, SAMPLE_LABEL, type BankKind } from '@/lib/assessments/types';
+import {
+  BANK_KIND_LABELS,
+  isBankKind,
+  PASS_MARK,
+  SAMPLE_LABEL,
+  type BankKind,
+} from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION, visibleTo } from '@/lib/retention/restricted';
 import type { SignedInPerson } from '@/lib/roster/types';
@@ -56,8 +62,15 @@ async function nextAfter(
   if (kind === 'pre') {
     // A trainer-led session is started by its facilitator, in the room, so there is
     // nothing to link to: the participant waits for them.
+    // Somebody arriving late has done it on their own device and now joins the room.
     return session
-      ? { next: null, waiting: 'You are ready. Your facilitator will start the session.' }
+      ? {
+          next: null,
+          waiting:
+            session.status === 'open'
+              ? 'You are ready. Join the session in the room, and your facilitator will mark you present.'
+              : 'You are ready. Your facilitator will start the session.',
+        }
       : { next: { href: sessionHref(deckId), label: 'Start the session' }, waiting: null };
   }
   // Feedback comes straight after the post-session assessment (AI-31), whether or not it
@@ -92,7 +105,7 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
 
   const [existing, paper] = await Promise.all([
     ownResult(person.orgId, person.id, deckId, kind),
-    assessmentPaper(person.orgId, deckId, kind),
+    assessmentPaperFor(person, deckId, kind),
   ]);
   const attended = kind === 'post' ? await hasAttended(person, deckId, session) : true;
   const { next, waiting } = await nextAfter(person, kind, deckId, session);
@@ -143,11 +156,12 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
                 waiting && <p className="mt-4 text-sm">{waiting}</p>
               )}
             </section>
-          ) : kind === 'pre' && preAssessmentClosed(session) ? (
+          ) : kind === 'pre' && preAssessmentClosed(session, person.id) ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
               <p className="leading-relaxed">
-                The pre-session assessment closed when the session started, so there is nothing to
-                do here. Once you have attended, the post-session assessment opens as usual.
+                {session?.status === 'cancelled'
+                  ? 'This session was cancelled, so there is nothing to do here.'
+                  : 'The pre-session assessment closed when your facilitator marked you in the session, so there is nothing to do here. Once you have attended, the post-session assessment opens as usual.'}
               </p>
               <Link
                 href="/"
@@ -183,13 +197,15 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
                 ) : (
                   <p>
                     Now that the session is over, answer {paper.questions.length} short questions
-                    about what it covered. The pass mark is 70%. You will see your score as soon as
-                    you submit.
+                    about what it covered. Your score is the share of all the questions you answer
+                    correctly, and {PASS_MARK}% or above is a pass. You will see your score as soon
+                    as you submit.
                   </p>
                 )}
                 <p>
-                  Choose one answer for each question. There is no time limit, and you can take it
-                  once, so check your answers before you submit.
+                  Choose one answer for each question. A question you leave blank is marked Not
+                  attempted and scores nothing. There is no time limit, and you can take it once, so
+                  check your answers before you submit.
                 </p>
                 {paper.sample && (
                   <p className="border-charcoal-line rounded-md border px-3 py-2 text-sm">

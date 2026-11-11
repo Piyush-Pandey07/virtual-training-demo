@@ -108,7 +108,8 @@ export interface UseSpeechInputResult {
   transport: SttTransport | null;
   /** True while a batch utterance is being transcribed. */
   transcribing: boolean;
-  start: () => Promise<void>;
+  /** Resolves true once the microphone is open, and false if it did not open. */
+  start: () => Promise<boolean>;
   stop: () => void;
   setMuted: (muted: boolean) => void;
   /** What the trainee is expected to speak. Set once, before the session first starts. */
@@ -415,6 +416,8 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       url.searchParams.set('smart_format', 'true');
       url.searchParams.set('punctuate', 'true');
       url.searchParams.set('endpointing', String(ENDPOINTING_MS));
+      // Not kept by Deepgram for model training (AI-45), unless the server says otherwise.
+      if (credentials.mipOptOut !== false) url.searchParams.set('mip_opt_out', 'true');
       url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
       url.searchParams.set('vad_events', 'true');
       url.searchParams.set('language', listeningLanguage(languageRef.current));
@@ -536,7 +539,8 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
   );
 
   const start = useCallback(async () => {
-    if (transportRef.current) return;
+    // Already listening, or on the way to it.
+    if (transportRef.current) return true;
     stoppingRef.current = false;
     reopensRef.current = 0;
     resetBatchState();
@@ -558,7 +562,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
         // decides which failures those are, and says so with `fatal`.
         if (body.fatal === true) {
           optionsRef.current.onError?.(body.error ?? LISTENING_LOST);
-          return;
+          return false;
         }
         // Anything else, most often a key without permission to mint tokens,
         // just means the batch transport is the one to use.
@@ -570,7 +574,7 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
     // The token fetch is an await, so the session may have ended meanwhile.
     // Without this the continuation reopens the microphone and a billed socket
     // after the trainee pressed End session, with no control left to close them.
-    if (stoppingRef.current) return;
+    if (stoppingRef.current) return false;
 
     const chosen: SttTransport = credentials ? 'stream' : 'batch';
     transportRef.current = chosen;
@@ -583,10 +587,11 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       if (opened) micRef.current.stop();
       transportRef.current = null;
       setTransport(null);
-      return;
+      return false;
     }
 
     if (credentials) openSocket(credentials);
+    return true;
   }, [openSocket, resetBatchState]);
 
   /**

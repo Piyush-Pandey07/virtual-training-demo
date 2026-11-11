@@ -2,10 +2,13 @@
  * The audit history, for the administrator only (BRD v2.3, AI-40).
  *
  * Who viewed or changed a learner profile, an assessment result or a question bank, who
- * approved a deck and when its approval cleared, in the customer the administrator is
- * looking at; and, beside them, who changed the glossary, which is the platform's own.
- * A company administrator, a facilitator and a participant get a 404, as for the other
- * Technavious tools, so they cannot learn the page exists.
+ * approved a deck and when its approval cleared, consent given and withdrawn, role
+ * changes, downloads, deletions, attendance edits and the administrators' own actions, in
+ * the customer the administrator is looking at; and, beside them, who changed the
+ * glossary, which is the platform's own. Only the Benchmark administrator, that is
+ * Technavious (`isAdministrator`), may read it: a company administrator, a facilitator
+ * and a participant get a 404, as for the other Technavious tools, so they cannot learn
+ * the page exists.
  *
  * Read a month or a day at a time, by the fields each entry carries for exactly this,
  * so the page never reads the whole collection. A plain form with GET, so a filtered
@@ -79,10 +82,12 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">Technavious</p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Audit history</h1>
         <p className="text-muted mt-3 max-w-3xl text-base leading-relaxed">
-          Who viewed or changed learner profiles, assessment results and question banks, and who
-          approved decks, in <span className="text-mist font-semibold">{person.orgId}</span>; and
-          who changed the glossary, which belongs to no customer. Times are UTC, and entries are
-          kept for {AUDIT_RETENTION_DAYS} days.
+          Who viewed or changed learner profiles, assessment results and question banks; consent
+          given and withdrawn; role changes, downloads and deletions; and the administrators&apos;
+          own actions on decks, assignments, batches and sessions, in{' '}
+          <span className="text-mist font-semibold">{person.orgId}</span>; and who changed the
+          glossary, which belongs to no customer. Times are UTC, and entries are kept for{' '}
+          {AUDIT_RETENTION_DAYS} days.
         </p>
 
         <form method="get" className="mt-6 flex flex-wrap items-end gap-3 text-sm">

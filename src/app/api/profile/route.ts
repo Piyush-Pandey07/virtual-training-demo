@@ -18,7 +18,7 @@
  * the history is of who looked at somebody else's.
  */
 
-import { recordAudit } from '@/lib/audit/log';
+import { recordAudit, recordConsentAudit } from '@/lib/audit/log';
 import { checkUser } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
 import { consentHistory, latestDecision, recordConsent } from '@/lib/profiles/consent';
@@ -76,6 +76,7 @@ export async function PUT(request: Request) {
     subjectId: gate.person.id,
     detail: `${before ? 'Changed' : 'Gave'} their own profile, agreeing to notice ${consent.noticeVersion}`,
   });
+  await recordConsentAudit(gate.person, consent);
   return reply({ profile });
 }
 
@@ -91,12 +92,13 @@ export async function DELETE() {
   if (!profilesEnabledFor(gate.person)) return notFound();
 
   await deleteProfile(gate.person);
-  await recordConsent(gate.person, 'withdrawn', false);
+  const consent = await recordConsent(gate.person, 'withdrawn', false);
   await recordAudit(gate.person, {
     action: 'withdrawn',
     subjectType: 'profile',
     subjectId: gate.person.id,
     detail: 'Withdrew consent, which deleted their profile',
   });
+  await recordConsentAudit(gate.person, consent);
   return reply({ ok: true });
 }

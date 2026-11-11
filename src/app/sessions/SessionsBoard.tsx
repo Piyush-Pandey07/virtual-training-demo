@@ -5,21 +5,20 @@
  *
  * One screen for both, because a session is usually set up from a batch and the two
  * are looked after by the same person. The participant picker is searchable because a
- * group has no set size and UAT tests it with fifty.
+ * group has no set size and UAT tests it with fifty; there is no cap on how many.
  */
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
 import { formatSessionTime } from '@/lib/time';
 import type { Batch, TrainingSession } from '@/lib/training/types';
+import { NO_REOPENING, STATUS_WORDS } from '@/lib/training/words';
+import { ParticipantPicker, type PersonOption as PickerOption } from './ParticipantPicker';
 
-interface PersonOption {
-  id: string;
-  name: string;
-  email: string;
+interface PersonOption extends PickerOption {
   role: Role;
 }
 
@@ -38,91 +37,9 @@ const BUTTON =
   'bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-5 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 const PANEL = 'border-charcoal-line bg-charcoal-soft rounded-xl border p-5';
 
-const STATUS_LABEL: Record<TrainingSession['status'], string> = {
-  scheduled: 'Scheduled',
-  open: 'In progress',
-  closed: 'Closed',
-};
-
 function formatWhen(iso: string | null): string {
   if (!iso) return 'No date set';
   return formatSessionTime(iso);
-}
-
-/** Search box and checkboxes, for choosing participants out of a long list. */
-function ParticipantPicker({
-  people,
-  chosen,
-  onChange,
-  idPrefix,
-}: {
-  people: PersonOption[];
-  chosen: string[];
-  onChange: (ids: string[]) => void;
-  idPrefix: string;
-}) {
-  const [query, setQuery] = useState('');
-  const shown = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle
-      ? people.filter(
-          (person) =>
-            person.name.toLowerCase().includes(needle) ||
-            person.email.toLowerCase().includes(needle),
-        )
-      : people;
-  }, [people, query]);
-  const toggle = (id: string) =>
-    onChange(chosen.includes(id) ? chosen.filter((entry) => entry !== id) : [...chosen, id]);
-
-  return (
-    <fieldset className="mt-4 min-w-0">
-      <legend className="text-sm font-semibold">
-        Participants <span className="text-muted ml-2 font-normal">{chosen.length} chosen</span>
-      </legend>
-      <input
-        type="search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search by name or email"
-        aria-label="Search participants"
-        className={FIELD}
-      />
-      <div className="mt-2 flex gap-3 text-xs">
-        <button
-          type="button"
-          className="text-teal hover:underline"
-          onClick={() => onChange([...new Set([...chosen, ...shown.map((person) => person.id)])])}
-        >
-          Choose all shown
-        </button>
-        <button type="button" className="text-muted hover:underline" onClick={() => onChange([])}>
-          Clear
-        </button>
-      </div>
-      <ul className="border-charcoal-line mt-2 max-h-64 overflow-y-auto rounded-md border">
-        {shown.map((person) => (
-          <li key={person.id} className="border-charcoal-line border-b last:border-b-0">
-            <label
-              htmlFor={`${idPrefix}-${person.id}`}
-              className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm"
-            >
-              <input
-                id={`${idPrefix}-${person.id}`}
-                type="checkbox"
-                checked={chosen.includes(person.id)}
-                onChange={() => toggle(person.id)}
-                className="accent-teal size-4 shrink-0"
-              />
-              <span className="text-mist">{person.name}</span>
-              <span className="text-muted truncate text-xs">{person.email}</span>
-            </label>
-          </li>
-        ))}
-        {shown.length === 0 && <li className="text-muted px-3 py-2 text-sm">Nobody matches.</li>}
-      </ul>
-    </fieldset>
-  );
 }
 
 export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
@@ -140,6 +57,7 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const runnable = decks.some((deck) => !deck.unavailable);
   const [deckId, setDeckId] = useState(decks.find((deck) => !deck.unavailable)?.id ?? '');
   const [sessionFacilitator, setSessionFacilitator] = useState(facilitators[0]?.id ?? '');
   const [batchId, setBatchId] = useState('');
@@ -232,10 +150,17 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
                     {nameOf(session.facilitatorId)}
                   </p>
                 </div>
-                <span className="text-muted text-sm">{STATUS_LABEL[session.status]}</span>
+                <span
+                  className={`text-sm ${session.status === 'cancelled' ? 'text-logo-red' : 'text-muted'}`}
+                >
+                  {STATUS_WORDS[session.status]}
+                </span>
               </li>
             ))}
           </ul>
+        )}
+        {sessions.some((session) => session.status === 'closed') && (
+          <p className="text-muted mt-3 text-xs">{NO_REOPENING}</p>
         )}
       </section>
 
@@ -246,21 +171,38 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
           </h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="session-deck" className="block text-sm font-semibold">
-                Deck
-              </label>
-              <select
-                id="session-deck"
-                value={deckId}
-                onChange={(event) => setDeckId(event.target.value)}
-                className={FIELD}
-              >
-                {decks.map((deck) => (
-                  <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
-                    {deck.unavailable ? `${deck.title} (${deck.unavailable})` : deck.title}
-                  </option>
-                ))}
-              </select>
+              {runnable ? (
+                <>
+                  <label htmlFor="session-deck" className="block text-sm font-semibold">
+                    Deck
+                  </label>
+                  <select
+                    id="session-deck"
+                    value={deckId}
+                    onChange={(event) => setDeckId(event.target.value)}
+                    className={FIELD}
+                  >
+                    {decks.map((deck) => (
+                      <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
+                        {deck.unavailable ? `${deck.title} (${deck.unavailable})` : deck.title}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                // A select whose every option is disabled shows blank, with nothing to say
+                // why, so it is replaced by the reason and where to go about it.
+                <>
+                  <p className="block text-sm font-semibold">Deck</p>
+                  <p className="text-muted mt-2 text-sm">
+                    No deck can be run yet. A deck needs publishing and approving on its deck page
+                    first.{' '}
+                    <Link href="/decks" className="text-teal hover:underline">
+                      Go to the decks
+                    </Link>
+                  </p>
+                </>
+              )}
             </div>
             <div>
               <label htmlFor="session-when" className="block text-sm font-semibold">
@@ -325,7 +267,7 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
           <button
             type="button"
             onClick={() => void createSession()}
-            disabled={busy || !deckId || (sessionPeople.length === 0 && !batchId)}
+            disabled={busy || !runnable || !deckId || (sessionPeople.length === 0 && !batchId)}
             className={`${BUTTON} mt-4`}
           >
             Set up session

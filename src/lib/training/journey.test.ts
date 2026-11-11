@@ -176,7 +176,10 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
     });
 
     it('opens feedback once the session has started', async () => {
-      assert.deepEqual(await statesOf(opened()), ['not needed', 'open', 'not needed', 'open']);
+      const here = { attendance: { [asha.id]: 'present' as const } };
+      assert.deepEqual(await statesOf(opened(here)), ['not needed', 'open', 'not needed', 'open']);
+      // Not yet marked present: they may still be on their way, so nothing after opens.
+      assert.deepEqual(await statesOf(opened()), ['not needed', 'open', 'not needed', 'locked']);
       const steps = await stepsOf(closed());
       assert.deepEqual(
         steps.map((step) => step.state),
@@ -220,7 +223,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
 
     it('opens the post-session assessment once the session has started, not feedback', async () => {
       await result('pre');
-      const steps = await stepsOf(opened());
+      const steps = await stepsOf(opened({ attendance: { [asha.id]: 'present' } }));
       assert.deepEqual(
         steps.map((step) => step.state),
         ['done', 'open', 'open', 'locked'],
@@ -228,7 +231,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       assert.equal(steps[2]?.href, assessmentHref('post', deckId, 's-room1'));
     });
 
-    it('marks a pre-session assessment not taken by the start as missed, and goes on', async () => {
+    it('marks a pre-session assessment not taken by the time they were marked as missed, and goes on', async () => {
       assert.deepEqual(await statesOf(closed()), ['missed', 'done', 'open', 'locked']);
     });
 
@@ -250,6 +253,75 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       assert.match((await stepsOf(session()))[1]?.note ?? '', /^In the room/);
       assert.equal((await stepsOf(opened()))[1]?.note, "Under way, on the facilitator's screen.");
       assert.equal((await stepsOf(closed()))[1]?.note, 'Finished.');
+    });
+  });
+
+  describe('for a participant arriving late (AI-26)', () => {
+    beforeEach(async () => {
+      await bank('pre');
+      await bank('post');
+    });
+
+    it('keeps the pre-session assessment open once the session has started, until they are marked', async () => {
+      const steps = await stepsOf(opened({ attendance: { ben: 'present' } }));
+      assert.deepEqual(
+        steps.map((step) => step.state),
+        ['open', 'open', 'locked', 'locked'],
+      );
+      assert.equal(steps[0]?.href, assessmentHref('pre', deckId, 's-room1'));
+      assert.equal(steps[0]?.note, 'The session has started. Do this now, before you join.');
+      assert.equal(steps[2]?.note, 'Opens after the pre-session assessment.');
+    });
+
+    it('shows them as joined late once marked present after the start', async () => {
+      await result('pre');
+      const late = opened({
+        attendance: { [asha.id]: 'present' },
+        attendanceAt: { [asha.id]: '2026-11-13T09:40:00.000Z' },
+      });
+      const journey = await journeyFor(asha, late, 'Safety basics');
+      assert.equal(journey.joinedLate, true);
+      assert.deepEqual(
+        journey.steps.map((step) => step.state),
+        ['done', 'open', 'open', 'locked'],
+      );
+      assert.match(journey.steps[1]?.note ?? '', /You joined late\./);
+
+      const onTime = await journeyFor(
+        asha,
+        opened({
+          attendance: { [asha.id]: 'present' },
+          attendanceAt: { [asha.id]: '2026-11-13T09:00:00.000Z' },
+        }),
+        'Safety basics',
+      );
+      assert.equal(onTime.joinedLate, false);
+    });
+
+    it('says missed only once they were marked present without it', async () => {
+      const marked = opened({
+        attendance: { [asha.id]: 'present' },
+        attendanceAt: { [asha.id]: '2026-11-13T09:40:00.000Z' },
+      });
+      const steps = await stepsOf(marked);
+      assert.deepEqual(
+        steps.map((step) => step.state),
+        ['missed', 'open', 'open', 'locked'],
+      );
+      assert.equal(steps[0]?.note, 'Closed when you were marked present.');
+    });
+  });
+
+  describe('for a cancelled session', () => {
+    it('shows it as cancelled, with nothing to do', async () => {
+      await bank('pre');
+      const journey = await journeyFor(
+        asha,
+        session({ status: 'cancelled', cancelledAt: '2026-11-12T00:00:00.000Z' }),
+        'Safety basics',
+      );
+      assert.equal(journey.cancelled, true);
+      assert.deepEqual(journey.steps, []);
     });
   });
 

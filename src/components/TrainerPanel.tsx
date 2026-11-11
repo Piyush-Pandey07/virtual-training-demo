@@ -4,6 +4,8 @@ import { TRAINER_NAME } from '@/lib/trainer';
 import type { SttTransport } from '@/hooks/useSpeechInput';
 import type { MicState, SessionPhase } from '@/lib/types';
 
+import { MicIndicator } from './MicIndicator';
+
 /** Plain-language status line, so the trainee always knows whose turn it is. */
 function statusFor(
   phase: SessionPhase,
@@ -129,6 +131,13 @@ export function TrainerPanel({
               style={{ width: `${Math.min(100, Math.round(micLevel * 100))}%` }}
             />
           </div>
+
+          {/*
+            Whether the microphone is open at all (AI-45). In a one-to-one session it
+            stays open while the trainer speaks, so the trainee can interrupt, and closes
+            on a pause or at the end, so this is not the same as the status line above.
+          */}
+          <MicIndicator state={micState} className="mt-2" />
 
           {transport === 'batch' && (
             <p className="text-muted mt-1.5 text-xs">

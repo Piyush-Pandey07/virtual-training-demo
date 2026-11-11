@@ -19,7 +19,11 @@ import { resetRosterStore } from '../roster/registry';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
 import { facilitatesDeck, facilitatesPerson, mayManageSession, sessionsListing } from './access';
+import { auditHistory, type AuditEntry } from '../audit/log';
+import { assessmentStore } from '../assessments/store';
+import { closureSummary } from './summary';
 import {
+  addParticipants,
   changeSession,
   createBatch,
   createSession,
@@ -33,6 +37,7 @@ import {
 } from './service';
 import { trainingStore } from './store';
 import type { Batch, TrainingSession } from './types';
+import { joinedLate } from './words';
 
 /**
  * The rules for batches and trainer-led sessions (BRD v2.3: AI-38, AI-01, AI-32), and
@@ -722,7 +727,7 @@ describe('changing a session', () => {
 
   it('cannot be moved back to scheduled, or to a status that does not exist', async () => {
     await saved({ status: 'open', openedAt: NOW });
-    for (const status of ['scheduled', 'cancelled', 1]) {
+    for (const status of ['scheduled', 'reopened', 1]) {
       const next = await changeSession(fran, 's-room1', { status }, options());
       assert.equal(next.status, 'open', String(status));
     }
@@ -784,12 +789,14 @@ describe('changing a session', () => {
     for (const input of [
       { attendance: { [ben.id]: 'present' } },
       { status: 'open' },
+      { status: 'scheduled' },
+      { status: 'cancelled' },
       { status: 'closed' },
       {},
     ]) {
       await assert.rejects(
         changeSession(fran, 's-room1', input, options()),
-        refused(409, /closed/),
+        refused(409, /closed.*cannot be reopened: set up a new one/),
         JSON.stringify(input),
       );
       await assert.rejects(
@@ -863,6 +870,321 @@ describe('deleting a session', () => {
 
   it('is not found for an administrator when the session does not exist', async () => {
     await assert.rejects(removeSession(companyAdmin, 's-none', options()), refused(404));
+  });
+});
+
+/** The audit entries about trainer-led sessions, once the queued writes have landed. */
+async function sessionAudit(): Promise<AuditEntry[]> {
+  await new Promise((resolve) => setImmediate(resolve));
+  return auditHistory(
+    ORG,
+    { month: new Date().toISOString().slice(0, 7), subjectType: 'training-session' },
+    { store },
+  );
+}
+
+describe('cancelling a session', () => {
+  it('is open to its facilitator and any administrator, and keeps the record', async () => {
+    for (const who of [fran, companyAdmin, technavious]) {
+      await saved();
+      const cancelled = await changeSession(who, 's-room1', { status: 'cancelled' }, options());
+      assert.equal(cancelled.status, 'cancelled', who.id);
+      assert.equal(cancelled.cancelledAt, NOW);
+      assert.equal(cancelled.cancelledBy, who.id);
+      assert.equal(cancelled.openedAt, null);
+      assert.deepEqual(await stored('s-room1'), cancelled);
+    }
+  });
+
+  it('is not found for another facilitator or a participant', async () => {
+    const record = await saved();
+    for (const who of [felix, asha]) {
+      await assert.rejects(
+        changeSession(who, 's-room1', { status: 'cancelled' }, options()),
+        refused(404),
+      );
+    }
+    assert.deepEqual(await stored('s-room1'), record);
+  });
+
+  it('is refused once the session has started', async () => {
+    const record = await saved({ status: 'open', openedAt: NOW });
+    await assert.rejects(
+      changeSession(fran, 's-room1', { status: 'cancelled' }, options()),
+      refused(409, /has not started can be cancelled/),
+    );
+    assert.deepEqual(await stored('s-room1'), record);
+  });
+
+  it('leaves a session that can never be opened, marked or closed', async () => {
+    await saved();
+    const cancelled = await changeSession(fran, 's-room1', { status: 'cancelled' }, options());
+    for (const input of [
+      { status: 'open' },
+      { status: 'closed' },
+      { status: 'cancelled' },
+      { attendance: { [asha.id]: 'present' } },
+    ]) {
+      await assert.rejects(
+        changeSession(companyAdmin, 's-room1', input, options()),
+        refused(409, /cancelled/),
+        JSON.stringify(input),
+      );
+    }
+    await assert.rejects(
+      addParticipants(companyAdmin, 's-room1', { participantIds: [cara.id] }, options()),
+      refused(409, /cancelled/),
+    );
+    assert.deepEqual(await stored('s-room1'), cancelled);
+  });
+
+  it('stops a facilitator reaching its participants through it', async () => {
+    await saved({ status: 'cancelled', cancelledAt: NOW });
+    assert.equal(await facilitatesPerson(fran, asha.id, { store }), false);
+    assert.equal(await facilitatesDeck(fran, DECK_ID, { store }), false);
+  });
+
+  it('is recorded in the audit history', async () => {
+    await saved();
+    await changeSession(fran, 's-room1', { status: 'cancelled' }, options());
+    const entries = await sessionAudit();
+    assert.ok(
+      entries.some(
+        (entry) =>
+          entry.action === 'cancelled' &&
+          entry.subjectId === 's-room1' &&
+          entry.actorId === fran.id,
+      ),
+    );
+  });
+});
+
+describe('timing attendance (AI-26)', () => {
+  it('records when each mark was made, in the same write', async () => {
+    await saved();
+    const next = await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present' } },
+      options(),
+    );
+    assert.deepEqual(next.attendanceAt, { [asha.id]: NOW });
+    assert.deepEqual((await stored('s-room1'))?.attendanceAt, { [asha.id]: NOW });
+  });
+
+  it('keeps the first time when a mark is made again unchanged, and re-times a change', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    await changeSession(fran, 's-room1', { attendance: { [asha.id]: 'present' } }, options());
+    const again = await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present', [ben.id]: 'absent' } },
+      { store, now: () => LATER },
+    );
+    assert.equal(again.attendanceAt?.[asha.id], NOW);
+    assert.equal(again.attendanceAt?.[ben.id], LATER);
+  });
+
+  it('shows somebody marked present after the session opened as joined late', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    const marked = await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present' } },
+      { store, now: () => LATER },
+    );
+    assert.equal(joinedLate(marked, asha.id), true);
+    assert.equal(joinedLate(marked, ben.id), false);
+    // Marked before it opened, or with no time recorded: on time.
+    const early = session({
+      openedAt: LATER,
+      attendance: { [asha.id]: 'present' },
+      attendanceAt: { [asha.id]: NOW },
+    });
+    assert.equal(joinedLate(early, asha.id), false);
+    const untimed = session({ openedAt: NOW, attendance: { [asha.id]: 'present' } });
+    assert.equal(joinedLate(untimed, asha.id), false);
+  });
+
+  it('records attendance changes in the audit history, and nothing for an unchanged mark', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present' } },
+      { store, now: () => LATER },
+    );
+    await changeSession(fran, 's-room1', { attendance: { [asha.id]: 'present' } }, options());
+    const entries = (await sessionAudit()).filter((entry) => entry.action === 'updated');
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.detail, 'Marked asha present, joined late');
+  });
+});
+
+describe('adding participants to a session', () => {
+  beforeEach(async () => {
+    await approveDeck(technavious, DECK_ID, { store });
+  });
+
+  it('lets an administrator add people while it is open, and assigns them the deck', async () => {
+    await saved({ status: 'open', openedAt: NOW, attendance: { [asha.id]: 'present' } });
+    const next = await addParticipants(
+      companyAdmin,
+      's-room1',
+      { participantIds: [cara.id, asha.id, 'stranger'] },
+      options(),
+    );
+    assert.deepEqual(next.participantIds, [asha.id, ben.id, cara.id]);
+    assert.deepEqual(next.attendance, { [asha.id]: 'present' });
+    assert.equal(await roster.isAssigned(cara.id, DECK_ID), true);
+    assert.equal(await roster.isAssigned(asha.id, DECK_ID), false, 'already listed, not assigned');
+    const entries = await sessionAudit();
+    assert.ok(
+      entries.some((entry) => /Added cara to the session after it started/.test(entry.detail)),
+    );
+  });
+
+  it('is refused to a facilitator, even their own session', async () => {
+    const record = await saved({ status: 'open', openedAt: NOW });
+    await assert.rejects(
+      addParticipants(fran, 's-room1', { participantIds: [cara.id] }, options()),
+      refused(403, ONLY_ADMIN),
+    );
+    assert.deepEqual(await stored('s-room1'), record);
+  });
+
+  it('is refused once the session is closed', async () => {
+    await saved({
+      status: 'closed',
+      openedAt: NOW,
+      closedAt: LATER,
+      closedBy: fran.id,
+      attendance: { [asha.id]: 'present', [ben.id]: 'present' },
+    });
+    await assert.rejects(
+      addParticipants(companyAdmin, 's-room1', { participantIds: [cara.id] }, options()),
+      refused(409, /closed/),
+    );
+    assert.equal(await roster.isAssigned(cara.id, DECK_ID), false);
+  });
+
+  it('is refused when the deck is not approved, and adds nobody', async () => {
+    const record = await saved({ status: 'open', openedAt: NOW, deckId: DRAFT_ID });
+    await assert.rejects(
+      addParticipants(companyAdmin, 's-room1', { participantIds: [cara.id] }, options()),
+      refused(409),
+    );
+    assert.deepEqual(await stored('s-room1'), record);
+    assert.equal(await roster.isAssigned(cara.id, DRAFT_ID), false);
+  });
+
+  it('asks for somebody to add', async () => {
+    await saved();
+    for (const participantIds of [undefined, [], ['stranger']]) {
+      await assert.rejects(
+        addParticipants(companyAdmin, 's-room1', { participantIds }, options()),
+        refused(400),
+      );
+    }
+  });
+});
+
+describe('a group of fifty (AI-01, AI-28)', () => {
+  const fifty = Array.from({ length: 50 }, (_, index) => `p${String(index).padStart(2, '0')}`);
+
+  beforeEach(async () => {
+    await approveDeck(technavious, DECK_ID, { store });
+    for (const id of fifty) {
+      await roster.upsertPerson({
+        id,
+        email: `${id}@acme.example`,
+        name: `Person ${id}`,
+        role: 'trainee',
+        orgId: ORG,
+      });
+    }
+  });
+
+  it('is set up, marked in one go, closed and summarised, with nobody left out', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: fifty },
+      options(),
+    );
+    assert.equal(created.participantIds.length, 50);
+    for (const id of fifty) assert.equal(await roster.isAssigned(id, DECK_ID), true, id);
+
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    const marks = Object.fromEntries(
+      fifty.map((id, index) => [id, index % 10 === 9 ? 'absent' : 'present']),
+    );
+    const closed = await changeSession(
+      fran,
+      created.id,
+      { attendance: marks, status: 'closed' },
+      { store, now: () => LATER },
+    );
+    assert.equal(closed.status, 'closed');
+    assert.equal(Object.keys(closed.attendance).length, 50);
+    assert.equal(Object.keys(closed.attendanceAt ?? {}).length, 50);
+
+    const summary = await closureSummary(companyAdmin, created.id, { store, roster });
+    assert.equal(summary.rows.length, 50);
+    assert.equal(summary.totals.listed, 50);
+    assert.equal(summary.totals.present, 45);
+    assert.equal(summary.totals.absent, 5);
+    // Marked after it opened, so each of the forty-five reads as joined late.
+    assert.equal(summary.totals.joinedLate, 45);
+    assert.equal(summary.rows[0]?.name, 'Person p00');
+
+    const audit = (await sessionAudit()).find((entry) => entry.action === 'updated');
+    assert.equal(audit?.detail, 'Marked 50 participants: 45 present, 5 absent');
+  });
+
+  it('carries each result’s wrong and blank answers and its bank version', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: fifty.slice(0, 1) },
+      options(),
+    );
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    await changeSession(fran, created.id, { attendance: { p00: 'present' } }, options());
+    await assessmentStore(ORG, store).recordResult({
+      id: `p00__${DECK_ID}__post`,
+      personId: 'p00',
+      deckId: DECK_ID,
+      kind: 'post',
+      sessionId: created.id,
+      answers: [],
+      correct: 3,
+      wrong: 1,
+      notAttempted: 1,
+      total: 5,
+      percent: 60,
+      passed: false,
+      passMark: 70,
+      bankVersion: 'v-two',
+      bankVersionNumber: 2,
+      bankSource: 'upload',
+      submittedAt: NOW,
+    });
+    const summary = await closureSummary(companyAdmin, created.id, { store, roster });
+    const row = summary.rows[0];
+    assert.equal(row?.postPercent, 60);
+    assert.equal(row?.postWrong, 1);
+    assert.equal(row?.postNotAttempted, 1);
+    assert.equal(row?.postVersion, '2');
+  });
+
+  it('can take fifty more once it is open', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    const next = await addParticipants(
+      companyAdmin,
+      's-room1',
+      { participantIds: fifty },
+      options(),
+    );
+    assert.equal(next.participantIds.length, 52);
   });
 });
 

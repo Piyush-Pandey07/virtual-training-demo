@@ -12,7 +12,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { assessmentHref } from '@/lib/assessments/paths';
 import { nextStepAfterSession, preAssessmentRequired } from '@/lib/assessments/service';
-import { requireAssignedDeckPage } from '@/lib/auth/guard';
+import { mayOpenDeck, requireAssignedDeckPage } from '@/lib/auth/guard';
 import { currentPerson } from '@/lib/auth/session';
 import { toClientView } from '@/lib/deck';
 import { DeckProvider } from '@/lib/deck-context';
@@ -21,6 +21,7 @@ import { coverageOf, percentComplete } from '@/lib/roster/completion';
 import { rosterStore } from '@/lib/roster/registry';
 import { keytermsFor } from '@/lib/glossary';
 import { liveGlossary } from '@/lib/glossary/store';
+import { sessionsListing } from '@/lib/training/access';
 import { SessionScreen } from './SessionScreen';
 
 // The deck comes from storage now, so prerendering this would pin whichever deck
@@ -36,12 +37,14 @@ export async function generateMetadata({ searchParams }: SessionPageProps): Prom
   // Asks who is signed in rather than reading blind. `generateMetadata` runs before
   // the page body and so outside its guard, so without this it would read a deck by
   // id for somebody with no right to it -- and now, with no customer to read it from.
+  // And asks the page's own question, so a deck nobody gave this person, a draft in
+  // particular, is not named in their tab before the page's 404.
   const viewer = await currentPerson();
   if (!viewer) return {};
+  const deckId = requested?.trim() || DEFAULT_DECK_ID;
+  if (!(await mayOpenDeck(viewer, deckId))) return {};
 
-  const stored = await loadStoredDeck(viewer.orgId, requested?.trim() || DEFAULT_DECK_ID).catch(
-    () => undefined,
-  );
+  const stored = await loadStoredDeck(viewer.orgId, deckId).catch(() => undefined);
   if (!stored) return {};
   const { meta } = stored.record;
   // A draft says so in the tab as well as on the page, since a tab is often all
@@ -63,11 +66,25 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
    * label. That reasoning was right and has expired — there is an identity to refuse
    * now, so a trainee gets a 404 for a deck nobody gave them.
    *
-   * An administrator still passes, because previewing a deck before assigning it is
-   * exactly what the review screen offers and this is where that preview lands. The
-   * draft banner below is what tells them which they are looking at.
+   * Technavious still passes, because previewing a deck before assigning it is exactly
+   * what the review screen offers and this is where that preview lands. The draft banner
+   * below is what tells them which they are looking at. A company administrator passes
+   * for a published deck only: drafts are Technavious's.
    */
   const person = await requireAssignedDeckPage(deckId, `/session?deck=${deckId}`);
+
+  // Somebody listed for a trainer-led session on this deck takes it in the room, on the
+  // facilitator's screen, and their own device never records (AI-45). Being listed is what
+  // assigned them the deck, so the check above lets them through, and the home page hides
+  // this session from them for the same reason; a typed or bookmarked address must not
+  // open the microphone either. Home is where their own steps are. Read as the home page
+  // reads it, so the two agree, including that a listing that cannot be read hides nothing.
+  if (person.role !== 'admin') {
+    const inTheRoom = await sessionsListing(person)
+      .then((sessions) => sessions.some((session) => session.deckId === deckId))
+      .catch(() => false);
+    if (inTheRoom) redirect('/');
+  }
 
   // A deck id out of a URL is untrusted, and the store rejects an unusable one by
   // throwing. A bad link should be a 404, not a 500.
