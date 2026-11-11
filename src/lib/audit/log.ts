@@ -1,6 +1,10 @@
 /**
  * The audit history: who viewed or changed a learner profile, an assessment result, a
- * question bank, the glossary or a deck's approval (BRD v2.3, AI-40).
+ * question bank, the glossary or a deck's approval (BRD v2.3, AI-40); and, as the product
+ * owner widened it, consent given and withdrawn, role changes, downloads, deletions of
+ * people, decks, banks and sessions, attendance edits, and the administrators' own
+ * actions: decks uploaded, edited, analysed, published and withdrawn, assignments, and
+ * batches and sessions set up and changed. Only Technavious administrators read it.
  *
  * Append only. An entry is written once and never changed, and nothing in the app
  * removes one: they go when their retention runs out, or with the customer they belong
@@ -53,6 +57,15 @@ export const AUDIT_ACTIONS = [
   'approved',
   'withdrawn',
   'uploaded',
+  // Consent to the privacy notice, the opposite of 'withdrawn'.
+  'given',
+  'downloaded',
+  'published',
+  'unpublished',
+  'analysed',
+  'assigned',
+  'unassigned',
+  'role-changed',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -62,6 +75,14 @@ export const AUDIT_SUBJECTS = [
   'question-bank',
   'glossary-term',
   'deck-approval',
+  // Agreeing to and withdrawing from the privacy notice, separately from the profile.
+  'consent',
+  // Somebody's place in the customer: a role changed, or removed.
+  'person',
+  'deck',
+  'assignment',
+  'batch',
+  'training-session',
 ] as const;
 export type AuditSubject = (typeof AUDIT_SUBJECTS)[number];
 
@@ -72,6 +93,12 @@ export const AUDIT_SUBJECT_LABELS: Record<AuditSubject, string> = {
   'question-bank': 'Question banks',
   'glossary-term': 'Glossary',
   'deck-approval': 'Deck approvals',
+  consent: 'Consent',
+  person: 'People and roles',
+  deck: 'Decks',
+  assignment: 'Assignments',
+  batch: 'Batches',
+  'training-session': 'Trainer-led sessions',
 };
 
 export function isAuditSubject(value: unknown): value is AuditSubject {
@@ -214,6 +241,40 @@ export async function recordAudit(
 
   if (options.immediate) await write().catch(() => undefined);
   else later(write);
+}
+
+/** The parts of a consent record the history needs. See profiles/consent.ts. */
+export interface ConsentDecisionMade {
+  decision: 'given' | 'withdrawn';
+  noticeVersion: string;
+  withProfile: boolean;
+}
+
+/**
+ * Records that somebody agreed to the privacy notice, or withdrew (AI-40).
+ *
+ * Filed under the organisation the consent record itself is kept in, which is the one
+ * the person belongs to: Technavious staff looking inside a customer agree for
+ * themselves, not for the customer, and their consent lives at home.
+ */
+export function recordConsentAudit(
+  actor: AuditActor,
+  consent: ConsentDecisionMade,
+  options: AuditOptions = {},
+): Promise<void> {
+  return recordAudit(
+    { ...actor, orgId: actor.homeOrgId ?? actor.orgId },
+    {
+      action: consent.decision,
+      subjectType: 'consent',
+      subjectId: actor.id,
+      detail:
+        consent.decision === 'given'
+          ? `Agreed to notice ${consent.noticeVersion}${consent.withProfile ? ', with a profile' : ''}`
+          : `Withdrew consent given under notice ${consent.noticeVersion}`,
+    },
+    options,
+  );
 }
 
 /** What the history page asks for: a day or a month, and optionally one kind of subject. */

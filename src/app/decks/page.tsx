@@ -4,6 +4,9 @@
  * Additive on purpose. `/` still opens the deck a client is here to see, because a
  * demo whose front door is a list of one item is a worse demo. This is where decks
  * are managed once there is more than one, and where uploading will live.
+ *
+ * Managed by Technavious alone. A company administrator gets the published decks,
+ * read-only, with the way to assign them and to see who has attended.
  */
 
 import Link from 'next/link';
@@ -11,6 +14,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { deckApprovalStates } from '@/lib/decks/approval';
 import { deckStore, listDecks } from '@/lib/decks/registry';
 
@@ -36,7 +40,12 @@ export default async function DeckLibraryPage() {
   // refusal: what decks exist is not something they need told.
   const admin = await requireAdminPage('/decks');
 
-  const decks = await listDecks(admin.orgId);
+  // Technavious uploads, reviews and publishes. A company administrator sees the library
+  // read-only, and only what is published, since that is all they can assign.
+  const manages = isAdministrator(admin);
+  const decks = (await listDecks(admin.orgId)).filter(
+    (deck) => manages || deck.status === 'published',
+  );
   const store = deckStore(admin.orgId);
   // So a published deck that needs approving again stands out here, not only on its own
   // page (AI-39). Unreadable approvals simply show no label.
@@ -57,10 +66,12 @@ export default async function DeckLibraryPage() {
           {decks.length} {decks.length === 1 ? 'deck' : 'decks'}
         </h1>
         <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
-          {STORE_DESCRIPTION[store.kind]}
+          {manages
+            ? STORE_DESCRIPTION[store.kind]
+            : 'The published decks you can assign to your people. Technavious uploads and reviews them.'}
         </p>
 
-        {store.writable && (
+        {manages && store.writable && (
           <Link
             href="/decks/new"
             className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 inline-block rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
@@ -144,12 +155,12 @@ export default async function DeckLibraryPage() {
                   >
                     Who has attended
                   </Link>
-                  {!deck.readOnly && (
+                  {(!deck.readOnly || !manages) && (
                     <Link
                       href={`/decks/${encodeURIComponent(deck.id)}`}
                       className="border-charcoal-line text-muted hover:text-mist rounded-md border px-4 py-2 text-sm font-semibold transition-colors"
                     >
-                      Review and analyse
+                      {manages ? 'Review and analyse' : 'View and assign'}
                     </Link>
                   )}
                 </div>

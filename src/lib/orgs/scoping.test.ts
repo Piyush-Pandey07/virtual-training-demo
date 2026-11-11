@@ -86,6 +86,11 @@ const STORES = [
   // The audit history of who viewed or changed a customer's data.
   'auditDocuments',
   'auditHistory',
+  // The names and addresses of people who have left, kept for the five-year record.
+  'leaverDocuments',
+  'recordLeaver',
+  // What removing somebody deletes at once: their assessment answers and comments.
+  'eraseLeaverAnswers',
 ] as const;
 
 /**

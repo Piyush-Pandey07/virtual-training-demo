@@ -53,6 +53,11 @@ export interface ProgressInput {
   completionPercent?: number;
 }
 
+export interface RemovePersonOptions {
+  /** Leave their attempts in place, as the record that they trained. */
+  keepAttempts?: boolean;
+}
+
 export interface AssignmentInput {
   personId: string;
   deckId: string;
@@ -82,7 +87,15 @@ export interface RosterStore {
    * is re-minted they keep reading the customer they just left.
    */
   setOrgId(id: string, orgId: string): Promise<Person>;
-  removePerson(id: string): Promise<void>;
+  /**
+   * Removes somebody's row and their assignments, so they can no longer sign in or be
+   * given anything, and with them their attempts unless `keepAttempts` is set.
+   *
+   * Somebody who leaves keeps their attempts (AI-42): completion is part of the training
+   * record kept for five years, and the retention job removes it then. Purging a
+   * customer, and correcting a misplacement, take everything.
+   */
+  removePerson(id: string, options?: RemovePersonOptions): Promise<void>;
 
   listAssignmentsForPerson(personId: string): Promise<Assignment[]>;
   listAssignmentsForDeck(deckId: string): Promise<Assignment[]>;
@@ -93,6 +106,13 @@ export interface RosterStore {
   getAttempt(personId: string, deckId: string): Promise<Attempt | undefined>;
   listAttemptsForPerson(personId: string): Promise<Attempt[]>;
   listAttemptsForDeck(deckId: string): Promise<Attempt[]>;
+  /**
+   * Every attempt in this customer, those of people who have left included. For the
+   * retention job, which reads them once a day rather than once per person.
+   */
+  listAttempts(): Promise<Attempt[]>;
+  /** Removes one attempt. For the retention job, five years after its last use. */
+  removeAttempt(personId: string, deckId: string): Promise<void>;
   /**
    * Records that a slide was finished. Idempotent: the same slide twice is one row.
    *

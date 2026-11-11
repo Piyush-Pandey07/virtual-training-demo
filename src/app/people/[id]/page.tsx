@@ -33,9 +33,11 @@ interface PersonPageProps {
 export async function generateMetadata({ params }: PersonPageProps): Promise<Metadata> {
   const { id } = await params;
   // Asks who is signed in rather than reading blind: `generateMetadata` runs outside
-  // the page's guard, and a name in a tab title is still somebody's name.
+  // the page's guard, and a name in a tab title is still somebody's name. Only for
+  // whoever the page itself admits: a participant or facilitator who guessed a
+  // colleague's id used to get their name in the tab before the page's 404.
   const viewer = await currentPerson();
-  if (!viewer) return { title: 'Technavious' };
+  if (!viewer || viewer.role !== 'admin') return { title: 'Technavious' };
 
   const person = await rosterStore(viewer.orgId)
     .getPerson(id)

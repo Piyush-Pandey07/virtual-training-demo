@@ -4,6 +4,9 @@
  * The product home: upload a deck, see what is in the library and what state it is
  * in, and get to the two things that only exist once there are trainees — who has
  * been given what, and how far each of them has got.
+ *
+ * Uploading and reviewing are offered to Technavious only. A company administrator gets
+ * the published decks to assign, their people, and their company's progress.
  */
 
 import Link from 'next/link';
@@ -36,6 +39,12 @@ export interface AdminHomeData {
   person: SignedInPerson;
   uploaded: DeckSummary[];
   demo: DeckSummary | undefined;
+  /**
+   * Technavious, who upload, review and publish decks. A company administrator is not
+   * offered any of it: they assign published decks and follow their people's progress.
+   */
+  mayManageDecks: boolean;
+  /** Whether to offer uploading: Technavious, on a deployment with deck storage. */
   canUpload: boolean;
   peopleCount: number;
   outstanding: number;
@@ -61,6 +70,7 @@ export function HomeForAdmin({
   person,
   uploaded,
   demo,
+  mayManageDecks,
   canUpload,
   peopleCount,
   outstanding,
@@ -104,27 +114,33 @@ export function HomeForAdmin({
         </p>
 
         <h1 className="mt-3 max-w-3xl text-4xl leading-tight font-bold sm:text-5xl">
-          Turn a deck into a live training session
+          {mayManageDecks
+            ? 'Turn a deck into a live training session'
+            : 'Training for your people, and how far each has got'}
         </h1>
 
         <p className="text-muted mt-4 max-w-2xl text-lg leading-relaxed">
-          Upload a presentation and {TRAINER_NAME} presents it one to one: explaining each slide,
-          answering questions out loud, and waiting for the trainee rather than running to a script.
+          {mayManageDecks
+            ? `Upload a presentation and ${TRAINER_NAME} presents it one to one: explaining each slide, answering questions out loud, and waiting for the trainee rather than running to a script.`
+            : `Assign the decks Technavious has published and approved, manage your facilitators and participants, and see your company's progress and results. ${TRAINER_NAME} presents each deck one to one.`}
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          {canUpload ? (
-            <Link
-              href="/decks/new"
-              className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-6 py-3 text-base font-semibold transition-colors"
-            >
-              Upload a deck
-            </Link>
-          ) : (
-            <span className="border-charcoal-line text-muted rounded-md border border-dashed px-6 py-3 text-base font-semibold">
-              Uploading is not configured
-            </span>
-          )}
+          {/* Uploading is the Benchmark administrator's: a company administrator is not
+              offered it, rather than offered a page that would refuse them. */}
+          {mayManageDecks &&
+            (canUpload ? (
+              <Link
+                href="/decks/new"
+                className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-6 py-3 text-base font-semibold transition-colors"
+              >
+                Upload a deck
+              </Link>
+            ) : (
+              <span className="border-charcoal-line text-muted rounded-md border border-dashed px-6 py-3 text-base font-semibold">
+                Uploading is not configured
+              </span>
+            ))}
 
           {/* The sample session, and the only place it is offered. */}
           {demo && (
@@ -189,18 +205,22 @@ export function HomeForAdmin({
 
         <section className="mt-14">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-xl font-semibold">Your decks</h2>
+            <h2 className="text-xl font-semibold">
+              {mayManageDecks ? 'Your decks' : 'Published decks'}
+            </h2>
             {uploaded.length > 0 && (
               <Link href="/decks" className="text-muted hover:text-teal text-sm transition-colors">
-                Manage all {uploaded.length}
+                {mayManageDecks ? 'Manage' : 'See'} all {uploaded.length}
               </Link>
             )}
           </div>
 
           {uploaded.length === 0 ? (
             <p className="border-charcoal-line text-muted mt-4 rounded-xl border border-dashed p-8 text-center text-sm leading-relaxed">
-              Nothing uploaded yet.
-              {canUpload ? (
+              {mayManageDecks
+                ? 'Nothing uploaded yet.'
+                : 'Nothing published yet. Technavious publishes decks here once they are reviewed.'}
+              {!mayManageDecks ? null : canUpload ? (
                 <>
                   {' '}
                   <Link href="/decks/new" className="text-teal hover:underline">
@@ -238,7 +258,7 @@ export function HomeForAdmin({
                       href={`/decks/${encodeURIComponent(deck.id)}`}
                       className="border-charcoal-line text-muted hover:text-mist rounded-md border px-4 py-2 text-sm font-semibold transition-colors"
                     >
-                      Review
+                      {mayManageDecks ? 'Review' : 'View and assign'}
                     </Link>
                     <Link
                       href={`/session?deck=${encodeURIComponent(deck.id)}`}
@@ -257,23 +277,25 @@ export function HomeForAdmin({
           )}
         </section>
 
-        <section className="mt-14">
-          <h2 className="text-xl font-semibold">How it works</h2>
-          <ol className="mt-5 grid gap-4 sm:grid-cols-3">
-            {STEPS.map((step, index) => (
-              <li
-                key={step.title}
-                className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5"
-              >
-                <span className="text-azure-bright text-sm font-bold tabular-nums">
-                  {index + 1}
-                </span>
-                <h3 className="mt-2 font-semibold">{step.title}</h3>
-                <p className="text-muted mt-2 text-sm leading-relaxed">{step.body}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
+        {mayManageDecks && (
+          <section className="mt-14">
+            <h2 className="text-xl font-semibold">How it works</h2>
+            <ol className="mt-5 grid gap-4 sm:grid-cols-3">
+              {STEPS.map((step, index) => (
+                <li
+                  key={step.title}
+                  className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5"
+                >
+                  <span className="text-azure-bright text-sm font-bold tabular-nums">
+                    {index + 1}
+                  </span>
+                  <h3 className="mt-2 font-semibold">{step.title}</h3>
+                  <p className="text-muted mt-2 text-sm leading-relaxed">{step.body}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
       </main>
 
       <footer className="border-charcoal-line text-muted border-t px-5 py-6 text-sm sm:px-8">

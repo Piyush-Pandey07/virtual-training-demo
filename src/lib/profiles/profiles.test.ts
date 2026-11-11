@@ -144,11 +144,17 @@ const switchTo = (value: string | undefined) => {
 };
 
 describe('the switch', () => {
-  it('is "true" for everybody, "staff" for Technavious, and off for anything else', () => {
+  it('is on for everybody unset, blank or "true", "staff" for Technavious, and off otherwise', () => {
+    // On by default (AI-27): the product owner asked for it fully switched on.
     switchTo(undefined);
-    assert.equal(profilesSwitch(), 'off', 'unset');
+    assert.equal(profilesSwitch(), 'everyone', 'unset');
+    switchTo('');
+    assert.equal(profilesSwitch(), 'everyone', 'blank');
+    assert.equal(profilesEnabled(), true);
+    // "off" is the way to turn it off, and so is anything that is not an exact value, so
+    // a typo collects nothing rather than everything.
     for (const value of [
-      '',
+      'off',
       'TRUE',
       'True',
       ' true',
@@ -186,27 +192,30 @@ describe('the switch', () => {
     assert.equal(profilesEnabledInOrg('acme'), false);
   });
 
-  it('when true covers everybody, and when off nobody', () => {
-    switchTo('true');
-    assert.equal(profilesEnabledFor(person), true);
-    assert.equal(profilesEnabledInOrg('acme'), true);
-    switchTo(undefined);
+  it('when on covers everybody, and when off nobody', () => {
+    for (const on of ['true', undefined]) {
+      switchTo(on);
+      assert.equal(profilesEnabledFor(person), true);
+      assert.equal(profilesEnabledInOrg('acme'), true);
+    }
+    switchTo('off');
     assert.equal(profilesEnabledFor(staff), false);
     assert.equal(profilesEnabledFor({ platform: true }), false);
     assert.equal(profilesEnabledInOrg('technavious'), false);
   });
 
-  it('ships off, with a warning beside it in the example environment', () => {
+  it('ships on, saying how to turn it off, in the example environment', () => {
     const example = read('.env.example');
     assert.match(example, /^PROFILES_ENABLED=$/m);
-    assert.match(example, /MUST STAY OFF until Technavious has\s+#?\s*approved the privacy notice/);
+    assert.match(example, /Default: on for everybody/);
+    assert.match(example, /"off" \(or "false"\) switches it off/);
     assert.match(example, /"staff" is\s+#?\s*Technavious's own people only/);
   });
 });
 
 describe('for anybody the switch leaves out, nothing happens', () => {
-  for (const setting of [undefined, 'staff']) {
-    it(`the trainer is not handed a profile and storage is not read (${setting ?? 'off'})`, async () => {
+  for (const setting of ['off', 'staff']) {
+    it(`the trainer is not handed a profile and storage is not read (${setting})`, async () => {
       switchTo(setting);
       const store = new CountingStore();
       await store.set(`orgs/acme/${PROFILES}`, person.id, SAMPLE);
@@ -220,7 +229,7 @@ describe('for anybody the switch leaves out, nothing happens', () => {
   it("leaves the trainer's system prompt byte for byte as it was", async () => {
     // The whole path the chat route takes: load the profile the way it does, with a
     // profile sitting in storage, and build the instruction with whatever comes back.
-    switchTo(undefined);
+    switchTo('off');
     const store = new InMemoryDocumentStore();
     await store.set(`orgs/acme/${PROFILES}`, person.id, SAMPLE);
     const loaded = await profileForTrainer(person, { store });
@@ -847,8 +856,14 @@ describe('the notice (AI-27)', () => {
   it('states the retention periods', () => {
     assert.match(text, /used for 90 days after your last session/);
     assert.match(text, /restricted to Technavious's administrators/);
-    assert.match(text, /deleted one year after they were last used/);
-    assert.match(text, /progress, attendance and consent records are kept for at least five years/);
+    // AI-41 and AI-42 as decided: the profile and answers at a year, the rest at five.
+    assert.match(text, /profile and your assessment answers[^.]*are deleted one year after/);
+    assert.match(
+      text,
+      /name, email address, training progress, attendance, assessment scores, pass or fail and feedback ratings are kept for five years/,
+    );
+    assert.match(text, /Consent records are kept for at least five years/);
+    assert.match(text, /drops out of our backups when those backups expire/);
   });
 
   it('says results are shared with the company and profiles are not', () => {

@@ -470,7 +470,14 @@ describe('the paths that change a deck', () => {
 
   it('shows the approval on the deck page, with the button for the approver', () => {
     const page = read('src/app/decks/[id]/page.tsx');
-    assert.match(page, /<ApproveDeck[\s\S]*?mayApprove=\{mayApproveDecks\(admin\)\}/);
+    // Only Technavious, who manage decks, are offered the button.
+    assert.match(page, /<ApproveDeck[\s\S]*?mayApprove=\{manages && mayApproveDecks\(admin\)\}/);
+    // Near the top, before the review and its Publish and Unpublish actions, rather than
+    // after every slide.
+    assert.ok(
+      page.indexOf('<ApproveDeck') < page.indexOf('<DeckReview'),
+      'the approval is below the whole deck again',
+    );
     assert.match(page, /refusal=\{assignmentRefusalFor\(approval\)\}/);
     // And the person page offers an unapproved deck disabled, with why.
     assert.match(

@@ -6,11 +6,14 @@
  * administrator while that list is empty. Anybody else is told so, rather than given a
  * 404, since they can already see the deck and its approval status on its page.
  *
+ * Technavious only before anything else (`checkAdministrator`): a company administrator
+ * gets a 404, as on the other deck tools.
+ *
  * There is no route to un-approve. An approval clears itself when the deck changes or
  * is withdrawn, which is the only reason anybody would want to take one back.
  */
 
-import { checkAdmin } from '@/lib/auth/guard';
+import { checkAdministrator } from '@/lib/auth/guard';
 import { ApprovalError, approveDeck } from '@/lib/decks/approval';
 
 export const runtime = 'nodejs';
@@ -22,7 +25,7 @@ interface RouteContext {
 }
 
 export async function POST(_request: Request, { params }: RouteContext) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const { id } = await params;

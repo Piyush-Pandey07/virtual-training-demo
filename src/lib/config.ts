@@ -137,24 +137,26 @@ export const openAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim()
  * about themselves, the notice everybody agrees to before using the app, and the bulk
  * upload that prefills profiles for a batch.
  *
- * Three settings, because UAT runs on production. "true" is everybody. "staff" is
- * Technavious's own people only, so the feature can be tried on the live deployment
- * without a customer meeting it, the same way languages are trialled. Anything else is
- * off. The DPDP Act 2023 applies, so "true" waits for Technavious to approve the notice.
+ * On for everybody unless the deployment says otherwise (AI-27). The product owner asked
+ * for it fully switched on, because every login so far is a test account, so an unset or
+ * blank PROFILES_ENABLED is everybody. The variable stays as the override: "true" is
+ * everybody too, "staff" is Technavious's own people only, the way languages are
+ * trialled, and "off" or "false" switches it off for everybody.
+ *
+ * Any other value is off as well. A typo in a deployment's settings should fail towards
+ * collecting nothing, rather than towards collecting personal data somebody was trying to
+ * stop, so only the exact values above turn it on.
  *
  * Off means absent, not hidden, for everybody the setting leaves out. The profile and
  * consent routes answer 404 as any other route that is not there does, no page offers a
  * form or a link, nobody is sent to a consent page, nothing is read or written, and the
  * trainer's instructions are byte for byte what they were before profiles existed.
- *
- * Exact values rather than anything truthy, so a stray "1", "yes" or "false" left in a
- * deployment's settings cannot switch on a feature that collects personal data.
  */
 export type ProfilesSwitch = 'everyone' | 'staff' | 'off';
 
 export function profilesSwitch(): ProfilesSwitch {
   const value = process.env.PROFILES_ENABLED;
-  if (value === 'true') return 'everyone';
+  if (value === undefined || value === '' || value === 'true') return 'everyone';
   if (value === 'staff') return 'staff';
   return 'off';
 }

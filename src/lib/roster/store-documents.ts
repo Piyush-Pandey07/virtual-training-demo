@@ -35,6 +35,7 @@ import {
   type AssignmentInput,
   type PersonInput,
   type ProgressInput,
+  type RemovePersonOptions,
   type RosterStore,
 } from './store';
 import type { Assignment, Attempt, CoveredSlide, Person, Role } from './types';
@@ -197,12 +198,14 @@ export class DocumentRosterStore implements RosterStore {
     return updated;
   }
 
-  async removePerson(id: string): Promise<void> {
+  async removePerson(id: string, options: RemovePersonOptions = {}): Promise<void> {
     for (const row of await this.docs.where<Assignment>(ASSIGNMENTS, 'personId', id)) {
       await this.docs.remove(ASSIGNMENTS, pairId(id, row.deckId));
     }
-    for (const row of await this.docs.where<StoredAttempt>(ATTEMPTS, 'personId', id)) {
-      await this.docs.remove(ATTEMPTS, pairId(id, row.deckId));
+    if (!options.keepAttempts) {
+      for (const row of await this.docs.where<StoredAttempt>(ATTEMPTS, 'personId', id)) {
+        await this.docs.remove(ATTEMPTS, pairId(id, row.deckId));
+      }
     }
     await this.docs.remove(PEOPLE, id);
   }
@@ -256,6 +259,14 @@ export class DocumentRosterStore implements RosterStore {
   async listAttemptsForPerson(personId: string): Promise<Attempt[]> {
     const found = await this.docs.where<StoredAttempt>(ATTEMPTS, 'personId', personId);
     return found.map(toAttempt);
+  }
+
+  async listAttempts(): Promise<Attempt[]> {
+    return (await this.docs.all<StoredAttempt>(ATTEMPTS)).map(toAttempt);
+  }
+
+  async removeAttempt(personId: string, deckId: string): Promise<void> {
+    await this.docs.remove(ATTEMPTS, pairId(personId, deckId));
   }
 
   async listAttemptsForDeck(deckId: string): Promise<Attempt[]> {

@@ -156,7 +156,7 @@ describe('no consent means no attendance', () => {
         throw new Error('read with the switch off');
       }
     }
-    delete process.env.PROFILES_ENABLED;
+    process.env.PROFILES_ENABLED = 'off';
     assert.equal(await mustConsent(asha, { store: new Untouchable() }), false);
     process.env.PROFILES_ENABLED = 'staff';
     assert.equal(await mustConsent(asha, { store: new Untouchable() }), false, 'a customer');
@@ -248,7 +248,7 @@ describe('withdrawal', () => {
     const remove = route.slice(route.indexOf('export async function DELETE'));
     assert.match(
       remove,
-      /await deleteProfile\(gate\.person\);\s*await recordConsent\(gate\.person, 'withdrawn', false\);/,
+      /await deleteProfile\(gate\.person\);\s*(?:const consent = )?await recordConsent\(gate\.person, 'withdrawn', false\);/,
     );
   });
 });

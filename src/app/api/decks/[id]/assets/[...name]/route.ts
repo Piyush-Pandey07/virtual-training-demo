@@ -9,6 +9,9 @@
  * One page per request. A single webp is a couple of hundred kilobytes, comfortably
  * inside the platform's 4.5 MB body limit, and one request per page gives the
  * upload page something honest to report progress against.
+ *
+ * Reading is for whoever may view the deck; writing is part of uploading one, so it is
+ * Technavious's alone (`checkAdministrator`).
  */
 
 import { createHash } from 'node:crypto';
@@ -17,7 +20,7 @@ import { assertUsableAssetName, contentTypeFor } from '@/lib/decks/assets';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
 
-import { checkAdmin, checkDeckViewer } from '@/lib/auth/guard';
+import { checkAdministrator, checkDeckViewer } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,7 +97,7 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const { id, name } = await params;

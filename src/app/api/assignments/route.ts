@@ -7,8 +7,12 @@
  *
  * Only a deck that is approved as it stands can be assigned (AI-39). Removing an
  * assignment needs no approval: taking training away from somebody is always allowed.
+ *
+ * Both are for company administrators as well as Technavious: assigning approved decks to
+ * their own people is the company administrator's job. Both are in the audit history.
  */
 
+import { recordAudit } from '@/lib/audit/log';
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
 import { approvalStateOf, assignmentRefusalFor, deckApprovalFor } from '@/lib/decks/approval';
 import { loadStoredDeck } from '@/lib/decks/registry';
@@ -71,9 +75,14 @@ export async function POST(request: Request) {
 
     const dueAt = typeof body.dueAt === 'string' && body.dueAt.trim() ? body.dueAt : null;
 
-    return Response.json(await store.assign({ personId, deckId, assignedBy: admin.id, dueAt }), {
-      status: 201,
+    const assignment = await store.assign({ personId, deckId, assignedBy: admin.id, dueAt });
+    await recordAudit(admin, {
+      action: 'assigned',
+      subjectType: 'assignment',
+      subjectId: `${personId}__${deckId}`,
+      detail: `Assigned "${stored.record.meta.title}" to ${person.email}${dueAt ? `, due ${dueAt}` : ''}`,
     });
+    return Response.json(assignment, { status: 201 });
   } catch (error) {
     const refused = unauthorisedResponse(error);
     if (refused) return refused;
@@ -96,6 +105,12 @@ export async function DELETE(request: Request) {
     // The attempt is deliberately left alone. Somebody who did the training and then
     // had it unassigned still did the training.
     await rosterStore(admin.orgId).unassign(body.personId, body.deckId);
+    await recordAudit(admin, {
+      action: 'unassigned',
+      subjectType: 'assignment',
+      subjectId: `${body.personId}__${body.deckId}`,
+      detail: `Took deck ${body.deckId} away from ${body.personId}`,
+    });
     return Response.json({ ok: true });
   } catch (error) {
     const refused = unauthorisedResponse(error);

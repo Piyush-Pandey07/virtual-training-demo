@@ -4,6 +4,9 @@
  * A server component so it can say up front whether uploading is even possible in
  * this deployment. Finding out only after choosing a file and watching it render
  * would waste a minute of someone's time to reach the same answer.
+ *
+ * Technavious only: the Benchmark administrator uploads decks, and a company
+ * administrator gets a 404 like anybody else.
  */
 
 import type { Metadata } from 'next';
@@ -11,7 +14,7 @@ import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
-import { requireAdminPage } from '@/lib/auth/guard';
+import { requireAdministratorPage } from '@/lib/auth/guard';
 import { assetStore, deckStore } from '@/lib/decks/registry';
 import { UploadDeck } from './UploadDeck';
 
@@ -20,7 +23,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Upload a deck' };
 
 export default async function NewDeckPage() {
-  const admin = await requireAdminPage('/decks/new');
+  const admin = await requireAdministratorPage('/decks/new');
 
   const decks = deckStore(admin.orgId);
   const assets = assetStore(admin.orgId);

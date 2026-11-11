@@ -19,6 +19,7 @@ import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { pageAssetName } from '@/lib/decks/asset-paths';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { mayManageBanks } from '@/lib/assessments/access';
 import { banksHref, resultsHref } from '@/lib/assessments/paths';
 import { currentPerson } from '@/lib/auth/session';
@@ -66,11 +67,16 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
   // Asks who is signed in rather than reading blind. `generateMetadata` runs before
   // the page body and so outside its guard, so without this it would read a deck by
   // id for somebody with no right to it -- and now, with no customer to read it from.
+  //
+  // And asks the same question the page does, so a deck's title is not in the tab for
+  // somebody the page itself refuses: a participant, or a company administrator on a
+  // draft.
   const viewer = await currentPerson();
-  if (!viewer) return {};
+  if (!viewer || viewer.role !== 'admin') return {};
 
   const stored = await loadDeckOnce(viewer.orgId, id).catch(() => undefined);
-  return stored ? { title: `Review ${stored.record.meta.title}` } : {};
+  if (!stored || (!isAdministrator(viewer) && stored.status !== 'published')) return {};
+  return { title: `${isAdministrator(viewer) ? 'Review' : 'Deck:'} ${stored.record.meta.title}` };
 }
 
 export default async function DeckReviewPage({ params }: ReviewPageProps) {
@@ -102,6 +108,11 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   // should be a 404 rather than a stack trace.
   const stored = await loadDeckOnce(admin.orgId, id).catch(() => undefined);
   if (!stored) notFound();
+
+  // Reviewing, editing, publishing, approving and deleting are Technavious's. A company
+  // administrator sees a published deck read-only, to assign it, and never a draft.
+  const manages = isAdministrator(admin);
+  if (!manages && stored.status !== 'published') notFound();
 
   const { record } = stored;
   const approval = approvalStateOf(await approvalRead, record, stored.status);
@@ -204,36 +215,22 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
     }
   }
 
+  // The deck's own pages, as a row under its title rather than in the header beside the
+  // main navigation, where together they made fourteen links in one line.
+  const deckLinks = [
+    // Where somebody lands after publishing, which is exactly when they want to know who
+    // it went to.
+    { href: `/decks/${encodeURIComponent(id)}/progress`, label: 'Who has attended' },
+    { href: resultsHref(id), label: 'Results and feedback' },
+    // The Benchmark administrator's alone: a company administrator never sets the paper
+    // their own people are measured by.
+    ...(mayManageBanks(admin) ? [{ href: banksHref(id), label: 'Question banks' }] : []),
+  ];
+
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {/* Where somebody lands after publishing, which is exactly when they want to
-              know who it went to. */}
-          <Link
-            href={`/decks/${encodeURIComponent(id)}/progress`}
-            className="text-muted hover:text-teal text-sm transition-colors"
-          >
-            Who has attended
-          </Link>
-          <Link
-            href={resultsHref(id)}
-            className="text-muted hover:text-teal text-sm transition-colors"
-          >
-            Results and feedback
-          </Link>
-          {/* The Benchmark administrator's alone: a company administrator never sets the
-              paper their own people are measured by. */}
-          {mayManageBanks(admin) && (
-            <Link
-              href={banksHref(id)}
-              className="text-muted hover:text-teal text-sm transition-colors"
-            >
-              Question banks
-            </Link>
-          )}
-          <MainNav person={admin} />
-        </div>
+        <MainNav person={admin} />
       </BrandHeader>
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-5 py-12 sm:px-8">
@@ -241,24 +238,63 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
           {stored.status === 'published' ? 'Published deck' : 'Draft deck'}
         </p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{record.meta.title}</h1>
-        <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
-          {review.analysed
-            ? 'This deck has been read. Everything below was generated from it, which means everything below is a suggestion. Read it before you publish.'
-            : 'This deck has been rendered but not read. Analysing it fills in the titles, summaries and pacing from the pages themselves.'}
+        <nav
+          aria-label="This deck"
+          className="border-charcoal-line mt-4 flex flex-wrap gap-x-5 gap-y-1 border-b pb-3"
+        >
+          {deckLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-muted hover:text-teal text-sm transition-colors"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+        <p className="text-muted mt-4 max-w-2xl text-base leading-relaxed">
+          {!manages
+            ? 'A published deck, read-only. Technavious uploads and reviews decks; you can assign an approved one to your people below.'
+            : review.analysed
+              ? 'This deck has been read. Everything below was generated from it, which means everything below is a suggestion. Read it before you publish.'
+              : 'This deck has been rendered but not read. Analysing it fills in the titles, summaries and pacing from the pages themselves.'}
         </p>
 
         <div className="mt-8 space-y-8">
-          <DeckReview initial={review} />
-
-          {/* Before the assign panel, because it is the reason that panel is open or
-              closed (AI-39). */}
+          {/* At the top, beside the Publish and Unpublish actions that open the review,
+              rather than after every slide: every deck needs approving, and it is the
+              reason the assign panel further down is open or closed (AI-39). */}
           <ApproveDeck
             deckId={review.id}
             approval={approval}
             published={stored.status === 'published'}
-            mayApprove={mayApproveDecks(admin)}
+            mayApprove={manages && mayApproveDecks(admin)}
             assignedCount={assigned.length}
           />
+
+          {manages ? (
+            <DeckReview initial={review} />
+          ) : (
+            <section aria-labelledby="slides-heading">
+              <h2 id="slides-heading" className="text-xl font-semibold">
+                {review.slides.length} slides
+              </h2>
+              <ol className="mt-4 space-y-2">
+                {review.slides.map((slide) => (
+                  <li
+                    key={slide.id}
+                    className="border-charcoal-line bg-charcoal-soft rounded-xl border px-5 py-3"
+                  >
+                    <p className="font-semibold">
+                      <span className="text-muted mr-2 tabular-nums">{slide.id}</span>
+                      {slide.title}
+                    </p>
+                    {slide.summary && <p className="text-muted mt-1 text-sm">{slide.summary}</p>}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
           {rosterAvailable && (
             <AssignDeck
@@ -273,7 +309,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
           {/* Last. Not offered for a read-only deck, which the server refuses to remove.
               The example deck is read-only only when the app runs with no storage at
               all; in a customer's library it is an ordinary copy they may delete. */}
-          {!stored.readOnly && (
+          {manages && !stored.readOnly && (
             <DeleteDeck
               deckId={review.id}
               title={record.meta.title}

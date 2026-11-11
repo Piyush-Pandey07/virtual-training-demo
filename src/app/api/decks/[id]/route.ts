@@ -15,6 +15,10 @@
  * Either one costs the deck its approval (AI-39) when it changes what the deck teaches
  * or withdraws it: unpublishing and deleting always, an edit only when the fingerprint
  * of the saved deck differs from the approved one. See `decks/approval.ts`.
+ *
+ * Technavious only (`checkAdministrator`): a company administrator sees published decks
+ * and assigns them, and cannot change or remove one. Edits, publishing, withdrawing and
+ * deleting are each in the audit history (AI-40).
  */
 
 import { clearDeckApproval, noteDeckSaved } from '@/lib/decks/approval';
@@ -27,7 +31,8 @@ import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 import type { DeckMeta, DeckRecord, SlideRole } from '@/lib/deck-types';
 
-import { checkAdmin } from '@/lib/auth/guard';
+import { recordAudit } from '@/lib/audit/log';
+import { checkAdministrator } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -221,7 +226,7 @@ function applySlides(deck: DeckRecord, raw: unknown, problems: string[]): DeckRe
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const { id } = await params;
@@ -292,11 +297,25 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   } else {
     await noteDeckSaved(gate.person, deck, status);
   }
+
+  // Publishing, withdrawing and editing are each in the history (AI-40). An edit that
+  // also publishes is one entry, the publish, with the edit named in its detail.
+  const edited = body.meta !== undefined || body.slides !== undefined;
+  const action =
+    stored.status !== status ? (status === 'published' ? 'published' : 'unpublished') : 'updated';
+  if (action !== 'updated' || edited) {
+    await recordAudit(gate.person, {
+      action,
+      subjectType: 'deck',
+      subjectId: id,
+      detail: `${action === 'updated' ? 'Edited' : action === 'published' ? 'Published' : 'Withdrew'} "${deck.meta.title}"${action !== 'updated' && edited ? ', with edits' : ''}`,
+    });
+  }
   return Response.json({ deck: summary, blocking: checkReadyToPublish(deck) });
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const { id } = await params;
@@ -316,6 +335,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       id,
     );
     await clearDeckApproval(gate.person, id, 'withdrawn').catch(() => false);
+    await recordAudit(gate.person, {
+      action: 'deleted',
+      subjectType: 'deck',
+      subjectId: id,
+      detail: `Deleted "${stored.record.meta.title}", unassigning it from ${unassigned} ${unassigned === 1 ? 'person' : 'people'}`,
+    });
 
     // Said back rather than done silently. Removing a deck quietly takes it off other
     // people's lists, and the administrator doing it is usually not the one who assigned

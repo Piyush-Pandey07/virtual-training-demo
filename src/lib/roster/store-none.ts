@@ -71,6 +71,12 @@ export class NoRosterStore implements RosterStore {
   async listAttemptsForDeck(): Promise<Attempt[]> {
     return [];
   }
+  async listAttempts(): Promise<Attempt[]> {
+    return [];
+  }
+  async removeAttempt(): Promise<void> {
+    refuse();
+  }
   async recordCovered(): Promise<Attempt> {
     refuse();
   }

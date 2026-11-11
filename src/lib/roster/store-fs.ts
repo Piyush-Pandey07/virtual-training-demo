@@ -26,6 +26,7 @@ import {
   type AssignmentInput,
   type PersonInput,
   type ProgressInput,
+  type RemovePersonOptions,
   type RosterStore,
 } from './store';
 import type { Assignment, Attempt, Person, Role } from './types';
@@ -176,11 +177,13 @@ export class FilesystemRosterStore implements RosterStore {
     });
   }
 
-  async removePerson(id: string): Promise<void> {
+  async removePerson(id: string, options: RemovePersonOptions = {}): Promise<void> {
     await this.update((file) => {
       file.people = file.people.filter((person) => person.id !== id);
       file.assignments = file.assignments.filter((row) => row.personId !== id);
-      file.attempts = file.attempts.filter((row) => row.personId !== id);
+      if (!options.keepAttempts) {
+        file.attempts = file.attempts.filter((row) => row.personId !== id);
+      }
     });
   }
 
@@ -250,6 +253,18 @@ export class FilesystemRosterStore implements RosterStore {
   async listAttemptsForDeck(deckId: string): Promise<Attempt[]> {
     const { attempts } = await this.read();
     return attempts.filter((row) => row.deckId === deckId);
+  }
+
+  async listAttempts(): Promise<Attempt[]> {
+    return (await this.read()).attempts;
+  }
+
+  async removeAttempt(personId: string, deckId: string): Promise<void> {
+    await this.update((file) => {
+      file.attempts = file.attempts.filter(
+        (row) => !(row.personId === personId && row.deckId === deckId),
+      );
+    });
   }
 
   async touchAttempt(input: Omit<ProgressInput, 'slideId' | 'targetSeconds'>): Promise<Attempt> {
