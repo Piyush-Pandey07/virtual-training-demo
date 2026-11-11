@@ -6,8 +6,9 @@ import { LEVEL_LABELS, type ResultSummary } from '@/lib/assessments/types';
  * A participant's own result, as they see it straight after submitting and whenever they
  * come back to the page.
  *
- * The score and what it means, and nothing about which questions were right: that would
- * hand the answer key to the next person in the room.
+ * The score and what it means, and how many questions were correct, wrong and not
+ * attempted, but nothing about which: that would hand the answer key to the next person
+ * in the room.
  */
 
 export interface NextLink {
@@ -34,6 +35,25 @@ export function ResultCard({
 }) {
   const score = `${result.correct} out of ${result.total} (${result.percent}%)`;
   const date = onDate(result.submittedAt);
+  // Older summaries, sent before blanks were allowed, may lack the counts.
+  const wrong = result.wrong ?? result.total - result.correct;
+  const notAttempted = result.notAttempted ?? 0;
+  const breakdown = (
+    <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+      {(
+        [
+          ['Correct', result.correct],
+          ['Wrong', wrong],
+          ['Not attempted', notAttempted],
+        ] as const
+      ).map(([label, count]) => (
+        <div key={label} className="flex gap-2">
+          <dt className="text-muted">{label}</dt>
+          <dd className="font-semibold tabular-nums">{count}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 
   return (
     <section
@@ -46,9 +66,10 @@ export function ResultCard({
             Your starting level: {result.level ? LEVEL_LABELS[result.level] : 'recorded'}
           </h2>
           <p className="text-muted mt-3 leading-relaxed">
-            You scored {score}. This is a check of what you already know, not a test you can fail,
-            and it is recorded so the session can be pitched at the right level for you.
+            You scored {score}. This is a check of what you already know, not a test you can fail:
+            it only sets your level, so the session can be pitched at the right level for you.
           </p>
+          {breakdown}
         </>
       ) : (
         <>
@@ -67,6 +88,7 @@ export function ResultCard({
               ? `Well done. The pass mark is ${result.passMark ?? 70}%, and you reached it.`
               : `The pass mark is ${result.passMark ?? 70}%, so this is recorded as not passed. Your facilitator or administrator can see this result and will tell you what happens next.`}
           </p>
+          {breakdown}
         </>
       )}
 

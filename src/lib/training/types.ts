@@ -55,6 +55,14 @@ export interface TrainingSession {
   closedAt: string | null;
   closedBy: string | null;
   /**
+   * Where a pre-session score places a participant for this session. Filled when it is
+   * set up, from the deck's pre-session bands or the defaults, and changed by its
+   * facilitator or an administrator until it closes. Absent on a session set up before
+   * sessions had bands. The shape is `LevelBands` in assessments/types.ts, written inline
+   * to keep this file import-free.
+   */
+  levelBands?: { intermediateFrom: number; advancedFrom: number };
+  /**
    * Set, in a transaction, just before a scheduled session is deleted, so a hand-over
    * arriving in between cannot open it. Nothing else ever sees a session with it set.
    */

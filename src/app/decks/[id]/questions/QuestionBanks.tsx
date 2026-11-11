@@ -9,15 +9,18 @@ import {
   parseBankCsv,
   type ParsedBank,
 } from '@/lib/assessments/csv';
-import { checkBands, describeBands } from '@/lib/assessments/scoring';
+import { bandsOf, describeBands } from '@/lib/assessments/scoring';
 import {
   BANK_KIND_LABELS,
-  DEFAULT_LEVEL_BANDS,
   MAX_OPTIONS,
+  PASS_MARK,
   SAMPLE_LABEL,
   type BankKind,
+  type BankVersionSummary,
+  type LevelBands,
   type QuestionBank,
 } from '@/lib/assessments/types';
+import { LevelBandsForm } from '@/components/LevelBandsForm';
 import { describeFailure, readFailure } from '@/lib/failures/codes';
 
 /**
@@ -81,101 +84,56 @@ function QuestionList({
 
 function BandsEditor({ deckId, bank }: { deckId: string; bank: QuestionBank }) {
   const router = useRouter();
-  const current = bank.bands ?? DEFAULT_LEVEL_BANDS;
-  const [intermediateFrom, setIntermediateFrom] = useState(String(current.intermediateFrom));
-  const [advancedFrom, setAdvancedFrom] = useState(String(current.advancedFrom));
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null);
+  const current = bandsOf(bank);
 
-  const checked = checkBands({
-    intermediateFrom: Number(intermediateFrom),
-    advancedFrom: Number(advancedFrom),
-  });
-  const changed =
-    checked.ok &&
-    (checked.bands.intermediateFrom !== current.intermediateFrom ||
-      checked.bands.advancedFrom !== current.advancedFrom);
-
-  async function save() {
-    if (!checked.ok) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}/questions/pre`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bands: checked.bands }),
-      });
-      const body = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(body.error ?? 'The bands could not be saved.');
-      setMessage({
-        error: false,
-        text: 'Saved. Results already given keep the level they were given.',
-      });
-      router.refresh();
-    } catch (cause) {
-      setMessage({ error: true, text: (cause as Error).message });
-    } finally {
-      setBusy(false);
-    }
+  async function save(bands: LevelBands): Promise<string | null> {
+    const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}/questions/pre`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bands }),
+    });
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) return body.error ?? 'The bands could not be saved.';
+    router.refresh();
+    return null;
   }
 
   return (
     <div className="border-charcoal-line mt-6 border-t pt-5">
       <h3 className="font-semibold">Level bands</h3>
       <p className="text-muted mt-1 text-sm leading-relaxed">
-        Where a participant&rsquo;s pre-session score places them. {describeBands(current)}
+        Where a participant&rsquo;s pre-session score places them. {describeBands(current)} A
+        trainer-led session starts with these, and its facilitator can change them for that session.
       </p>
-      <form
-        className="mt-4 flex flex-wrap items-end gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save();
-        }}
-      >
-        <label className="text-sm">
-          <span className="text-muted block">Intermediate from (%)</span>
-          <input
-            type="number"
-            min={1}
-            max={99}
-            step={1}
-            value={intermediateFrom}
-            onChange={(event) => setIntermediateFrom(event.target.value)}
-            className="border-charcoal-line bg-charcoal focus:border-teal mt-1 w-28 rounded-md border px-3 py-2 outline-none"
-          />
-        </label>
-        <label className="text-sm">
-          <span className="text-muted block">Advanced from (%)</span>
-          <input
-            type="number"
-            min={2}
-            max={100}
-            step={1}
-            value={advancedFrom}
-            onChange={(event) => setAdvancedFrom(event.target.value)}
-            className="border-charcoal-line bg-charcoal focus:border-teal mt-1 w-28 rounded-md border px-3 py-2 outline-none"
-          />
-        </label>
-        <button type="submit" disabled={busy || !changed} className={BUTTON}>
-          {busy ? 'Saving' : 'Save the bands'}
-        </button>
-      </form>
-      <p
-        className={`mt-3 text-sm ${checked.ok ? 'text-muted' : 'text-logo-red'}`}
-        aria-live="polite"
-      >
-        {checked.ok ? (changed ? describeBands(checked.bands) : '') : checked.error}
-      </p>
-      {message && (
-        <p
-          role={message.error ? 'alert' : 'status'}
-          className={`mt-2 text-sm ${message.error ? 'text-logo-red' : 'text-teal'}`}
-        >
-          {message.text}
-        </p>
-      )}
+      <div className="mt-4">
+        <LevelBandsForm
+          current={current}
+          onSave={save}
+          savedText="Saved. Results already given keep the level they were given."
+        />
+      </div>
     </div>
+  );
+}
+
+/** The versions kept of a bank, newest first, each with the results taken on it. */
+function VersionHistory({ versions }: { versions: BankVersionSummary[] }) {
+  if (versions.length < 2) return null;
+  return (
+    <details className="mt-3">
+      <summary className="hover:text-teal cursor-pointer text-sm">
+        {versions.length} versions kept. Every result is marked against the version it was taken on.
+      </summary>
+      <ul className="text-muted mt-2 space-y-1 text-sm">
+        {[...versions].reverse().map((each) => (
+          <li key={each.version}>
+            Version {each.versionNumber}: {each.questions}{' '}
+            {each.questions === 1 ? 'question' : 'questions'},{' '}
+            {each.source === 'upload' ? 'uploaded' : 'sample'} {onDate(each.savedAt)}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -183,10 +141,12 @@ function BankPanel({
   deckId,
   kind,
   bank,
+  versions,
 }: {
   deckId: string;
   kind: BankKind;
   bank: QuestionBank | null;
+  versions: BankVersionSummary[];
 }) {
   const router = useRouter();
   const [preview, setPreview] = useState<{ name: string; text: string; parsed: ParsedBank } | null>(
@@ -311,8 +271,8 @@ function BankPanel({
           </h2>
           <p className="text-muted mt-1 text-sm">
             {kind === 'pre'
-              ? 'Taken before the session. Places each participant at Beginner, Intermediate or Advanced, and must be completed before they can start.'
-              : 'Taken straight after the session. The pass mark is 70%, and each participant has one attempt.'}
+              ? 'Taken before the session. Nobody fails it: it only places each participant at Beginner, Intermediate or Advanced, and must be completed before they can start.'
+              : `Taken straight after the session. A single pass mark, ${PASS_MARK}% or above, and no level bands. Each participant has one attempt.`}
           </p>
         </div>
         <span
@@ -331,6 +291,7 @@ function BankPanel({
       {bank && (
         <details className="mt-4">
           <summary className="hover:text-teal cursor-pointer text-sm font-semibold">
+            {bank.versionNumber ? `Version ${bank.versionNumber}: ` : ''}
             {bank.questions.length} {bank.questions.length === 1 ? 'question' : 'questions'}, saved{' '}
             {onDate(bank.savedAt)}. Show them with their answers.
           </summary>
@@ -339,6 +300,7 @@ function BankPanel({
           </div>
         </details>
       )}
+      <VersionHistory versions={versions} />
 
       <div className="border-charcoal-line mt-5 border-t pt-5">
         <h3 className="font-semibold">{bank ? 'Replace with a CSV' : 'Upload a CSV'}</h3>
@@ -387,7 +349,9 @@ function BankPanel({
             ) : (
               <p className="text-muted mt-2 text-sm">
                 Check each question and its marked answer.
-                {bank ? ` Saving replaces the ${bank.questions.length} questions there now.` : ''}
+                {bank
+                  ? ` Saving makes this the new version. The ${bank.questions.length} questions there now are kept, with the results taken on them.`
+                  : ''}
               </p>
             )}
             {preview.parsed.questions.length > 0 && (
@@ -480,14 +444,16 @@ function BankPanel({
 export function QuestionBanks({
   deckId,
   banks,
+  versions,
 }: {
   deckId: string;
   banks: Record<BankKind, QuestionBank | null>;
+  versions: Record<BankKind, BankVersionSummary[]>;
 }) {
   return (
     <div className="space-y-8">
-      <BankPanel deckId={deckId} kind="pre" bank={banks.pre} />
-      <BankPanel deckId={deckId} kind="post" bank={banks.post} />
+      <BankPanel deckId={deckId} kind="pre" bank={banks.pre} versions={versions.pre} />
+      <BankPanel deckId={deckId} kind="post" bank={banks.post} versions={versions.post} />
     </div>
   );
 }

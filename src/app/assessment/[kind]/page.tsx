@@ -18,7 +18,7 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { assessmentHref, feedbackHref, sessionHref } from '@/lib/assessments/paths';
 import { summaryOf } from '@/lib/assessments/scoring';
 import {
-  assessmentPaper,
+  assessmentPaperFor,
   feedbackDone,
   hasAttended,
   preAssessmentClosed,
@@ -26,7 +26,13 @@ import {
   participation,
   Refused,
 } from '@/lib/assessments/service';
-import { BANK_KIND_LABELS, isBankKind, SAMPLE_LABEL, type BankKind } from '@/lib/assessments/types';
+import {
+  BANK_KIND_LABELS,
+  isBankKind,
+  PASS_MARK,
+  SAMPLE_LABEL,
+  type BankKind,
+} from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION, visibleTo } from '@/lib/retention/restricted';
 import type { SignedInPerson } from '@/lib/roster/types';
@@ -92,7 +98,7 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
 
   const [existing, paper] = await Promise.all([
     ownResult(person.orgId, person.id, deckId, kind),
-    assessmentPaper(person.orgId, deckId, kind),
+    assessmentPaperFor(person, deckId, kind),
   ]);
   const attended = kind === 'post' ? await hasAttended(person, deckId, session) : true;
   const { next, waiting } = await nextAfter(person, kind, deckId, session);
@@ -183,13 +189,15 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
                 ) : (
                   <p>
                     Now that the session is over, answer {paper.questions.length} short questions
-                    about what it covered. The pass mark is 70%. You will see your score as soon as
-                    you submit.
+                    about what it covered. Your score is the share of all the questions you answer
+                    correctly, and {PASS_MARK}% or above is a pass. You will see your score as soon
+                    as you submit.
                   </p>
                 )}
                 <p>
-                  Choose one answer for each question. There is no time limit, and you can take it
-                  once, so check your answers before you submit.
+                  Choose one answer for each question. A question you leave blank is marked Not
+                  attempted and scores nothing. There is no time limit, and you can take it once, so
+                  check your answers before you submit.
                 </p>
                 {paper.sample && (
                   <p className="border-charcoal-line rounded-md border px-3 py-2 text-sm">

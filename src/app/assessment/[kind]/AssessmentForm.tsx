@@ -8,11 +8,13 @@ import { ResultCard, type NextLink } from './ResultCard';
 /**
  * Taking an assessment: every question on one page, one choice each, then submit once.
  *
- * No timer, as AI-29 asks. The submit button stays available rather than greying out
- * until everything is answered, because a disabled button cannot say why; pressing it
- * early instead names the first question still to answer and moves to it.
+ * No timer, as AI-29 asks. A question may be left blank: it is marked Not attempted and
+ * scores nothing. Submitting with blanks asks first, naming how many and moving to the
+ * first, so nobody leaves one by missing it, but it never stops them.
  *
- * The paper this is given has no answers in it. The server marks what is sent.
+ * The questions come in this participant's own order (see `paperFor`), and are numbered
+ * in that order. The paper this is given has no answers in it. The server marks what is
+ * sent, by question id.
  */
 
 interface AssessmentFormProps {
@@ -32,11 +34,19 @@ export function AssessmentForm({ paper, sessionId, next, waiting }: AssessmentFo
   const answered = paper.questions.filter((question) => answers[question.id] !== undefined).length;
 
   async function submit() {
-    const missing = paper.questions.findIndex((question) => answers[question.id] === undefined);
-    if (missing >= 0) {
-      setError(`Question ${missing + 1} has not been answered yet.`);
-      document.getElementById(`question-${paper.questions[missing]!.id}`)?.focus();
-      return;
+    const blanks = paper.questions.filter((question) => answers[question.id] === undefined);
+    if (blanks.length > 0) {
+      const first = paper.questions.indexOf(blanks[0]!) + 1;
+      const confirmed = window.confirm(
+        blanks.length === 1
+          ? `Question ${first} has not been answered. It will be marked Not attempted and score nothing. Submit anyway?`
+          : `${blanks.length} questions have not been answered, starting with question ${first}. They will be marked Not attempted and score nothing. Submit anyway?`,
+      );
+      if (!confirmed) {
+        setError(null);
+        document.getElementById(`question-${blanks[0]!.id}`)?.focus();
+        return;
+      }
     }
 
     setBusy(true);
@@ -150,7 +160,8 @@ export function AssessmentForm({ paper, sessionId, next, waiting }: AssessmentFo
           </p>
         )}
         <p className="text-muted mt-2 text-xs">
-          You can take this once. Check your answers before you submit.
+          You can take this once. A question left blank is marked Not attempted and scores nothing.
+          Check your answers before you submit.
         </p>
       </div>
     </form>

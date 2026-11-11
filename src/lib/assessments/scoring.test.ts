@@ -4,19 +4,31 @@ import { describe, it } from 'node:test';
 
 import { bankFromCsv, CSV_TEMPLATE, parseBankCsv, splitCsv } from './csv';
 import {
+  advancedAbove,
   AnswersRejected,
+  bandsOf,
   checkBands,
   checkFeedback,
+  describeBands,
   levelFor,
+  levelWithBands,
   mark,
+  mostCommonLevel,
+  outcomeCounts,
   paperFor,
   passes,
   percentOf,
+  seededShuffle,
   summaryOf,
 } from './scoring';
 import { cleanSample, generateSampleQuestions, SampleUnusable, shuffleOptions } from './sample';
 import type { DeckRecord } from '../deck-types';
-import type { AssessmentResult, BankQuestion, QuestionBank } from './types';
+import {
+  DEFAULT_LEVEL_BANDS,
+  type AssessmentResult,
+  type BankQuestion,
+  type QuestionBank,
+} from './types';
 
 /**
  * The rules an assessment is marked by, read without a store.
@@ -48,8 +60,20 @@ describe('marking', () => {
     assert.equal(marked.total, 10);
     assert.equal(marked.percent, 70);
     assert.equal(marked.answers.length, 10);
-    assert.deepEqual(marked.answers[0], { questionId: 'q1', chosenIndex: 0, correct: true });
-    assert.deepEqual(marked.answers[9], { questionId: 'q10', chosenIndex: 1, correct: false });
+    assert.deepEqual(marked.answers[0], {
+      questionId: 'q1',
+      chosenIndex: 0,
+      correct: true,
+      outcome: 'correct',
+    });
+    assert.deepEqual(marked.answers[9], {
+      questionId: 'q10',
+      chosenIndex: 1,
+      correct: false,
+      outcome: 'wrong',
+    });
+    assert.equal(marked.wrong, 3);
+    assert.equal(marked.notAttempted, 0);
   });
 
   it('rounds a percentage down, so nothing short of the mark is shown as reaching it', () => {
@@ -59,20 +83,49 @@ describe('marking', () => {
     assert.equal(percentOf(0, 0), 0);
   });
 
-  it('refuses an unanswered question rather than marking it wrong', () => {
-    const answers: Record<string, number> = answersWith(10);
-    delete answers.q4;
-    assert.throws(
-      () => mark(QUESTIONS, answers),
-      (error: unknown) =>
-        error instanceof AnswersRejected &&
-        error.status === 400 &&
-        /Question 4/.test(error.message),
-    );
+  it('marks a blank question Not attempted, scoring nothing, out of all the questions', () => {
+    // Seven right, one wrong, two left blank: one missing and one sent as null.
+    const answers: Record<string, number | null> = answersWith(7);
+    answers.q8 = 1;
+    delete answers.q9;
+    answers.q10 = null;
+    const marked = mark(QUESTIONS, answers);
+    assert.equal(marked.correct, 7);
+    assert.equal(marked.wrong, 1);
+    assert.equal(marked.notAttempted, 2);
+    assert.equal(marked.total, 10);
+    assert.equal(marked.percent, 70);
+    assert.deepEqual(marked.answers[8], {
+      questionId: 'q9',
+      chosenIndex: null,
+      correct: false,
+      outcome: 'not-attempted',
+    });
+    assert.equal(marked.answers[7]!.outcome, 'wrong');
+  });
+
+  it('marks a paper left entirely blank as 0%, rather than refusing it', () => {
+    const marked = mark(QUESTIONS, {});
+    assert.equal(marked.percent, 0);
+    assert.equal(marked.notAttempted, 10);
+    assert.equal(marked.wrong, 0);
+  });
+
+  it('counts the outcomes of a result stored before blanks were allowed', () => {
+    const old = {
+      correct: 6,
+      total: 10,
+      answers: QUESTIONS.map((question, index) => ({
+        questionId: question.id,
+        chosenIndex: index < 6 ? 0 : 1,
+        correct: index < 6,
+      })),
+    } as unknown as AssessmentResult;
+    assert.deepEqual(outcomeCounts(old), { correct: 6, wrong: 4, notAttempted: 0 });
   });
 
   it('refuses an option that does not exist', () => {
-    for (const bad of [3, -1, 1.5, '0', null]) {
+    for (const bad of [3, -1, 1.5, '0']) {
       assert.throws(() => mark(QUESTIONS, { ...answersWith(10), q2: bad }), AnswersRejected);
     }
   });
@@ -96,13 +149,40 @@ describe('the pass mark', () => {
 });
 
 describe('level bands', () => {
-  it('places a score by the default bands, each edge in the band above', () => {
+  it('places by the defaults: below 40% Beginner, 40% to 70% Intermediate, above 70% Advanced', () => {
     assert.equal(levelFor(0), 'beginner');
     assert.equal(levelFor(39), 'beginner');
     assert.equal(levelFor(40), 'intermediate');
-    assert.equal(levelFor(74), 'intermediate');
-    assert.equal(levelFor(75), 'advanced');
+    assert.equal(levelFor(70), 'intermediate');
+    assert.equal(levelFor(71), 'advanced');
     assert.equal(levelFor(100), 'advanced');
+    // Whole percentages rounded down: 7 of 10 is 70%, Intermediate; 5 of 7 is 71%.
+    assert.equal(levelFor(percentOf(7, 10)), 'intermediate');
+    assert.equal(levelFor(percentOf(4, 10)), 'intermediate');
+    assert.equal(levelFor(percentOf(5, 7)), 'advanced');
+    assert.equal(advancedAbove(DEFAULT_LEVEL_BANDS), 70);
+    assert.match(
+      describeBands(DEFAULT_LEVEL_BANDS),
+      /Below 40% is Beginner, 40% to 70% is Intermediate, and above 70% is Advanced/,
+    );
+  });
+
+  it('reads the earlier defaults nobody chose as the current ones, and chosen bands as given', () => {
+    const earlier = { intermediateFrom: 40, advancedFrom: 75 };
+    assert.deepEqual(bandsOf({ bands: earlier }), DEFAULT_LEVEL_BANDS);
+    assert.deepEqual(bandsOf({ bands: earlier, bandsChosen: true }), earlier);
+    assert.deepEqual(bandsOf({ bands: { intermediateFrom: 30, advancedFrom: 60 } }), {
+      intermediateFrom: 30,
+      advancedFrom: 60,
+    });
+    assert.deepEqual(bandsOf(undefined), DEFAULT_LEVEL_BANDS);
+  });
+
+  it("places a trainer-led session's participant by that session's bands", () => {
+    const result = { percent: 65, level: 'intermediate' as const };
+    assert.equal(levelWithBands(result, { intermediateFrom: 30, advancedFrom: 60 }), 'advanced');
+    // A session from before sessions had bands keeps the level the result was given.
+    assert.equal(levelWithBands(result, undefined), 'intermediate');
   });
 
   it('uses bands an administrator set', () => {
@@ -129,6 +209,80 @@ describe('level bands', () => {
       const checked = checkBands(bad);
       assert.equal(checked.ok, false, JSON.stringify(bad));
       if (!checked.ok) assert.ok(checked.error.length > 10);
+    }
+  });
+});
+
+describe('a group of mixed levels (AI-37)', () => {
+  it('pitches to the level most are at', () => {
+    assert.equal(mostCommonLevel(['beginner', 'advanced', 'advanced', 'intermediate']), 'advanced');
+    assert.equal(mostCommonLevel(['intermediate']), 'intermediate');
+  });
+
+  it('takes the lower level on a tie', () => {
+    assert.equal(mostCommonLevel(['advanced', 'beginner']), 'beginner');
+    assert.equal(
+      mostCommonLevel(['advanced', 'intermediate', 'advanced', 'intermediate']),
+      'intermediate',
+    );
+    assert.equal(mostCommonLevel(['beginner', 'intermediate', 'advanced']), 'beginner');
+  });
+
+  it('has no level for nobody', () => {
+    assert.equal(mostCommonLevel([]), null);
+  });
+});
+
+describe('the order of the questions', () => {
+  const bank: QuestionBank = {
+    id: 'deck__post',
+    deckId: 'deck',
+    kind: 'post',
+    questions: QUESTIONS,
+    source: 'upload',
+    version: 'v1',
+    savedBy: 'admin',
+    savedAt: '2026-11-08T00:00:00.000Z',
+  };
+  const order = (paper: { questions: { id: string }[] }) => paper.questions.map((q) => q.id);
+
+  it('is the same every time for the same person and version, so a reload changes nothing', () => {
+    assert.deepEqual(order(paperFor(bank, 'asha')), order(paperFor(bank, 'asha')));
+    assert.deepEqual(seededShuffle([1, 2, 3, 4, 5], 'x'), seededShuffle([1, 2, 3, 4, 5], 'x'));
+  });
+
+  it("is each person's own, and changes with a new version", () => {
+    const asha = order(paperFor(bank, 'asha'));
+    const others = ['ben', 'cara', 'dev', 'esha'].map((who) => order(paperFor(bank, who)));
+    assert.ok(
+      others.some((each) => JSON.stringify(each) !== JSON.stringify(asha)),
+      'everybody got the same order',
+    );
+    assert.notDeepEqual(order(paperFor({ ...bank, version: 'v2' }, 'asha')), asha);
+  });
+
+  it('has every question exactly once, with its options in the order written', () => {
+    const paper = paperFor(bank, 'asha');
+    assert.deepEqual([...order(paper)].sort(), QUESTIONS.map((q) => q.id).sort());
+    for (const question of paper.questions) {
+      assert.deepEqual(question.options, ['Right', 'Wrong', 'Also wrong']);
+    }
+    // Without a person, the order written, as the administrator's screens show it.
+    assert.deepEqual(
+      order(paperFor(bank)),
+      QUESTIONS.map((q) => q.id),
+    );
+  });
+
+  it('never changes a mark, which goes by question id', () => {
+    const paper = paperFor(bank, 'asha');
+    // The first three as shown answered with the right option, whichever questions they are.
+    const answers = Object.fromEntries(paper.questions.slice(0, 3).map((q) => [q.id, 0]));
+    const marked = mark(QUESTIONS, answers);
+    assert.equal(marked.correct, 3);
+    assert.equal(marked.notAttempted, 7);
+    for (const q of paper.questions.slice(0, 3)) {
+      assert.equal(marked.answers.find((answer) => answer.questionId === q.id)?.correct, true);
     }
   });
 });
@@ -171,6 +325,9 @@ describe('answer secrecy', () => {
     };
     const summary = summaryOf(result);
     assert.equal(summary.passed, true);
+    // How many went each way, but not which.
+    assert.equal(summary.wrong, 2);
+    assert.equal(summary.notAttempted, 0);
     assert.equal('answers' in summary, false);
     assert.doesNotMatch(JSON.stringify(summary), /questionId|chosenIndex/);
   });
