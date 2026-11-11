@@ -33,6 +33,7 @@ import {
 import { renderGlossary, termsForTurn, type GlossaryEntry } from './glossary';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { languageInfo, type LanguageInfo } from './languages';
+import { alignmentFor, sectionOfSlide } from './lesson-plan/align';
 import {
   isProficiency,
   type LearnerProfileRecord,
@@ -705,7 +706,7 @@ Stay inside the scope of this awareness session. If asked for company financial 
 THE DECK
 ${asMaterial(deckOutline(deck))}
 
-Total ${totalSlides(deck)} slides.
+Total ${totalSlides(deck)} slides.${withLessonPlan(deck)}
 
 EVERYTHING YOU HAVE DEPTH ON
 ${asMaterial(renderTopicIndex(deck))}
@@ -1025,7 +1026,7 @@ ${learnerRead}
 SLIDE NOW ON SCREEN
 ${slideBriefing(deck, slide)}
 
-${knowledgeAndTerms}
+${knowledgeAndTerms}${withPlanPlace(deck, slide)}
 
 YOUR TASK
 Teach this slide now. ${
@@ -1300,7 +1301,85 @@ The facilitator has handed over to you to greet the group. In three or four sent
 The facilitator has handed over to you for an engagement question. Ask the group one short, friendly question about this slide that gets people thinking or sharing their own experience, in one or two sentences. Then stop: the facilitator will take the answers.`,
   };
 
-  const prompt = `${context}\n\n${tasks[turn]}`;
+  // Only when explaining: the plan's section says what the slide is for, which an answer
+  // to somebody's question does not need.
+  const place = turn === 'explain' ? withPlanPlace(deck, slide) : '';
+  const prompt = `${context}${place}\n\n${tasks[turn]}`;
   const reminder = args.language ? turnReminderFor(args.language) : '';
   return reminder ? `${prompt}\n\n${reminder}` : prompt;
+}
+
+// ------------------------------------------------------------------ lesson plan (AI-43)
+
+/** Slide numbers as a trainer would say them: "slide 4", "slides 4 to 6", "slides 2 and 5". */
+function slideSpan(ids: readonly number[]): string {
+  if (ids.length === 1) return `slide ${ids[0]}`;
+  const contiguous = ids.every((id, index) => index === 0 || id === ids[index - 1] + 1);
+  if (contiguous) return `slides ${ids[0]} to ${ids[ids.length - 1]}`;
+  return `slides ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+}
+
+/**
+ * The lesson plan's flow and outcomes, for the system instruction in both modes, or
+ * empty when the deck has none, so a deck without a plan is taught exactly as before.
+ *
+ * One line per section with the slides that serve it, its time and its objective, then
+ * the outcomes: the plan, not the document it came from, because every character here is
+ * in every turn. A section the deck has no slide for stays in the flow, marked, so the
+ * trainer knows it exists and that it is not to be taught. The plan was uploaded, so it
+ * goes inside the material markers; the rule about it is ours, so it stays outside.
+ */
+export function lessonPlanBlock(deck: DeckRecord): string {
+  const plan = deck.lessonPlan;
+  const alignment = alignmentFor(deck);
+  if (!plan || !alignment) return '';
+
+  const flow = plan.sections.map((section, index) => {
+    const slides = alignment.sections[index]?.slides ?? [];
+    const where = slides.length > 0 ? slideSpan(slides) : 'no slide in this deck';
+    const time = section.minutes ? `, ${section.minutes} min` : '';
+    const objective = section.objective ? `: ${section.objective}` : '';
+    return `  ${index + 1}. ${section.title} (${where}${time})${objective}`;
+  });
+  const outcomes = plan.outcomes.map((outcome) => `  - ${outcome}`);
+  const material = [
+    'Session flow:',
+    ...flow,
+    ...(outcomes.length > 0 ? ['Learning outcomes:', ...outcomes] : []),
+  ].join('\n');
+
+  return `THE LESSON PLAN
+${asMaterial(material)}
+Teach each slide towards its section's objective and these outcomes, and keep each section near its time. Where the plan and the deck differ, follow the deck: keep to the deck's order, and do not teach a section with no slide.`;
+}
+
+/** The plan block with the blank line before it, or nothing at all. */
+function withLessonPlan(deck: DeckRecord): string {
+  const block = lessonPlanBlock(deck);
+  return block ? `\n\n${block}` : '';
+}
+
+/**
+ * Which section of the plan the slide being explained serves, its objective and its
+ * time, for a narration turn, or empty when there is no plan or the slide is in no
+ * section.
+ */
+export function lessonPlanPlace(deck: DeckRecord, slide: DeckSlide): string {
+  const place = sectionOfSlide(deck, slide.id);
+  if (!place || !deck.lessonPlan) return '';
+  const { number, section, slides } = place;
+  const lines = [
+    `Section ${number} of ${deck.lessonPlan.sections.length}: ${section.title}`,
+    section.minutes
+      ? `Planned time: ${section.minutes} minutes across ${slideSpan(slides)}`
+      : `Taught across ${slideSpan(slides)}`,
+    ...(section.objective ? [`Objective: ${section.objective}`] : []),
+  ];
+  return `THIS SLIDE IN THE LESSON PLAN\n${asMaterial(lines.join('\n'))}`;
+}
+
+/** The slide's place with the blank line before it, or nothing at all. */
+function withPlanPlace(deck: DeckRecord, slide: DeckSlide): string {
+  const block = lessonPlanPlace(deck, slide);
+  return block ? `\n\n${block}` : '';
 }

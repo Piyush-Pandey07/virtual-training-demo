@@ -17,6 +17,7 @@ import 'server-only';
 
 import type { DeckMeta, DeckRecord, DeckSlide, SlideRole } from '../deck-types';
 import type { KnowledgeTopic } from '../knowledge/types';
+import { readStoredLessonPlan } from '../lesson-plan/validate';
 
 /**
  * Bumped when the stored shape changes incompatibly.
@@ -344,6 +345,13 @@ export function parseDeck(text: string): ParseResult {
       ? body.topics.map((topic, index) => parseTopic(topic, index, e))
       : (e.all.push('topics must be an array'), []),
   };
+
+  // Optional, and absent on every deck stored before lesson plans existed (AI-43).
+  if (body.lessonPlan !== undefined && body.lessonPlan !== null) {
+    const { plan, problems } = readStoredLessonPlan(body.lessonPlan);
+    e.all.push(...problems);
+    if (plan) record.lessonPlan = plan;
+  }
 
   // Only worth checking once the parts are individually sound, or the output is a
   // page of consequential errors from one missing field.

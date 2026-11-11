@@ -19,6 +19,7 @@
  */
 
 import type { KnowledgeTopic } from './knowledge/types';
+import type { LessonPlan } from './lesson-plan/types';
 
 /**
  * What a page is doing in the deck.
@@ -187,6 +188,13 @@ export interface DeckRecord {
   meta: DeckMeta;
   slides: DeckSlide[];
   topics: KnowledgeTopic[];
+  /**
+   * The Benchmark administrator's lesson plan for this deck (AI-43), when there is one.
+   *
+   * Here rather than on `meta` because `meta` crosses to the browser, and the plan is the
+   * trainer's material. See lesson-plan/types.ts for why it lives on the deck at all.
+   */
+  lessonPlan?: LessonPlan;
 }
 
 /**
