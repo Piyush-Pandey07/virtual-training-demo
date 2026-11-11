@@ -119,7 +119,8 @@ async function trainerLed(overrides: Partial<TrainingSession> = {}): Promise<Tra
     participantIds: [asha.id, ben.id],
     scheduledFor: '2026-11-13T09:00:00.000Z',
     status: 'open',
-    attendance: {},
+    // Both in the room: the post-session steps are for those marked present.
+    attendance: { [asha.id]: 'present', [ben.id]: 'present' },
     createdBy: companyAdmin.id,
     createdAt: '2026-11-08T00:00:00.000Z',
     openedAt: '2026-11-13T09:00:00.000Z',
@@ -509,9 +510,11 @@ describe('levels in a trainer-led session', () => {
 
   it("places a participant by the session's own bands", async () => {
     await bank('pre');
+    // Not yet marked: the pre-session assessment closes for each person once they are.
     const session = await trainerLed({
       status: 'scheduled',
       openedAt: null,
+      attendance: {},
       levelBands: { intermediateFrom: 20, advancedFrom: 50 },
     });
     const result = await preFor(asha, 5, session.id);

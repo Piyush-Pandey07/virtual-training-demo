@@ -138,7 +138,8 @@ export async function journeyFor(
   });
 
   // 3 and 4. After it, only for somebody who was there.
-  const attended = started && !absent;
+  // As the assessments decide it (hasAttended): marked present, in a session that started.
+  const attended = started && session.attendance[person.id] === 'present';
   const postReady = !postBank || postDone;
   steps.push(
     !postBank
@@ -156,9 +157,11 @@ export async function journeyFor(
               state: 'locked',
               note: absent
                 ? 'Not open to you: you were marked absent.'
-                : attended
-                  ? 'Opens after the pre-session assessment.'
-                  : 'Opens after the session.',
+                : !started
+                  ? 'Opens after the session.'
+                  : !preReady
+                    ? 'Opens after the pre-session assessment.'
+                    : 'Opens once the facilitator marks you present.',
             },
   );
   steps.push(

@@ -176,7 +176,10 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
     });
 
     it('opens feedback once the session has started', async () => {
-      assert.deepEqual(await statesOf(opened()), ['not needed', 'open', 'not needed', 'open']);
+      const here = { attendance: { [asha.id]: 'present' as const } };
+      assert.deepEqual(await statesOf(opened(here)), ['not needed', 'open', 'not needed', 'open']);
+      // Not yet marked present: they may still be on their way, so nothing after opens.
+      assert.deepEqual(await statesOf(opened()), ['not needed', 'open', 'not needed', 'locked']);
       const steps = await stepsOf(closed());
       assert.deepEqual(
         steps.map((step) => step.state),
@@ -220,7 +223,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
 
     it('opens the post-session assessment once the session has started, not feedback', async () => {
       await result('pre');
-      const steps = await stepsOf(opened());
+      const steps = await stepsOf(opened({ attendance: { [asha.id]: 'present' } }));
       assert.deepEqual(
         steps.map((step) => step.state),
         ['done', 'open', 'open', 'locked'],

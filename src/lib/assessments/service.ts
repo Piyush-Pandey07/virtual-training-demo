@@ -337,10 +337,15 @@ export async function hasAttended(
   options: ServiceOptions = {},
 ): Promise<boolean> {
   if (session) {
-    if (session.attendance[person.id] === 'absent') return false;
     // A cancelled session never took place, so there is nothing to have attended.
     if (session.status === 'cancelled') return false;
-    return session.openedAt !== null || session.status !== 'scheduled';
+    // Marked present by the facilitator, and nothing less: somebody not yet marked may
+    // still be on their way, doing the pre-session assessment first (AI-26), and must not
+    // reach the post-session one by its address before they have joined.
+    return (
+      session.attendance[person.id] === 'present' &&
+      (session.openedAt !== null || session.status !== 'scheduled')
+    );
   }
   const attempt = await rosterFor(person.orgId, options)
     .getAttempt(person.id, deckId)
