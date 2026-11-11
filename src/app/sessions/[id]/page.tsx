@@ -10,10 +10,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
+import { LessonPlanGaps } from '@/components/LessonPlanGaps';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
 import { mayRunSessions } from '@/lib/auth/permissions';
 import { loadDeck } from '@/lib/decks/registry';
+import { lessonPlanGaps } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
 import { trainingStore } from '@/lib/training/store';
@@ -46,6 +48,7 @@ export default async function SessionPage({ params }: Props) {
     rosterStore(me.orgId).listPeople(),
     closureSummary(me, session.id).catch(() => null),
   ]);
+  const planGaps = lessonPlanGaps(deck);
   // Only an administrator decides who is in a session; a facilitator runs it.
   const organiser = me.platform || me.role === 'admin';
   const nameOf = (personId: string) => {
@@ -74,6 +77,13 @@ export default async function SessionPage({ params }: Props) {
         <p className="text-muted mt-2 text-sm">
           Facilitated by {nameOf(session.facilitatorId)} &middot; {STATUS_WORDS[session.status]}
         </p>
+        {/* Before the session, while there is still time to prepare for what the deck
+            lacks (AI-43). The run screen shows the same while it is under way. */}
+        {(session.status === 'scheduled' || session.status === 'open') && planGaps.length > 0 && (
+          <div className="mt-8">
+            <LessonPlanGaps gaps={planGaps} audience="facilitator" />
+          </div>
+        )}
         <div className="mt-8">
           <SessionRecord
             session={session}

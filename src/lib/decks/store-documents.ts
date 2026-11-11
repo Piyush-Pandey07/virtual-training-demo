@@ -78,6 +78,11 @@ interface DeckDocument {
    * working and gains a real one the next time it is saved.
    */
   generation?: string;
+  /**
+   * The deck's lesson plan (AI-43), when it has one. On the deck document rather than
+   * split out, because it is a few kilobytes at most and is read with every deck.
+   */
+  lessonPlan?: DeckRecord['lessonPlan'];
 }
 
 /**
@@ -237,6 +242,7 @@ export class DocumentDeckStore implements DeckStore {
         .filter(present)
         .sort((a, b) => a.id - b.id),
       topics: topics.filter(current).map(valueOf).filter(present),
+      ...(document.lessonPlan ? { lessonPlan: document.lessonPlan } : {}),
     };
 
     // Round-tripped through the same validation a stored file gets. The pieces were
@@ -299,6 +305,8 @@ export class DocumentDeckStore implements DeckStore {
       slideCount: record.slides.length,
       totalSeconds: record.slides.reduce((total, slide) => total + slide.targetSeconds, 0),
       generation,
+      // Left out rather than written as undefined, which Firestore refuses.
+      ...(record.lessonPlan ? { lessonPlan: record.lessonPlan } : {}),
     };
 
     // One write, and the deck is this generation's. Every reader either sees the old

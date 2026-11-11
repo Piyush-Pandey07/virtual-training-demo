@@ -103,6 +103,15 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
     scoped: [/checkDeckViewer\(id\)/, /assetStore\(gate\.person\.orgId\)/],
     why: 'Reading needs the deck to be viewable by the caller; both directions use the caller’s organisation’s asset store.',
   },
+  'api/decks/[id]/lesson-plan/route.ts': {
+    scoped: [
+      /checkAdministrator\(\)/,
+      /readLessonPlan\(gate\.person, id,/,
+      /saveLessonPlan\(gate\.person, id,/,
+      /removeLessonPlan\(gate\.person, id\)/,
+    ],
+    why: 'Technavious only; the lesson plan service reads the deck through deckStore(person.orgId) and 404s one from elsewhere (AI-43).',
+  },
   'api/decks/[id]/questions/[kind]/route.ts': {
     scoped: [/mayManageBanks\(gate\.person\)/, /loadStoredDeck\(gate\.person\.orgId, id\)/],
     why: 'Technavious only, and the deck must exist in the organisation they are in.',

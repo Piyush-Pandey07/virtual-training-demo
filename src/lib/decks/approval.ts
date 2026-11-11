@@ -139,6 +139,13 @@ function canonical(value: unknown): unknown {
  * author-only notes, its printed title and its pixel size, none of which reaches the
  * trainer or the trainee. Everything else counts, the topics included, since they are
  * the expertise the trainer answers from.
+ *
+ * The lesson plan counts too (AI-43): it changes how every slide is taught and how long
+ * each part should take, so uploading, changing or removing one needs a fresh approval.
+ * Only what the trainer is given counts, not when it was saved, which file it came from,
+ * or the alignment, which is worked out from the plan and the slides already counted. A
+ * deck with no plan hashes exactly as it did before plans existed, so no approval given
+ * then is lost.
  */
 export function deckFingerprint(record: DeckRecord, status: DeckStatus): string {
   const meta: Record<string, unknown> = { ...record.meta };
@@ -161,7 +168,12 @@ export function deckFingerprint(record: DeckRecord, status: DeckStatus): string 
     role: slide.role,
   }));
 
-  const teachable = canonical({ status, meta, slides, topics: record.topics });
+  const plan = record.lessonPlan;
+  const lessonPlan = plan
+    ? { title: plan.title, sections: plan.sections, outcomes: plan.outcomes }
+    : undefined;
+
+  const teachable = canonical({ status, meta, slides, topics: record.topics, lessonPlan });
   return createHash('sha256').update(JSON.stringify(teachable)).digest('hex');
 }
 

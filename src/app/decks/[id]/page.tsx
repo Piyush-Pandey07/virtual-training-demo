@@ -30,12 +30,14 @@ import {
   mayApproveDecks,
 } from '@/lib/decks/approval';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import { lessonPlanView } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
 import { ApproveDeck } from './ApproveDeck';
 import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
 import { DeleteDeck } from './DeleteDeck';
 import { DeckReview, type ReviewDeck } from './DeckReview';
+import { LessonPlan } from './LessonPlan';
 
 export const dynamic = 'force-dynamic';
 
@@ -271,6 +273,17 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
             mayApprove={manages && mayApproveDecks(admin)}
             assignedCount={assigned.length}
           />
+
+          {/* The lesson plan and where the deck differs from it (AI-43), before the slides,
+              since a gap is fixed by changing either. Not for the built-in deck, which
+              cannot be changed at all. */}
+          {manages && !stored.readOnly && (
+            <LessonPlan
+              deckId={review.id}
+              plan={lessonPlanView(record)}
+              slides={record.slides.map((slide) => ({ id: slide.id, title: slide.title }))}
+            />
+          )}
 
           {manages ? (
             <DeckReview initial={review} />
