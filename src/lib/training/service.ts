@@ -14,6 +14,7 @@ import { assessmentStore } from '../assessments/store';
 import { recordAudit } from '../audit/log';
 import { assignmentRefusal } from '../decks/approval';
 import { listDecks } from '../decks/registry';
+import { notifySessionSetUp } from '../notifications/events';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { SignedInPerson } from '../roster/types';
@@ -239,6 +240,8 @@ export async function createSession(
   // A participant needs the deck assigned to see it at all, and to do its
   // assessments and feedback on their own device.
   await assignDeck(person, deck.id, participantIds);
+  // Technavious's training team is emailed about every session set up (AI-35). Never throws.
+  await notifySessionSetUp(person, session, deck.title, { store: options.store });
   return session;
 }
 

@@ -219,6 +219,8 @@ const NOT_ID_TAKING: Record<string, string> = {
     'The development sign-in, which names a person on a developer machine and refuses to run anywhere real sign-in works.',
   'api/cron/retention/route.ts':
     'Called by Vercel Cron with a secret. Takes a dry-run date, not an id, and walks every organisation by design.',
+  'api/platform/notifications/route.ts':
+    'Technavious administrators only. The id is an email notification in the platform outbox, Technavious’s own mail, not a customer’s record.',
   'api/report/route.ts':
     'The browser reporting a failure. A deck id in it is only written to the developer log as text.',
   'api/stt/route.ts': 'Transcribes audio. Any deck id is only a label for usage.',
