@@ -13,6 +13,7 @@ import 'server-only';
 import writeExcelFile, { type SheetData } from 'write-excel-file/node';
 
 import { resultsForDeck, type ServiceOptions } from '../assessments/service';
+import { outcomeCounts } from '../assessments/scoring';
 import { assessmentStore } from '../assessments/store';
 import { LEVEL_LABELS, type AssessmentResult, type Level } from '../assessments/types';
 import { visibleTo } from '../retention/restricted';
@@ -48,21 +49,20 @@ export function preLevelOf(level: Level | null | undefined): string | null {
 }
 
 /**
- * A count a result carries only once it records each answer's outcome, or null when it
- * was scored before it did, so the cell is left blank rather than showing a guessed 0.
+ * How many post-session answers were wrong and how many left blank, worked out as the
+ * result card works them out (from the stored counts, or from the answers of a result
+ * scored before counts were stored). Null without a result, so the cell stays blank.
  */
 function countOf(
   result: AssessmentResult | undefined,
-  field: 'wrongCount' | 'notAttemptedCount',
+  field: 'wrong' | 'notAttempted',
 ): number | null {
-  const value = (result as Partial<Record<typeof field, unknown>> | undefined)?.[field];
-  return typeof value === 'number' ? value : null;
+  return result ? outcomeCounts(result)[field] : null;
 }
 
-/** The bank's version as people number it, when the result carries one. */
+/** The bank's version as people number it, when the result records one. */
 function versionOf(result: AssessmentResult | undefined): string | null {
-  const value = (result as { versionNumber?: unknown } | undefined)?.versionNumber;
-  return typeof value === 'number' || (typeof value === 'string' && value) ? String(value) : null;
+  return result?.bankVersionNumber !== undefined ? String(result.bankVersionNumber) : null;
 }
 
 export async function closureSummary(
@@ -104,8 +104,8 @@ export async function closureSummary(
       postPercent: result?.post ? result.post.percent : null,
       passed: result?.post ? result.post.passed : null,
       postElsewhere: Boolean(result?.post && result.post.sessionId !== session.id),
-      postWrong: countOf(post, 'wrongCount'),
-      postNotAttempted: countOf(post, 'notAttemptedCount'),
+      postWrong: countOf(post, 'wrong'),
+      postNotAttempted: countOf(post, 'notAttempted'),
       postVersion: versionOf(post),
       feedback: result?.feedback ?? null,
     };

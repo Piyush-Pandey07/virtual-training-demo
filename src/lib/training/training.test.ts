@@ -20,6 +20,7 @@ import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
 import { facilitatesDeck, facilitatesPerson, mayManageSession, sessionsListing } from './access';
 import { auditHistory, type AuditEntry } from '../audit/log';
+import { assessmentStore } from '../assessments/store';
 import { closureSummary } from './summary';
 import {
   addParticipants,
@@ -1138,6 +1139,41 @@ describe('a group of fifty (AI-01, AI-28)', () => {
 
     const audit = (await sessionAudit()).find((entry) => entry.action === 'updated');
     assert.equal(audit?.detail, 'Marked 50 participants: 45 present, 5 absent');
+  });
+
+  it('carries each result’s wrong and blank answers and its bank version', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: fifty.slice(0, 1) },
+      options(),
+    );
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    await changeSession(fran, created.id, { attendance: { p00: 'present' } }, options());
+    await assessmentStore(ORG, store).recordResult({
+      id: `p00__${DECK_ID}__post`,
+      personId: 'p00',
+      deckId: DECK_ID,
+      kind: 'post',
+      sessionId: created.id,
+      answers: [],
+      correct: 3,
+      wrong: 1,
+      notAttempted: 1,
+      total: 5,
+      percent: 60,
+      passed: false,
+      passMark: 70,
+      bankVersion: 'v-two',
+      bankVersionNumber: 2,
+      bankSource: 'upload',
+      submittedAt: NOW,
+    });
+    const summary = await closureSummary(companyAdmin, created.id, { store, roster });
+    const row = summary.rows[0];
+    assert.equal(row?.postPercent, 60);
+    assert.equal(row?.postWrong, 1);
+    assert.equal(row?.postNotAttempted, 1);
+    assert.equal(row?.postVersion, '2');
   });
 
   it('can take fifty more once it is open', async () => {

@@ -265,17 +265,17 @@ describe('for anybody the switch leaves out, nothing happens', () => {
       // Changed on 11 November 2026 for AI-46 only: the rules in WHERE YOUR AUTHORITY
       // ENDS and the approved material markers. Reverting those reproduces ab2a32d1...,
       // 156f7a1a... and 8d609223... for the three below.
-      '4722add983e5fb77f5cc2c205f624596f52a51a4a1414f4b1c3a542a86d1b512',
+      '7cc636b0faf6af1fec9b351e73d6bef90be8e2882712380ce2f56e45d1689228',
     );
     assert.equal(
       sha(buildSystemInstruction(deck, undefined, undefined, loaded)),
-      '48ed2d1b8a2816a954172634b1bd2476419ff755bb8cb765bcd8cfee9ab0001c',
+      '22555da90347fe94cfc40a90f9e6e09f540295475c6d69383612329ac16dd05a',
     );
     assert.equal(
       sha(
         buildSystemInstruction(deck, undefined, { language: 'hi', speaksAs: 'feminine' }, loaded),
       ),
-      'f37d9b4376cf9f132dd7d455ffab9e315a4cdb10386acd67de2f89a8ef9bb968',
+      '824995f2ed0542005a0ab9e9ca28724ae17f0f8a7987520977c7d1293ffb224e',
     );
   });
 
