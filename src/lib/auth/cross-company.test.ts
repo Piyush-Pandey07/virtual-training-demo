@@ -16,6 +16,12 @@ import type { Role, SignedInPerson } from '../roster/types';
 import { removeBatch, removeSession, sessionFor, updateBatch } from '../training/service';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
+import {
+  approveWhitePaper,
+  deleteWhitePaper,
+  uploadWhitePaper,
+  whitePaperFor,
+} from '../white-papers/store';
 
 /**
  * Cross-company access through direct links and the API, not only on screen (AI-38, as
@@ -124,6 +130,10 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
     scoped: [/checkAdministrator\(\)/, /deckStore\(gate\.person\.orgId\)/],
     why: 'Technavious only, and the deck is read and removed in the organisation they are in.',
   },
+  'api/decks/[id]/white-papers/route.ts': {
+    scoped: [/checkAdministrator\(\)/, /setDeckWhitePapers\(gate\.person,/],
+    why: 'Technavious only; setDeckWhitePapers loads the deck and every paper from the caller’s organisation and 404s a miss.',
+  },
   'api/feedback/route.ts': {
     scoped: [/submitFeedback\(gate\.person,/],
     why: 'As for assessments: read through stores built from the participant.',
@@ -160,6 +170,28 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
     scoped: [/closureSummary\(person,/, /loadDeck\(person\.orgId/],
     why: 'closureSummary asks sessionFor first, which 404s a session from elsewhere.',
   },
+  'api/white-papers/[id]/route.ts': {
+    scoped: [
+      /checkAdministrator\(\)/,
+      /editWhitePaper\(gate\.person,/,
+      /replaceWhitePaperText\(gate\.person,/,
+      /setWhitePaperWithdrawn\(gate\.person,/,
+      /deleteWhitePaper\(gate\.person,/,
+    ],
+    why: 'Technavious only; the white paper store reads the paper from the caller’s organisation and 404s one from anywhere else.',
+  },
+  'api/white-papers/[id]/approval/route.ts': {
+    scoped: [/checkAdministrator\(\)/, /approveWhitePaper\(gate\.person,/],
+    why: 'Technavious only; approveWhitePaper reads the paper from the approver’s organisation and 404s a miss.',
+  },
+  'api/white-papers/[id]/original/route.ts': {
+    scoped: [
+      /checkAdministrator\(\)/,
+      /readWhitePaperOriginal\(gate\.person,/,
+      /keepWhitePaperOriginal\(gate\.person,/,
+    ],
+    why: 'Technavious only; the paper must exist in the caller’s organisation, and its file sits under that organisation’s prefix.',
+  },
   'assessment/[kind]/page.tsx': {
     scoped: [/loadStoredDeck\(person\.orgId, deckId\)/],
     why: 'The deck in the query is loaded from the participant’s organisation, and a session id is checked by the assessment service.',
@@ -177,6 +209,7 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
       /requireAdminPage\(/,
       /loadDeckOnce\(admin\.orgId, id\)/,
       /rosterStore\(admin\.orgId\)/,
+      /deckWhitePaperView\(admin\.orgId, id\)/,
     ],
     why: 'The deck is loaded from the administrator’s organisation; a company administrator gets a 404 for a draft.',
   },
@@ -207,6 +240,14 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
   'platform/errors/page.tsx': {
     scoped: [/if \(!isAdministrator\(person\)\) notFound\(\);/],
     why: 'Technavious only. Takes a day, not an id.',
+  },
+  'white-papers/[id]/page.tsx': {
+    scoped: [
+      /requireAdministratorPage\(/,
+      /whitePaperFor\(person\.orgId, id\)/,
+      /if \(!paper\) notFound\(\);/,
+    ],
+    why: 'Technavious only, and the paper is read from the organisation they are in; a miss is a 404.',
   },
   'session/page.tsx': {
     scoped: [/requireAssignedDeckPage\(deckId,/, /loadStoredDeck\(person\.orgId, deckId\)/],
@@ -240,7 +281,7 @@ const NOT_ID_TAKING: Record<string, string> = {
 
 /** Store calls whose first argument decides whose data comes back. */
 const SCOPED_CALL =
-  /\b(rosterStore|deckStore|assetStore|loadStoredDeck|loadDeck|listDecks|trainingStore|progressForDeck|deckApprovalFor|deckApprovalStates|assessmentPaper|recordQuietly|analyseSlideBatch|analyseSlideDetail|analyseTopics|leaverDocuments|recordLeaver|eraseLeaverAnswers|auditHistory|loadDeckOnce)\(\s*([^,)\s]+)/g;
+  /\b(rosterStore|deckStore|assetStore|loadStoredDeck|loadDeck|listDecks|trainingStore|progressForDeck|deckApprovalFor|deckApprovalStates|assessmentPaper|recordQuietly|analyseSlideBatch|analyseSlideDetail|analyseTopics|leaverDocuments|recordLeaver|eraseLeaverAnswers|auditHistory|loadDeckOnce|whitePaperDocuments|listWhitePapers|whitePaperFor|whitePaperTextFor|deckWhitePaperIds|deckWhitePaperView|deckReferenceLibrary|whitePaperFiles)\(\s*([^,)\s]+)/g;
 
 /** What that first argument may be: the organisation of the person a guard returned. */
 const GUARDED_ORG =
@@ -440,6 +481,19 @@ describe('an id from another customer', () => {
       resultsForDeck(acmeAdmin, 'dc-power-a1b2c3', 's-globex', { store, roster: acmeRoster }),
       { status: 404 },
     );
+  });
+
+  it('is a 404 for a white paper, to Technavious inside another customer', async () => {
+    const benchmarkInGlobex = { ...benchmarkInAcme, orgId: GLOBEX };
+    const paper = await uploadWhitePaper(
+      benchmarkInGlobex,
+      { title: 'Globex cooling', pages: ['Chilled water cooling for the data hall. '.repeat(10)] },
+      { store },
+    );
+    assert.equal(await whitePaperFor(ACME, paper.id, { store }), undefined);
+    await assert.rejects(approveWhitePaper(benchmarkInAcme, paper.id, { store }), { status: 404 });
+    await assert.rejects(deleteWhitePaper(benchmarkInAcme, paper.id, { store }), { status: 404 });
+    assert.ok(await whitePaperFor(GLOBEX, paper.id, { store }), 'it was removed');
   });
 
   it('cannot have its answers erased by removing somebody in another customer', async () => {

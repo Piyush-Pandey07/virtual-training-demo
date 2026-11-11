@@ -33,9 +33,11 @@ import { loadStoredDeck } from '@/lib/decks/registry';
 import { lessonPlanView } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
+import { deckWhitePaperView } from '@/lib/white-papers/store';
 import { ApproveDeck } from './ApproveDeck';
 import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
 import { DeleteDeck } from './DeleteDeck';
+import { DeckWhitePapers } from './DeckWhitePapers';
 import { DeckReview, type ReviewDeck } from './DeckReview';
 import { LessonPlan } from './LessonPlan';
 
@@ -105,6 +107,11 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   // approval, which is the safe way to be wrong: the page asks for one, and the
   // assignment routes refuse on their own reading regardless.
   const approvalRead = deckApprovalFor(admin.orgId, id).catch(() => undefined);
+  // The white papers the deck draws on (AI-46), Technavious's alone, beside the rest. A
+  // failure leaves the panel out rather than the page.
+  const whitePapersRead = isAdministrator(admin)
+    ? deckWhitePaperView(admin.orgId, id).catch(() => null)
+    : Promise.resolve(null);
 
   // A bad id throws from the store rather than returning nothing, and a bad link
   // should be a 404 rather than a stack trace.
@@ -118,6 +125,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
 
   const { record } = stored;
   const approval = approvalStateOf(await approvalRead, record, stored.status);
+  const whitePapers = manages ? await whitePapersRead : null;
 
   const review: ReviewDeck = {
     id: record.meta.id,
@@ -316,6 +324,14 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
               refusal={assignmentRefusalFor(approval)}
               candidates={candidates}
               assigned={assigned}
+            />
+          )}
+
+          {whitePapers && (
+            <DeckWhitePapers
+              deckId={review.id}
+              attached={whitePapers.attached}
+              available={whitePapers.available}
             />
           )}
 
