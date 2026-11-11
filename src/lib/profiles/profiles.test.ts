@@ -253,17 +253,20 @@ describe('for anybody the switch leaves out, nothing happens', () => {
       sha(buildSystemInstruction(deck, 'Asha', { language: 'en' }, loaded)),
       // Changed on 9 November 2026 for AI-08 only, the name now used on every answer.
       // Reverting that one sentence reproduces the earlier hash, 09bd7ea5...
-      'ab2a32d1e5939e83a0bf56ea2df28ea3e474907a959bc0a4cde0f64bfc4861b5',
+      // Changed on 11 November 2026 for AI-46 only: the rules in WHERE YOUR AUTHORITY
+      // ENDS and the approved material markers. Reverting those reproduces ab2a32d1...,
+      // 156f7a1a... and 8d609223... for the three below.
+      '4722add983e5fb77f5cc2c205f624596f52a51a4a1414f4b1c3a542a86d1b512',
     );
     assert.equal(
       sha(buildSystemInstruction(deck, undefined, undefined, loaded)),
-      '156f7a1a6640c66125e420d61860f0e5c4e81f3316c20519dc58433c71f4269a',
+      '48ed2d1b8a2816a954172634b1bd2476419ff755bb8cb765bcd8cfee9ab0001c',
     );
     assert.equal(
       sha(
         buildSystemInstruction(deck, undefined, { language: 'hi', speaksAs: 'feminine' }, loaded),
       ),
-      '8d6092235dac1bd519c403e034afa9b84c6e62597db662efd30a836aa0e060dc',
+      'f37d9b4376cf9f132dd7d455ffab9e315a4cdb10386acd67de2f89a8ef9bb968',
     );
   });
 
