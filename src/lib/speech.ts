@@ -50,6 +50,8 @@ export function nextSpeechCut(buffer: string): number {
 /** The shortest first chunk of a turn, and the shortest at a clause break. */
 const OPENING_MIN_CHARS = 20;
 const OPENING_CLAUSE_MIN_CHARS = 25;
+/** The shortest first chunk cut before a joining word, with no punctuation to cut at. */
+const OPENING_PHRASE_MIN_CHARS = 30;
 
 /**
  * Where to cut the first chunk of a turn (AI-44).
@@ -71,6 +73,15 @@ export function nextOpeningCut(buffer: string): number {
   const clause = /[,;:،](?=\s)/g;
   while ((match = clause.exec(buffer)) !== null) {
     if (match.index + 1 >= OPENING_CLAUSE_MIN_CHARS) return match.index + 1;
+  }
+  // Measured on the live site, the model often opens with one long sentence whose only
+  // comma comes after two words ("So, we have just covered what a data centre is and why
+  // it matters to..."), so the first sound waited for 90 characters to be synthesised.
+  // Failing punctuation, it is cut before a joining word, where a speaker would breathe.
+  const joining =
+    /\s(?=(?:and|but|which|because|so that|while|where|when|और|लेकिन|क्योंकि|जो|जब)\s)/g;
+  while ((match = joining.exec(buffer)) !== null) {
+    if (match.index >= OPENING_PHRASE_MIN_CHARS) return match.index;
   }
   return nextSpeechCut(buffer);
 }
