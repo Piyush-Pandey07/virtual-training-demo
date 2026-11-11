@@ -45,7 +45,8 @@ interface MainNavProps {
     | '/openai-test'
     | '/profile'
     | '/profiles/upload'
-    | '/glossary';
+    | '/glossary'
+    | '/white-papers';
 }
 
 export function MainNav({ person, current }: MainNavProps) {
@@ -66,6 +67,8 @@ export function MainNav({ person, current }: MainNavProps) {
   if (isAdministrator(person)) links.push({ href: '/audit', label: 'Audit history' });
   // The data centre glossary is Technavious's to manage, never a customer's (AI-21).
   if (isAdministrator(person)) links.push({ href: '/glossary', label: 'Glossary' });
+  // So are the approved white papers the trainer may draw on (AI-46).
+  if (isAdministrator(person)) links.push({ href: '/white-papers', label: 'White papers' });
   // Technavious staff only, never a customer's administrator: see mayUseOpenAiTest.
   if (mayUseOpenAiTest(person)) links.push({ href: '/openai-test', label: 'OpenAI test' });
   // Everybody's own, so offered to everybody, but only where learner profiles are

@@ -78,12 +78,10 @@ export function asMaterial(text: string): string {
 }
 
 /**
- * An approved white paper for a deck (AI-46).
- *
- * Not built yet: a later piece of work adds approved white papers per deck, and passes
- * them to `buildSystemInstruction` and `buildFacilitatedSystemInstruction`. Nothing
- * passes any today, so every prompt is exactly what it is without them. How much of a
- * long paper reaches the prompt, and which part, is for that work to decide.
+ * An approved white paper for a deck (AI-46): its title, and the few passages of it that
+ * bear on this turn, chosen by src/lib/white-papers/passages.ts. Only a paper approved as
+ * it stands and attached to the deck is ever passed, and with none the prompt is exactly
+ * what it is without them.
  */
 export interface ApprovedReference {
   title: string;
@@ -597,7 +595,7 @@ export function buildSystemInstruction(
   spoken?: SpokenLanguage,
   profile?: LearnerProfileRecord | null,
   level?: AssessedLevel | null,
-  /** Approved white papers for this deck (AI-46). None exist yet; see ApprovedReference. */
+  /** Passages of the approved white papers attached to this deck (AI-46). */
   references?: readonly ApprovedReference[],
 ): string {
   return systemInstruction(deck, 'ai-led', traineeName, spoken, profile, level, references);

@@ -91,6 +91,17 @@ const STORES = [
   'recordLeaver',
   // What removing somebody deletes at once: their assessment answers and comments.
   'eraseLeaverAnswers',
+  // Approved white papers (AI-46): the library, each paper's text and original, which
+  // papers a deck draws on, and what the trainer is given from them on a turn.
+  'whitePaperDocuments',
+  'listWhitePapers',
+  'whitePaperFor',
+  'whitePaperTextFor',
+  'deckWhitePaperIds',
+  'deckWhitePaperView',
+  'deckReferenceLibrary',
+  'whitePaperFiles',
+  'removeWhitePaperFiles',
 ] as const;
 
 /**
