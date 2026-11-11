@@ -70,8 +70,9 @@ export async function closureSummary(
 function cell(value: string | number | null): string {
   if (value === null) return '';
   let text = String(value);
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  // A tab or carriage return can start a formula too, once a spreadsheet trims it.
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /** Lets Excel open the file as UTF-8, so names in any script survive. */

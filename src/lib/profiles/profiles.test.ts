@@ -815,7 +815,7 @@ describe('leaving a customer', () => {
     const remove = people.slice(people.indexOf('export async function DELETE'));
     assert.match(
       remove,
-      /await deleteProfile\(\{ id, orgId: admin\.orgId, emailKey: leaving\?\.emailKey \}\)/,
+      /await deleteProfile\(\{ id, orgId: admin\.orgId, emailKey: leaving\??\.emailKey \}\)/,
     );
     assert.doesNotMatch(remove, /profilesEnabled/);
   });

@@ -92,6 +92,19 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     // in and still filed under the placeholder id they had then.
     const roster = rosterStore(admin.orgId);
     const leaving = await roster.getPerson(id).catch(() => undefined);
+    // Only somebody in this administrator's own organisation. Without this, any uid that
+    // reached a company administrator (a session's createdBy, say) would have its login
+    // deleted, a Technavious member of staff's included.
+    if (!leaving) return Response.json({ error: 'No such person.' }, { status: 404 });
+    if (isPlatformAdmin(leaving.email)) {
+      return Response.json(
+        {
+          error:
+            'This address is listed as an administrator in the deployment configuration, so it cannot be removed here.',
+        },
+        { status: 409 },
+      );
+    }
     await roster.removePerson(id);
 
     // Their login goes too (AI-42, RUL-8), not only their sessions. Losing the roster
@@ -108,7 +121,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     // goes when they leave, and nobody could reach it afterwards to delete it, not even
     // them. Deleted unread, and whatever PROFILES_ENABLED says, since one saved while it
     // was on still exists. The administrator removing them never sees it.
-    await deleteProfile({ id, orgId: admin.orgId, emailKey: leaving?.emailKey }).catch(
+    await deleteProfile({ id, orgId: admin.orgId, emailKey: leaving.emailKey }).catch(
       () => undefined,
     );
     // Recorded whether or not they had one, since the deletion is the decision and the
@@ -117,7 +130,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       action: 'deleted',
       subjectType: 'profile',
       subjectId: id,
-      detail: `Removed ${leaving?.email ?? 'this person'} and any profile they had`,
+      detail: `Removed ${leaving.email} and any profile they had`,
     });
 
     return Response.json({ ok: true });

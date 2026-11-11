@@ -38,6 +38,17 @@ export default async function SessionsPage() {
   // A deck can only be run once it is published and approved as it stands (AI-39). The
   // others stay listed, disabled with the reason, so nobody wonders where a deck went.
   // A failure to read approvals disables them all; the server refuses them anyway.
+  // A facilitator is shown only the people in their own sessions and batches, for the
+  // names on them, never the whole company.
+  const organiser = me.platform || me.role === 'admin';
+  const mine = new Set(
+    organiser
+      ? []
+      : [...visibleSessions(me, sessions), ...visibleBatches(me, batches)].flatMap(
+          (entry) => entry.participantIds,
+        ),
+  );
+  const shownPeople = organiser ? people : people.filter((person) => mine.has(person.id));
   const approvals = await deckApprovalStates(me.orgId, decks).catch(() => null);
   const deckChoices = decks.map((deck) => {
     const approval = approvals?.get(deck.id);
@@ -73,7 +84,7 @@ export default async function SessionsPage() {
             )}
             batches={visibleBatches(me, batches)}
             decks={deckChoices}
-            people={people.map((person) => ({
+            people={shownPeople.map((person) => ({
               id: person.id,
               name: person.name || person.email,
               email: person.email,

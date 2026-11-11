@@ -58,6 +58,8 @@ const BARGE_IN_MIN_WORDS = 2;
  * is the very thing trainees complained of. Before that, a retry is invisible.
  */
 const CHAT_ATTEMPTS = 3;
+/** How long a narration fetched ahead may take before it is given up (AI-44). */
+const PREFETCH_LIMIT_MS = 30_000;
 
 /**
  * How long a turn may go without sending anything before it is treated as lost.
@@ -346,6 +348,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     transcriptLength: number;
     controller: AbortController;
     text: Promise<string | null>;
+    /** The narration once it has arrived whole; undefined while it is still coming. */
+    settled?: string | null;
   } | null>(null);
 
   const prefetchNarration = useCallback(
@@ -396,12 +400,19 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           return null;
         }
       })();
-      prefetchRef.current = {
+      // A stalled connection is given up rather than held open.
+      const limit = setTimeout(() => controller.abort(), PREFETCH_LIMIT_MS);
+      const entry: NonNullable<typeof prefetchRef.current> = {
         slideId,
         transcriptLength: transcriptRef.current.length,
         controller,
         text,
       };
+      void text.then((result) => {
+        clearTimeout(limit);
+        entry.settled = result;
+      });
+      prefetchRef.current = entry;
     },
     [buildHistory, deck.meta.id],
   );
@@ -458,9 +469,12 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       // was asked for. Anything else, a question in between above all, and it is dropped.
       const ahead = prefetchRef.current;
       prefetchRef.current = null;
+      // Only once it has arrived whole: waiting for the rest of it would be slower than
+      // streaming the turn afresh, which speaks from its first sentence.
       const usable =
         kind === 'narrate' &&
         ahead !== null &&
+        ahead.settled &&
         ahead.slideId === targetSlide &&
         ahead.transcriptLength === transcriptRef.current.length
           ? ahead
@@ -586,7 +600,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       };
 
       try {
-        const fetchedAhead = usable ? await usable.text : null;
+        // Already whole, so taken at once rather than awaited.
+        const fetchedAhead = usable?.settled ?? null;
         if (fetchedAhead && isCurrent()) {
           // Spoken straight away: the trainer starts as soon as the first chunk is
           // synthesised, instead of first waiting for the model (AI-44).
@@ -614,8 +629,12 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           }
         }
 
-        player.flush();
-        await player.waitUntilDone();
+        // A turn superseded meanwhile leaves the player to the turn that replaced it,
+        // whose half-buffered sentence would otherwise be spoken as a fragment.
+        if (isCurrent()) {
+          player.flush();
+          await player.waitUntilDone();
+        }
 
         // Recorded even if this turn has been superseded, because it was
         // generated and at least partly heard, and the model needs it as context.

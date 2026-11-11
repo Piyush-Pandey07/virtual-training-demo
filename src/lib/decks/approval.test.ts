@@ -354,11 +354,19 @@ describe('a trainer-led session', () => {
     }
   });
 
-  const input = { deckId: DECK_ID, participantIds: [asha.id] };
+  // Set up by an administrator, who alone may, for the facilitator to run.
+  const input = { deckId: DECK_ID, facilitatorId: facilitator.id, participantIds: [asha.id] };
+
+  it('is never set up by a facilitator, who could otherwise choose whose profile to see', async () => {
+    await assert.rejects(
+      createSession(facilitator, input, { store }),
+      /Only an administrator sets up batches and sessions/,
+    );
+  });
 
   it('cannot be created on an unapproved deck, and nothing is written or assigned', async () => {
     await assert.rejects(
-      createSession(facilitator, input, { store }),
+      createSession(companyAdmin, input, { store }),
       (error: unknown) =>
         error instanceof TrainingRuleError &&
         error.status === 409 &&
@@ -374,7 +382,7 @@ describe('a trainer-led session', () => {
     edited.meta.title = 'A different title';
     await decks.save(edited, 'published');
     await assert.rejects(
-      createSession(facilitator, input, { store }),
+      createSession(companyAdmin, input, { store }),
       (error: unknown) => error instanceof TrainingRuleError && /changed since/.test(error.message),
     );
     assert.equal(await roster.isAssigned(asha.id, DECK_ID), false);
@@ -382,7 +390,7 @@ describe('a trainer-led session', () => {
 
   it('is created, and assigns the deck, once the deck is approved', async () => {
     await approveDeck(srikant, DECK_ID, { store });
-    const session = await createSession(facilitator, input, { store });
+    const session = await createSession(companyAdmin, input, { store });
     assert.equal(session.deckId, DECK_ID);
     assert.equal(await roster.isAssigned(asha.id, DECK_ID), true);
   });

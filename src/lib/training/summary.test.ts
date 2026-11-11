@@ -69,6 +69,14 @@ describe('the closure summary download', () => {
     assert.match(late, /^Late,2026-11-13,/m);
   });
 
+  it('neutralises a tab or carriage return at the start, and quotes a bare one', () => {
+    const tricky = summaryCsv(
+      { ...summary, rows: [{ ...summary.rows[0]!, name: '\t=1+1', email: 'a\rb@example.com' }] },
+      'Deck',
+    );
+    assert.match(tricky, /,'\t=1\+1,"a\rb@example\.com",/);
+  });
+
   it('never lets a name run as a formula', () => {
     assert.match(csv, /"'=HYPERLINK\(""http:\/\/example\.com""\)"/);
   });

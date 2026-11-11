@@ -34,6 +34,21 @@ export interface Options {
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * Only an administrator sets up batches and sessions and decides who is in them.
+ *
+ * A facilitator runs the sessions they are given. Being in a facilitator's batch or
+ * session is what lets them see a participant's profile, results and feedback, so if
+ * they could choose the people themselves they could put anybody in the company in a
+ * batch, read their profile and delete the batch again, which AI-06 keeps even from a
+ * company administrator.
+ */
+function refuseUnlessOrganiser(person: SignedInPerson): void {
+  if (!person.platform && person.role !== 'admin') {
+    throw new TrainingRuleError(403, 'Only an administrator sets up batches and sessions.');
+  }
+}
+
 /** The ids in a list that are real people in this company, in their given order, once. */
 async function knownPeople(person: SignedInPerson, ids: unknown): Promise<string[]> {
   if (!Array.isArray(ids)) return [];
@@ -80,6 +95,7 @@ export async function createBatch(
   input: { name?: unknown; facilitatorId?: unknown; participantIds?: unknown },
   options: Options = {},
 ): Promise<Batch> {
+  refuseUnlessOrganiser(person);
   const now = (options.now ?? nowIso)();
   const batch: Batch = {
     id: newTrainingId('b'),
@@ -100,6 +116,7 @@ export async function updateBatch(
   input: { name?: unknown; facilitatorId?: unknown; participantIds?: unknown },
   options: Options = {},
 ): Promise<Batch> {
+  refuseUnlessOrganiser(person);
   const store = trainingStore(person.orgId, options.store);
   const batch = await store.getBatch(id);
   if (!batch || !visibleBatches(person, [batch]).length) {
@@ -125,6 +142,7 @@ export async function removeBatch(
   id: string,
   options: Options = {},
 ): Promise<void> {
+  refuseUnlessOrganiser(person);
   const store = trainingStore(person.orgId, options.store);
   const batch = await store.getBatch(id);
   if (!batch || !visibleBatches(person, [batch]).length) {
@@ -153,6 +171,7 @@ export async function createSession(
   },
   options: Options = {},
 ): Promise<TrainingSession> {
+  refuseUnlessOrganiser(person);
   const store = trainingStore(person.orgId, options.store);
   const decks = await listDecks(person.orgId);
   const deck = decks.find((entry) => entry.id === input.deckId);
@@ -311,6 +330,7 @@ export async function removeSession(
   id: string,
   options: Options = {},
 ): Promise<void> {
+  refuseUnlessOrganiser(person);
   const session = await sessionFor(person, id, options);
   if (session.status !== 'scheduled') {
     throw new TrainingRuleError(409, 'Only a session that has not started can be deleted.');

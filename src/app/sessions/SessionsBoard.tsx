@@ -128,6 +128,8 @@ function ParticipantPicker({
 export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
   const router = useRouter();
   const facilitatorChoice = me.role !== 'facilitator';
+  // Only an administrator sets up batches and sessions; a facilitator runs theirs.
+  const organiser = me.platform || me.role === 'admin';
   const facilitators = people.filter(
     (person) => person.role === 'facilitator' || person.role === 'admin',
   );
@@ -237,97 +239,99 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
         )}
       </section>
 
-      <section aria-labelledby="new-session-heading" className={PANEL}>
-        <h2 id="new-session-heading" className="text-lg font-bold">
-          Set up a session
-        </h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="session-deck" className="block text-sm font-semibold">
-              Deck
-            </label>
-            <select
-              id="session-deck"
-              value={deckId}
-              onChange={(event) => setDeckId(event.target.value)}
-              className={FIELD}
-            >
-              {decks.map((deck) => (
-                <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
-                  {deck.unavailable ? `${deck.title} (${deck.unavailable})` : deck.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="session-when" className="block text-sm font-semibold">
-              When <span className="text-muted ml-2 font-normal">optional</span>
-            </label>
-            <input
-              id="session-when"
-              type="datetime-local"
-              value={when}
-              onChange={(event) => setWhen(event.target.value)}
-              className={FIELD}
-            />
-          </div>
-          {facilitatorChoice && (
+      {organiser && (
+        <section aria-labelledby="new-session-heading" className={PANEL}>
+          <h2 id="new-session-heading" className="text-lg font-bold">
+            Set up a session
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="session-facilitator" className="block text-sm font-semibold">
-                Facilitator
+              <label htmlFor="session-deck" className="block text-sm font-semibold">
+                Deck
               </label>
               <select
-                id="session-facilitator"
-                value={sessionFacilitator}
-                onChange={(event) => setSessionFacilitator(event.target.value)}
+                id="session-deck"
+                value={deckId}
+                onChange={(event) => setDeckId(event.target.value)}
                 className={FIELD}
               >
-                {facilitators.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
+                {decks.map((deck) => (
+                  <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
+                    {deck.unavailable ? `${deck.title} (${deck.unavailable})` : deck.title}
                   </option>
                 ))}
               </select>
             </div>
-          )}
-          <div>
-            <label htmlFor="session-batch" className="block text-sm font-semibold">
-              From a batch <span className="text-muted ml-2 font-normal">optional</span>
-            </label>
-            <select
-              id="session-batch"
-              value={batchId}
-              onChange={(event) => setBatchId(event.target.value)}
-              className={FIELD}
-            >
-              <option value="">No batch</option>
-              {batches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {batch.name} ({batch.participantIds.length})
-                </option>
-              ))}
-            </select>
+            <div>
+              <label htmlFor="session-when" className="block text-sm font-semibold">
+                When <span className="text-muted ml-2 font-normal">optional</span>
+              </label>
+              <input
+                id="session-when"
+                type="datetime-local"
+                value={when}
+                onChange={(event) => setWhen(event.target.value)}
+                className={FIELD}
+              />
+            </div>
+            {facilitatorChoice && (
+              <div>
+                <label htmlFor="session-facilitator" className="block text-sm font-semibold">
+                  Facilitator
+                </label>
+                <select
+                  id="session-facilitator"
+                  value={sessionFacilitator}
+                  onChange={(event) => setSessionFacilitator(event.target.value)}
+                  className={FIELD}
+                >
+                  {facilitators.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label htmlFor="session-batch" className="block text-sm font-semibold">
+                From a batch <span className="text-muted ml-2 font-normal">optional</span>
+              </label>
+              <select
+                id="session-batch"
+                value={batchId}
+                onChange={(event) => setBatchId(event.target.value)}
+                className={FIELD}
+              >
+                <option value="">No batch</option>
+                {batches.map((batch) => (
+                  <option key={batch.id} value={batch.id}>
+                    {batch.name} ({batch.participantIds.length})
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
-        <ParticipantPicker
-          people={participants}
-          chosen={sessionPeople}
-          onChange={setSessionPeople}
-          idPrefix="session-person"
-        />
-        <p className="text-muted mt-2 text-xs">
-          Anybody in the batch is listed as well. Setting the session up assigns the deck to
-          everybody listed, so they can do their own steps on their own device.
-        </p>
-        <button
-          type="button"
-          onClick={() => void createSession()}
-          disabled={busy || !deckId || (sessionPeople.length === 0 && !batchId)}
-          className={`${BUTTON} mt-4`}
-        >
-          Set up session
-        </button>
-      </section>
+          <ParticipantPicker
+            people={participants}
+            chosen={sessionPeople}
+            onChange={setSessionPeople}
+            idPrefix="session-person"
+          />
+          <p className="text-muted mt-2 text-xs">
+            Anybody in the batch is listed as well. Setting the session up assigns the deck to
+            everybody listed, so they can do their own steps on their own device.
+          </p>
+          <button
+            type="button"
+            onClick={() => void createSession()}
+            disabled={busy || !deckId || (sessionPeople.length === 0 && !batchId)}
+            className={`${BUTTON} mt-4`}
+          >
+            Set up session
+          </button>
+        </section>
+      )}
 
       <section aria-labelledby="batches-heading">
         <h2 id="batches-heading" className="text-xl font-bold">
@@ -347,72 +351,76 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
                     {nameOf(batch.facilitatorId)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void send(`/api/batches/${batch.id}`, {}, 'DELETE')}
-                  className="text-muted hover:text-logo-red text-sm font-semibold"
-                >
-                  Delete
-                </button>
+                {organiser && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void send(`/api/batches/${batch.id}`, {}, 'DELETE')}
+                    className="text-muted hover:text-logo-red text-sm font-semibold"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section aria-labelledby="new-batch-heading" className={PANEL}>
-        <h2 id="new-batch-heading" className="text-lg font-bold">
-          Create a batch
-        </h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="batch-name" className="block text-sm font-semibold">
-              Name
-            </label>
-            <input
-              id="batch-name"
-              value={batchName}
-              onChange={(event) => setBatchName(event.target.value)}
-              placeholder="For example, Chennai ops, November"
-              className={FIELD}
-            />
-          </div>
-          {facilitatorChoice && (
+      {organiser && (
+        <section aria-labelledby="new-batch-heading" className={PANEL}>
+          <h2 id="new-batch-heading" className="text-lg font-bold">
+            Create a batch
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="batch-facilitator" className="block text-sm font-semibold">
-                Facilitator
+              <label htmlFor="batch-name" className="block text-sm font-semibold">
+                Name
               </label>
-              <select
-                id="batch-facilitator"
-                value={batchFacilitator}
-                onChange={(event) => setBatchFacilitator(event.target.value)}
+              <input
+                id="batch-name"
+                value={batchName}
+                onChange={(event) => setBatchName(event.target.value)}
+                placeholder="For example, Chennai ops, November"
                 className={FIELD}
-              >
-                {facilitators.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
-          )}
-        </div>
-        <ParticipantPicker
-          people={participants}
-          chosen={batchPeople}
-          onChange={setBatchPeople}
-          idPrefix="batch-person"
-        />
-        <button
-          type="button"
-          onClick={() => void createBatch()}
-          disabled={busy || !batchName.trim()}
-          className={`${BUTTON} mt-4`}
-        >
-          Create batch
-        </button>
-      </section>
+            {facilitatorChoice && (
+              <div>
+                <label htmlFor="batch-facilitator" className="block text-sm font-semibold">
+                  Facilitator
+                </label>
+                <select
+                  id="batch-facilitator"
+                  value={batchFacilitator}
+                  onChange={(event) => setBatchFacilitator(event.target.value)}
+                  className={FIELD}
+                >
+                  {facilitators.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          <ParticipantPicker
+            people={participants}
+            chosen={batchPeople}
+            onChange={setBatchPeople}
+            idPrefix="batch-person"
+          />
+          <button
+            type="button"
+            onClick={() => void createBatch()}
+            disabled={busy || !batchName.trim()}
+            className={`${BUTTON} mt-4`}
+          >
+            Create batch
+          </button>
+        </section>
+      )}
     </div>
   );
 }

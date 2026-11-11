@@ -17,6 +17,7 @@ import type { FacilitatedTurn } from '../trainer-prompt';
 import { mayManageSession } from './access';
 import { trainingStore } from './store';
 import type { TrainingSession } from './types';
+import { needsConsent } from '../profiles/gate';
 
 const TURNS: readonly FacilitatedTurn[] = ['explain', 'answer', 'greet', 'engage'];
 
@@ -75,7 +76,23 @@ export async function checkFacilitated(
     .getSession(request.sessionId)
     .catch(() => undefined);
   if (!session || !mayManageSession(person, session)) return { ok: false, response: notFound() };
-  if (deckId && session.deckId !== deckId) return { ok: false, response: notFound() };
+  // The deck named must be the session's: a body that leaves it out would otherwise be
+  // taught the company's default deck.
+  if (!deckId || session.deckId !== deckId) return { ok: false, response: notFound() };
+  // Nobody runs a session before agreeing to the privacy notice, as for attending one.
+  if (await needsConsent(person)) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          error: 'Read and agree to the privacy notice first. Reload the page to see it.',
+          code: 'unavailable',
+          retry: false,
+        },
+        { status: 403 },
+      ),
+    };
+  }
   if (session.status === 'closed') {
     return {
       ok: false,

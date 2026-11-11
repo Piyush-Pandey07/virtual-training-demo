@@ -198,17 +198,6 @@ export async function POST(request: Request) {
   const startingASession = room
     ? room.session.status === 'scheduled'
     : kind === 'narrate' && coveredSlideIds.length === 0;
-  if (room && startingASession) {
-    // The first hand-over opens a trainer-led session, which is when it starts
-    // counting, as the first narration does for a one-to-one session.
-    await trainingStore(gate.person.orgId)
-      .updateSession(room.session.id, (current) =>
-        current && current.status === 'scheduled'
-          ? { ...current, status: 'open', openedAt: new Date().toISOString() }
-          : current!,
-      )
-      .catch(() => undefined);
-  }
   if (startingASession) {
     const verdict = await mayStartSession(gate.person.orgId);
     if (!verdict.allowed) {
@@ -220,6 +209,19 @@ export async function POST(request: Request) {
       );
     }
     recordQuietly(gate.person.orgId, { sessions: 1 });
+  }
+  if (room && startingASession) {
+    // The first hand-over opens a trainer-led session, which is when it starts
+    // counting, as the first narration does for a one-to-one session. Only once the cap
+    // has allowed it: a refused session left open would unlock the post-session steps
+    // with nothing taught.
+    await trainingStore(gate.person.orgId)
+      .updateSession(room.session.id, (current) =>
+        current && current.status === 'scheduled'
+          ? { ...current, status: 'open', openedAt: new Date().toISOString() }
+          : current!,
+      )
+      .catch(() => undefined);
   }
 
   const failureContext: FailureContext = {
