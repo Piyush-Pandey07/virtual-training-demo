@@ -47,8 +47,10 @@ const OWNED_COLLECTIONS = [
   // Batches and trainer-led sessions, with their attendance.
   'batches',
   'trainingSessions',
-  // Question banks, assessment results and session feedback. Each row carries its own id.
+  // Question banks, every kept version of them, assessment results and session feedback.
+  // Each row carries its own id.
   'questionBanks',
+  'questionBankVersions',
   'assessmentResults',
   'feedback',
   // Who approved which deck, and the fingerprint they approved (AI-39), and the audit
@@ -275,6 +277,7 @@ function documentIdOf(
     collection === 'batches' ||
     collection === 'trainingSessions' ||
     collection === 'questionBanks' ||
+    collection === 'questionBankVersions' ||
     collection === 'assessmentResults' ||
     collection === 'feedback' ||
     collection === 'deckApprovals' ||

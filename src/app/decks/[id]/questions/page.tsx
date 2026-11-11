@@ -16,7 +16,7 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { currentPerson } from '@/lib/auth/session';
 import { mayManageBanks } from '@/lib/assessments/access';
 import { banksHref, resultsHref } from '@/lib/assessments/paths';
-import { bankForAdministrator } from '@/lib/assessments/service';
+import { bankForAdministrator, bankVersionsForAdministrator } from '@/lib/assessments/service';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { QuestionBanks } from './QuestionBanks';
 
@@ -44,9 +44,11 @@ export default async function QuestionsPage({ params }: QuestionsPageProps) {
   const stored = await loadStoredDeck(person.orgId, id).catch(() => undefined);
   if (!stored) notFound();
 
-  const [pre, post] = await Promise.all([
+  const [pre, post, preVersions, postVersions] = await Promise.all([
     bankForAdministrator(person, id, 'pre'),
     bankForAdministrator(person, id, 'post'),
+    bankVersionsForAdministrator(person, id, 'pre'),
+    bankVersionsForAdministrator(person, id, 'post'),
   ]);
 
   return (
@@ -75,12 +77,18 @@ export default async function QuestionsPage({ params }: QuestionsPageProps) {
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{stored.record.meta.title}</h1>
         <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
           Multiple choice questions for before and after the session, each with exactly one correct
-          answer. Participants never see the answers, only their score. A deck without a pre-session
-          bank lets participants start straight away.
+          answer. Participants never see the answers, only their score, and each sees the questions
+          in an order of their own. Every version of a bank is kept, and each result is marked
+          against the version it was taken on. A deck without a pre-session bank lets participants
+          start straight away.
         </p>
 
         <div className="mt-8">
-          <QuestionBanks deckId={id} banks={{ pre, post }} />
+          <QuestionBanks
+            deckId={id}
+            banks={{ pre, post }}
+            versions={{ pre: preVersions, post: postVersions }}
+          />
         </div>
       </main>
     </div>

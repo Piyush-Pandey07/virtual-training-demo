@@ -7,12 +7,19 @@
  * administrator, can close the session. Closing asks for everybody to be marked first,
  * so an absence is a decision rather than an omission; a closed session cannot be
  * changed. There is no slide-by-slide progress for a trainer-led session.
+ *
+ * The session's level bands are here too: filled from the deck when it was set up, and
+ * changed by the same people until it closes. They decide each participant's level for
+ * this session, and so the level the trainer pitches to.
  */
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { LevelBandsForm } from '@/components/LevelBandsForm';
+import { describeBands } from '@/lib/assessments/scoring';
+import { DEFAULT_LEVEL_BANDS, type LevelBands } from '@/lib/assessments/types';
 import { formatMoment } from '@/lib/time';
 import type { AttendanceMark, SummaryRow, TrainingSession } from '@/lib/training/types';
 import { attendanceWord, feedbackWord, resultWord } from '@/lib/training/words';
@@ -77,6 +84,20 @@ export function SessionRecord({
   }
 
   const unmarked = participants.filter((person) => !session.attendance[person.id]).length;
+
+  async function saveBands(levelBands: LevelBands): Promise<string | null> {
+    const response = await fetch(`/api/training-sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ levelBands }),
+    });
+    if (!response.ok) {
+      const reply = (await response.json().catch(() => ({}))) as { error?: string };
+      return reply.error ?? 'The bands could not be saved. Try again.';
+    }
+    router.refresh();
+    return null;
+  }
 
   return (
     <div className="space-y-6">
@@ -150,6 +171,30 @@ export function SessionRecord({
             );
           })}
         </ul>
+      </section>
+
+      <section aria-labelledby="bands-heading">
+        <h2 id="bands-heading" className="text-xl font-bold">
+          Level bands
+        </h2>
+        <p className="text-muted mt-1 text-sm leading-relaxed">
+          Where each participant&rsquo;s pre-session score places them for this session, and so the
+          level the trainer pitches to: the level most attendees are at, the lower one on a tie,
+          with anybody not assessed counted as Beginner. Nobody fails the pre-session assessment.{' '}
+          {session.levelBands
+            ? describeBands(session.levelBands)
+            : 'This session was set up before sessions had their own bands, so each participant keeps the level their result gave until bands are saved here.'}
+        </p>
+        {!closed && (
+          <div className="mt-4">
+            <LevelBandsForm
+              current={session.levelBands ?? DEFAULT_LEVEL_BANDS}
+              unsaved={!session.levelBands}
+              onSave={saveBands}
+              savedText="Saved. Levels for this session now use these bands."
+            />
+          </div>
+        )}
       </section>
 
       {!summary && (

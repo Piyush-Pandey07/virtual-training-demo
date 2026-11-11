@@ -16,9 +16,17 @@ import { firestoreDocuments } from '../firebase/firestore';
 import { orgsConfigured } from '../orgs/registry';
 import { scopedDocuments } from '../orgs/scope';
 import { InMemoryDocumentStore, type DocumentStore } from '../roster/documents';
-import type { AssessmentResult, BankKind, FeedbackRecord, QuestionBank } from './types';
+import type {
+  AssessmentResult,
+  BankKind,
+  FeedbackRecord,
+  QuestionBank,
+  QuestionBankVersion,
+} from './types';
 
 export const QUESTION_BANKS = 'questionBanks';
+/** Every version of every bank, kept so a result can always be read against its questions. */
+export const QUESTION_BANK_VERSIONS = 'questionBankVersions';
 export const ASSESSMENT_RESULTS = 'assessmentResults';
 export const FEEDBACK = 'feedback';
 
@@ -37,6 +45,10 @@ export class AlreadySubmitted extends Error {
 
 export function bankId(deckId: string, kind: BankKind): string {
   return `${deckId}__${kind}`;
+}
+
+export function bankVersionId(deckId: string, kind: BankKind, version: string): string {
+  return `${bankId(deckId, kind)}__${version}`;
 }
 
 export function resultId(personId: string, deckId: string, kind: BankKind): string {
@@ -73,6 +85,30 @@ export class AssessmentStore {
   }
   removeBank(deckId: string, kind: BankKind): Promise<void> {
     return this.docs.remove(QUESTION_BANKS, bankId(deckId, kind));
+  }
+
+  getBankVersion(
+    deckId: string,
+    kind: BankKind,
+    version: string,
+  ): Promise<QuestionBankVersion | undefined> {
+    return this.docs.get<QuestionBankVersion>(
+      QUESTION_BANK_VERSIONS,
+      bankVersionId(deckId, kind, version),
+    );
+  }
+  /** Every kept version of a deck's bank of this kind, oldest first. */
+  async bankVersions(deckId: string, kind: BankKind): Promise<QuestionBankVersion[]> {
+    const versions = await this.docs.where<QuestionBankVersion>(
+      QUESTION_BANK_VERSIONS,
+      'bankId',
+      bankId(deckId, kind),
+    );
+    return versions.sort((a, b) => a.versionNumber - b.versionNumber);
+  }
+  /** Keeps a version. Writing the same one twice changes nothing, since a version never does. */
+  keepBankVersion(version: QuestionBankVersion): Promise<void> {
+    return this.docs.set(QUESTION_BANK_VERSIONS, version.id, version);
   }
 
   getResult(

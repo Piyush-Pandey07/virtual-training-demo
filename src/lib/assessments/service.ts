@@ -35,21 +35,39 @@ import {
   maySeeResultsOf,
 } from './access';
 import { assessmentHref, feedbackHref } from './paths';
-import { checkFeedback, levelFor, mark, paperFor, passes } from './scoring';
-import { AlreadySubmitted, assessmentStore, bankId, feedbackId, resultId } from './store';
+import {
+  bandsOf,
+  checkFeedback,
+  levelFor,
+  levelWithBands,
+  mark,
+  mostCommonLevel,
+  outcomeCounts,
+  paperFor,
+  passes,
+} from './scoring';
+import {
+  AlreadySubmitted,
+  assessmentStore,
+  bankId,
+  bankVersionId,
+  feedbackId,
+  resultId,
+} from './store';
 import {
   CURRENT_FEEDBACK_SET,
-  DEFAULT_LEVEL_BANDS,
   PASS_MARK,
   type AssessmentPaper,
   type AssessmentResult,
   type BankKind,
   type BankQuestion,
   type BankSource,
+  type BankVersionSummary,
   type FeedbackRecord,
   type Level,
   type LevelBands,
   type QuestionBank,
+  type QuestionBankVersion,
   type ResultsRow,
 } from './types';
 
@@ -104,25 +122,38 @@ export async function assessedLevel(
 }
 
 /**
- * A group's level for a trainer-led session (AI-37): the middle of its members' assessed
- * levels, so one beginner or one expert does not set the pitch for everybody. Null when
- * nobody in the group has been assessed.
+ * A trainer-led session's level (AI-37): the level most of its attendees are at, and on
+ * a tie the lower one, so the pitch suits the most people and leaves nobody behind.
+ *
+ * Attendees are the people listed who have not been marked absent. Each is placed by
+ * this session's bands, from their pre-session score. Somebody with no result counts as
+ * Beginner: they may simply not have taken it, and pitching above them is the worse
+ * mistake. So is somebody whose result is restricted under the retention policy (AI-41),
+ * whose level is no longer used, as for `assessedLevel`.
+ *
+ * Null when nobody is attending, or when the deck has no pre-session assessment and so
+ * nobody could have been placed, which leaves the trainer's instruction as it was.
  */
 export async function groupLevel(
   orgId: string,
-  personIds: string[],
-  deckId: string,
+  session: Pick<TrainingSession, 'deckId' | 'participantIds' | 'attendance' | 'levelBands'>,
   options: ServiceOptions = {},
 ): Promise<Level | null> {
-  const order: Level[] = ['beginner', 'intermediate', 'advanced'];
-  const levels = (
-    await Promise.all(personIds.map((id) => assessedLevel(orgId, id, deckId, options)))
-  )
-    .filter((level): level is Level => level !== null)
-    .map((level) => order.indexOf(level))
-    .sort((a, b) => a - b);
-  if (levels.length === 0) return null;
-  return order[levels[Math.floor((levels.length - 1) / 2)]!]!;
+  const attendees = session.participantIds.filter((id) => session.attendance[id] !== 'absent');
+  if (attendees.length === 0) return null;
+  const store = assessmentStore(orgId, options.store);
+  const [bank, results] = await Promise.all([
+    store.getBank(session.deckId, 'pre'),
+    Promise.all(attendees.map((id) => store.getResult(id, session.deckId, 'pre'))),
+  ]);
+  if (!hasQuestions(bank) && results.every((result) => result === undefined)) return null;
+  const bands = session.levelBands ?? bandsOf(bank);
+  return mostCommonLevel(
+    results.map((result) => {
+      const usable = visibleTo(null, result);
+      return usable ? levelWithBands(usable, bands) : 'beginner';
+    }),
+  );
 }
 
 /** Whether this participant has submitted the pre-session assessment for this deck. */
@@ -230,6 +261,20 @@ export async function assessmentPaper(
 }
 
 /**
+ * The paper this participant is given: the current questions, without answers, in the
+ * order that is theirs for this version (see `paperFor`). Null when there is no bank.
+ */
+export async function assessmentPaperFor(
+  person: SignedInPerson,
+  deckId: string,
+  kind: BankKind,
+  options: ServiceOptions = {},
+): Promise<AssessmentPaper | null> {
+  const bank = await assessmentStore(person.orgId, options.store).getBank(deckId, kind);
+  return hasQuestions(bank) ? paperFor(bank, person.id) : null;
+}
+
+/**
  * This participant's own result, if they have one.
  *
  * Whether or not it is restricted, because the journey needs to know it was taken: a
@@ -328,10 +373,16 @@ export interface SubmittedAnswers {
 /**
  * Marks and stores one participant's assessment.
  *
- * Throws `Refused` for anything the participant can act on, `AnswersRejected` for an
- * incomplete or stale paper, and `AlreadySubmitted` for a second attempt, whose first
- * result stands. The result is stored once and never changed, which is the whole of the
- * no-retake rule: it is enforced here, in the write, and not by a screen hiding a button.
+ * Marked against the version of the questions the participant was shown, which is kept
+ * even once the bank has been replaced, so somebody answering while an administrator
+ * uploaded new questions is marked on the paper they sat. Questions left blank are Not
+ * attempted and score nothing; they do not stop the paper being marked.
+ *
+ * Throws `Refused` for anything the participant can act on, `AnswersRejected` for a
+ * paper that is not the version it claims, and `AlreadySubmitted` for a second attempt,
+ * whose first result stands. The result is stored once and never changed, which is the
+ * whole of the no-retake rule: it is enforced here, in the write, and not by a screen
+ * hiding a button.
  */
 export async function submitAssessment(
   person: SignedInPerson,
@@ -348,7 +399,14 @@ export async function submitAssessment(
 
   const bank = await store.getBank(input.deckId, input.kind);
   if (!hasQuestions(bank)) throw new Refused(404, 'There is no assessment for this deck.');
-  if (bank.version !== input.version) {
+  // The current version, or an earlier one this participant was shown before it was
+  // replaced. A version nobody kept is a paper this server never gave out.
+  const taken:
+    Pick<QuestionBank, 'questions' | 'version' | 'versionNumber' | 'source'> | undefined =
+    bank.version === input.version
+      ? bank
+      : await store.getBankVersion(input.deckId, input.kind, input.version);
+  if (!taken || taken.questions.length === 0) {
     throw new Refused(
       409,
       'The questions changed while you were answering. Reload the page to see the current ones.',
@@ -362,7 +420,7 @@ export async function submitAssessment(
     throw new Refused(409, 'The post-session assessment opens once you have attended the session.');
   }
 
-  const marked = mark(bank.questions, input.answers);
+  const marked = mark(taken.questions, input.answers);
   const result: AssessmentResult = {
     id: resultId(person.id, input.deckId, input.kind),
     personId: person.id,
@@ -371,14 +429,19 @@ export async function submitAssessment(
     sessionId: session?.id ?? null,
     answers: marked.answers,
     correct: marked.correct,
+    wrong: marked.wrong,
+    notAttempted: marked.notAttempted,
     total: marked.total,
     percent: marked.percent,
-    bankVersion: bank.version,
-    bankSource: bank.source,
+    bankVersion: taken.version,
+    bankSource: taken.source,
     submittedAt: new Date().toISOString(),
   };
+  if (taken.versionNumber !== undefined) result.bankVersionNumber = taken.versionNumber;
   if (input.kind === 'pre') {
-    const bands = bank.bands ?? DEFAULT_LEVEL_BANDS;
+    // Placed by the trainer-led session's bands when taken for one, and otherwise by the
+    // deck's. Only ever a level: nobody fails the pre-session assessment.
+    const bands = session?.levelBands ?? bandsOf(bank);
     result.level = levelFor(marked.percent, bands);
     result.bands = bands;
   } else {
@@ -482,8 +545,29 @@ export async function bankForAdministrator(
   return (await assessmentStore(viewer.orgId, options.store).getBank(deckId, kind)) ?? null;
 }
 
+/** A bank as the version kept of it. */
+function versionOf(bank: QuestionBank, versionNumber: number): QuestionBankVersion {
+  return {
+    id: bankVersionId(bank.deckId, bank.kind, bank.version),
+    bankId: bank.id,
+    deckId: bank.deckId,
+    kind: bank.kind,
+    version: bank.version,
+    versionNumber,
+    questions: bank.questions,
+    source: bank.source,
+    savedBy: bank.savedBy,
+    savedAt: bank.savedAt,
+  };
+}
+
 /**
- * Saves a bank's questions, replacing any it had.
+ * Saves a bank's questions as its new version.
+ *
+ * Participants are given the new version from now on, and every earlier one is kept, so
+ * a result is always marked and read against the questions it was taken on. A bank saved
+ * before versions were kept is kept too, the first time it is replaced, numbered after
+ * any versions already kept.
  *
  * The level bands survive a replacement, since they are a decision about the deck and
  * not about one set of questions. A sample never replaces an uploaded bank: that would
@@ -501,12 +585,28 @@ export async function saveBank(
   if (questions.length === 0) throw new Refused(400, 'A bank needs at least one question.');
 
   const store = assessmentStore(viewer.orgId, options.store);
+  const kept = await store.bankVersions(deckId, kind);
+  const highestKept = kept.reduce((highest, each) => Math.max(highest, each.versionNumber), 0);
+
+  // What the save replaced, and the number it is kept under. Set inside the change, which
+  // may run more than once in a transaction, so the last run is the one that stands.
+  let replaced: { bank: QuestionBank; versionNumber: number } | null = null;
   const saved = await store.updateBank(deckId, kind, (current) => {
     if (source === 'sample' && current?.source === 'upload') {
       throw new Refused(
         409,
         'This deck already has an uploaded bank. Remove it first if you really want a sample in its place.',
       );
+    }
+    replaced = null;
+    let before = highestKept;
+    if (current) {
+      const number =
+        current.versionNumber ??
+        kept.find((each) => each.version === current.version)?.versionNumber ??
+        highestKept + 1;
+      replaced = { bank: current, versionNumber: number };
+      before = Math.max(before, number);
     }
     const bank: QuestionBank = {
       id: bankId(deckId, kind),
@@ -520,23 +620,54 @@ export async function saveBank(
       })),
       source,
       version: newVersion(),
+      versionNumber: before + 1,
       savedBy: viewer.id,
       savedAt: new Date().toISOString(),
     };
-    if (kind === 'pre') bank.bands = current?.bands ?? DEFAULT_LEVEL_BANDS;
+    if (kind === 'pre') {
+      bank.bands = bandsOf(current);
+      if (current?.bandsChosen) bank.bandsChosen = true;
+    }
     return bank;
   });
+
+  // Kept after the write rather than inside it, since the store's transaction covers one
+  // document. Writing a version twice is harmless, so a retry loses nothing.
+  const previous = replaced as { bank: QuestionBank; versionNumber: number } | null;
+  if (previous && !kept.some((each) => each.version === previous.bank.version)) {
+    await store.keepBankVersion(versionOf(previous.bank, previous.versionNumber));
+  }
+  await store.keepBankVersion(versionOf(saved, saved.versionNumber ?? highestKept + 1));
+
   await recordAudit(
     viewer,
     {
       action: source === 'upload' ? 'uploaded' : 'created',
       subjectType: 'question-bank',
       subjectId: saved.id,
-      detail: `${source === 'upload' ? 'Uploaded' : 'Generated a sample'} ${kind}-session bank of ${saved.questions.length} questions for ${deckId}`,
+      detail: `${source === 'upload' ? 'Uploaded' : 'Generated a sample'} ${kind}-session bank of ${saved.questions.length} questions for ${deckId}, as version ${saved.versionNumber}`,
     },
     { store: options.store },
   );
   return saved;
+}
+
+/** Every kept version of a deck's bank, oldest first, for the administrator's screen. */
+export async function bankVersionsForAdministrator(
+  viewer: SignedInPerson,
+  deckId: string,
+  kind: BankKind,
+  options: ServiceOptions = {},
+): Promise<BankVersionSummary[]> {
+  refuseUnlessAdministrator(viewer);
+  const versions = await assessmentStore(viewer.orgId, options.store).bankVersions(deckId, kind);
+  return versions.map((each) => ({
+    version: each.version,
+    versionNumber: each.versionNumber,
+    source: each.source,
+    questions: each.questions.length,
+    savedAt: each.savedAt,
+  }));
 }
 
 /** Changes the pre-session bank's level bands. Results already given keep their level. */
@@ -553,7 +684,13 @@ export async function setLevelBands(
   }
   const saved = await store.updateBank(deckId, 'pre', (current) => {
     if (!current) throw new Refused(404, 'Upload or generate the pre-session bank first.');
-    return { ...current, bands, savedBy: viewer.id, savedAt: new Date().toISOString() };
+    return {
+      ...current,
+      bands,
+      bandsChosen: true,
+      savedBy: viewer.id,
+      savedAt: new Date().toISOString(),
+    };
   });
   await recordAudit(
     viewer,
@@ -569,8 +706,9 @@ export async function setLevelBands(
 }
 
 /**
- * Removes a bank. Results already given stay, with the version they were scored against,
- * because a participant's result is a record of what happened and not of the current bank.
+ * Removes a bank. Results already given stay, and so does every version of its questions
+ * they were scored against, because a participant's result is a record of what happened
+ * and not of the current bank.
  */
 export async function removeBank(
   viewer: SignedInPerson,
@@ -579,7 +717,18 @@ export async function removeBank(
   options: ServiceOptions = {},
 ): Promise<void> {
   refuseUnlessAdministrator(viewer);
-  await assessmentStore(viewer.orgId, options.store).removeBank(deckId, kind);
+  const store = assessmentStore(viewer.orgId, options.store);
+  // A bank saved before versions were kept has no kept copy yet, so it is given one
+  // before it goes.
+  const [current, kept] = await Promise.all([
+    store.getBank(deckId, kind),
+    store.bankVersions(deckId, kind),
+  ]);
+  if (current && !kept.some((each) => each.version === current.version)) {
+    const highestKept = kept.reduce((highest, each) => Math.max(highest, each.versionNumber), 0);
+    await store.keepBankVersion(versionOf(current, current.versionNumber ?? highestKept + 1));
+  }
+  await store.removeBank(deckId, kind);
   await recordAudit(
     viewer,
     {
@@ -716,14 +865,24 @@ export async function resultsForDeck(
       name: person.name || person.email || 'Unnamed',
       email: person.email,
       pre: pre
-        ? { percent: pre.percent, level: pre.level ?? null, submittedAt: pre.submittedAt }
+        ? {
+            ...outcomeCounts(pre),
+            percent: pre.percent,
+            // Narrowed to a trainer-led session, the level that session's bands give,
+            // which is the one its trainer pitched to.
+            level: session ? levelWithBands(pre, session.levelBands) : (pre.level ?? null),
+            submittedAt: pre.submittedAt,
+            versionNumber: pre.bankVersionNumber ?? null,
+          }
         : null,
       post: post
         ? {
+            ...outcomeCounts(post),
             percent: post.percent,
             passed: post.passed === true,
             submittedAt: post.submittedAt,
             sessionId: post.sessionId ?? null,
+            versionNumber: post.bankVersionNumber ?? null,
           }
         : null,
       feedback: showFeedback ? (gaveFeedback.has(personId) ? 'submitted' : 'pending') : null,

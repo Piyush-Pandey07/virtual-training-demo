@@ -9,6 +9,8 @@
 
 import 'server-only';
 
+import { bandsOf, checkBands } from '../assessments/scoring';
+import { assessmentStore } from '../assessments/store';
 import { assignmentRefusal } from '../decks/approval';
 import { listDecks } from '../decks/registry';
 import type { DocumentStore } from '../roster/documents';
@@ -207,6 +209,12 @@ export async function createSession(
       ? new Date(input.scheduledFor).toISOString()
       : null;
 
+  // The deck's pre-session bands, or the defaults, as the session's own: a copy, so the
+  // facilitator can change them for this group without changing them for the deck.
+  const levelBands = bandsOf(
+    await assessmentStore(person.orgId, options.store).getBank(deck.id, 'pre'),
+  );
+
   const now = (options.now ?? nowIso)();
   const session: TrainingSession = {
     id: newTrainingId('s'),
@@ -222,6 +230,7 @@ export async function createSession(
     openedAt: null,
     closedAt: null,
     closedBy: null,
+    levelBands,
   };
   await store.saveSession(session);
 
@@ -251,20 +260,27 @@ export async function sessionFor(
 }
 
 /**
- * Marks attendance, opens or closes a session.
+ * Marks attendance, changes the level bands, opens or closes a session.
  *
- * Only the facilitator, or an administrator, may close it, and a closed session stays
- * closed: its record is what reports and retention rely on. Closing asks for every
+ * Only the facilitator, or an administrator, may change it at all, and a closed session
+ * stays closed: its record is what reports and retention rely on. Closing asks for every
  * listed participant to be marked first, so an absence is a decision rather than an
  * omission.
  */
 export async function changeSession(
   person: SignedInPerson,
   id: string,
-  input: { attendance?: unknown; status?: unknown },
+  input: { attendance?: unknown; status?: unknown; levelBands?: unknown },
   options: Options = {},
 ): Promise<TrainingSession> {
   await sessionFor(person, id, options);
+  // Checked before the write, so bands that make no sense change nothing else either.
+  let levelBands: TrainingSession['levelBands'];
+  if (input.levelBands !== undefined) {
+    const checked = checkBands(input.levelBands);
+    if (!checked.ok) throw new TrainingRuleError(400, checked.error);
+    levelBands = checked.bands;
+  }
   const now = (options.now ?? nowIso)();
   return trainingStore(person.orgId, options.store).updateSession(id, (current) => {
     if (!current) throw new TrainingRuleError(404, 'No such session.');
@@ -278,7 +294,7 @@ export async function changeSession(
         if (mark === 'present' || mark === 'absent') attendance[personId] = mark as AttendanceMark;
       }
     }
-    let next: TrainingSession = { ...current, attendance };
+    let next: TrainingSession = { ...current, attendance, ...(levelBands ? { levelBands } : {}) };
     if (input.status === 'open' && current.status === 'scheduled') {
       next = { ...next, status: 'open', openedAt: now };
     }
