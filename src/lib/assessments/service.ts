@@ -76,7 +76,7 @@ function rosterFor(orgId: string, options: ServiceOptions): RosterStore {
   return options.roster ?? rosterStore(orgId);
 }
 
-function hasQuestions(bank: QuestionBank | undefined): bank is QuestionBank {
+export function hasQuestions(bank: QuestionBank | undefined): bank is QuestionBank {
   return Boolean(bank && bank.questions.length > 0);
 }
 

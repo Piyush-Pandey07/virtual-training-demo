@@ -228,8 +228,8 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       assert.equal(steps[2]?.href, assessmentHref('post', deckId, 's-room1'));
     });
 
-    it('keeps the post-session assessment shut while the pre-session one is owed', async () => {
-      assert.deepEqual(await statesOf(closed()), ['open', 'done', 'locked', 'locked']);
+    it('marks a pre-session assessment not taken by the start as missed, and goes on', async () => {
+      assert.deepEqual(await statesOf(closed()), ['missed', 'done', 'open', 'locked']);
     });
 
     it('opens feedback only after the post-session assessment', async () => {
@@ -297,25 +297,19 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
   });
 
   describe('for a deck whose stored bank has no questions', () => {
-    it(
-      'treats it as no bank, as the assessment service does',
-      {
-        skip: 'BUG (latent): journey.ts asks whether a bank exists (`!preBank`), the assessment service whether it has questions (`hasQuestions`). An empty stored bank shows an open pre-session step whose paper is null and whose submission is refused 404, and locks every step after it. saveBank refuses an empty bank, so only data written another way reaches this.',
-      },
-      async () => {
-        await banks().saveBank({
-          id: bankId(deckId, 'pre'),
-          deckId,
-          kind: 'pre',
-          questions: [],
-          source: 'upload',
-          version: 'v0',
-          savedBy: 'benchmark',
-          savedAt: '2026-11-01T00:00:00.000Z',
-        });
-        assert.deepEqual(await statesOf(closed()), ['not needed', 'done', 'not needed', 'open']);
-      },
-    );
+    it('treats it as no bank, as the assessment service does', async () => {
+      await banks().saveBank({
+        id: bankId(deckId, 'pre'),
+        deckId,
+        kind: 'pre',
+        questions: [],
+        source: 'upload',
+        version: 'v0',
+        savedBy: 'benchmark',
+        savedAt: '2026-11-01T00:00:00.000Z',
+      });
+      assert.deepEqual(await statesOf(closed()), ['not needed', 'done', 'not needed', 'open']);
+    });
   });
 
   describe('for a deck with only a pre-session bank', () => {

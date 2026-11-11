@@ -290,7 +290,16 @@ export async function changeSession(
           `Mark ${unmarked.length === 1 ? 'one participant' : `${unmarked.length} participants`} present or absent before closing.`,
         );
       }
-      next = { ...next, status: 'closed', closedAt: now, closedBy: person.id };
+      // A session run in the room without ever handing over to the trainer was never
+      // opened by the chat route, but it did take place: it is given its start now, so
+      // nothing reads it as a session that never happened.
+      next = {
+        ...next,
+        status: 'closed',
+        openedAt: next.openedAt ?? now,
+        closedAt: now,
+        closedBy: person.id,
+      };
     }
     return next;
   });

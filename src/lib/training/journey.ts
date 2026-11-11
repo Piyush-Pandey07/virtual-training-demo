@@ -10,7 +10,12 @@
 
 import 'server-only';
 
-import { feedbackDone, postAssessmentDone, preAssessmentDone } from '../assessments/service';
+import {
+  feedbackDone,
+  hasQuestions,
+  postAssessmentDone,
+  preAssessmentDone,
+} from '../assessments/service';
 import { assessmentHref, feedbackHref } from '../assessments/paths';
 import { assessmentStore } from '../assessments/store';
 import { listDecks } from '../decks/registry';
@@ -51,13 +56,16 @@ export async function journeyFor(
 ): Promise<SessionJourney> {
   const org = person.orgId;
   const banks = assessmentStore(org);
-  const [preBank, postBank, preDone, postDone, gaveFeedback] = await Promise.all([
+  const [storedPre, storedPost, preDone, postDone, gaveFeedback] = await Promise.all([
     banks.getBank(session.deckId, 'pre'),
     banks.getBank(session.deckId, 'post'),
     preAssessmentDone(org, person.id, session.deckId),
     postAssessmentDone(org, person.id, session.deckId),
     feedbackDone(org, person.id, session.deckId, session.id),
   ]);
+  // A bank with no questions is no bank, as the assessment service treats it.
+  const preBank = hasQuestions(storedPre) ? storedPre : undefined;
+  const postBank = hasQuestions(storedPost) ? storedPost : undefined;
 
   const absent = session.attendance[person.id] === 'absent';
   const started = session.status !== 'scheduled';
@@ -113,7 +121,13 @@ export async function journeyFor(
               state: 'open',
               href: assessmentHref('post', session.deckId, session.id),
             }
-          : { label: 'Post-session assessment', state: 'locked', note: 'Opens after the session.' },
+          : {
+              label: 'Post-session assessment',
+              state: 'locked',
+              note: absent
+                ? 'Not open to you: you were marked absent.'
+                : 'Opens after the session.',
+            },
   );
   steps.push(
     gaveFeedback
@@ -123,9 +137,11 @@ export async function journeyFor(
         : {
             label: 'Feedback',
             state: 'locked',
-            note: postBank
-              ? 'Opens after the post-session assessment.'
-              : 'Opens after the session.',
+            note: absent
+              ? 'Not open to you: you were marked absent.'
+              : postBank
+                ? 'Opens after the post-session assessment.'
+                : 'Opens after the session.',
           },
   );
 
