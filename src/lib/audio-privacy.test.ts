@@ -216,3 +216,17 @@ describe('no audio is stored anywhere (AI-45)', () => {
     }
   });
 });
+
+describe("Deepgram's own retention (AI-45)", () => {
+  it('opts every transcription out of model training unless switched off', () => {
+    assert.match(
+      read('src/app/api/stt/route.ts'),
+      /if \(deepgramMipOptOut\(\)\) url\.searchParams\.set\('mip_opt_out', 'true'\);/,
+    );
+    assert.match(read('src/app/api/deepgram/token/route.ts'), /mipOptOut: deepgramMipOptOut\(\),/);
+    assert.match(
+      read('src/hooks/useSpeechInput.ts'),
+      /if \(credentials\.mipOptOut !== false\) url\.searchParams\.set\('mip_opt_out', 'true'\);/,
+    );
+  });
+});

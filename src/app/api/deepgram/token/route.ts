@@ -8,7 +8,12 @@
  * initial WebSocket handshake. The socket then stays open on its own.
  */
 
-import { DEEPGRAM_STT_MODEL, DEEPGRAM_TOKEN_TTL, requireEnv } from '@/lib/config';
+import {
+  DEEPGRAM_STT_MODEL,
+  deepgramMipOptOut,
+  DEEPGRAM_TOKEN_TTL,
+  requireEnv,
+} from '@/lib/config';
 import type { DeepgramTokenResponse } from '@/lib/types';
 
 import { checkUser } from '@/lib/auth/guard';
@@ -106,6 +111,7 @@ export async function POST() {
     // WebSocket subprotocol, which is how Deepgram accepts auth in a browser.
     scheme: 'bearer',
     model: DEEPGRAM_STT_MODEL(),
+    mipOptOut: deepgramMipOptOut(),
   };
 
   return Response.json(payload, {

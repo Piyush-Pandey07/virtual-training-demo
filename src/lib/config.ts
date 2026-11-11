@@ -85,6 +85,16 @@ export const NARRATE_THINKING_BUDGET = () => envIntOr('NARRATE_THINKING_BUDGET',
 export const ANSWER_THINKING_BUDGET = () => envIntOr('ANSWER_THINKING_BUDGET', 0);
 
 export const DEEPGRAM_STT_MODEL = () => envOr('DEEPGRAM_STT_MODEL', 'nova-3');
+
+/**
+ * Whether every transcription request opts out of Deepgram's Model Improvement Program
+ * (AI-45: no audio is stored). Opted out, Deepgram keeps a request's data only while it
+ * processes it; opted in, it may keep the audio to train its models. On unless
+ * DEEPGRAM_MIP_OPT_OUT is "false": opting out forgoes the programme's discount, which is
+ * a price decision, but storing nobody's voice is the requirement.
+ */
+export const deepgramMipOptOut = (): boolean =>
+  process.env.DEEPGRAM_MIP_OPT_OUT?.trim().toLowerCase() !== 'false';
 export const DEEPGRAM_TTS_MODEL = () => envOr('DEEPGRAM_TTS_MODEL', 'aura-2-thalia-en');
 
 /**

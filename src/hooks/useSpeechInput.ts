@@ -416,6 +416,8 @@ export function useSpeechInput(options: UseSpeechInputOptions): UseSpeechInputRe
       url.searchParams.set('smart_format', 'true');
       url.searchParams.set('punctuate', 'true');
       url.searchParams.set('endpointing', String(ENDPOINTING_MS));
+      // Not kept by Deepgram for model training (AI-45), unless the server says otherwise.
+      if (credentials.mipOptOut !== false) url.searchParams.set('mip_opt_out', 'true');
       url.searchParams.set('utterance_end_ms', String(UTTERANCE_END_MS));
       url.searchParams.set('vad_events', 'true');
       url.searchParams.set('language', listeningLanguage(languageRef.current));

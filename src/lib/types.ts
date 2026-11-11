@@ -175,6 +175,8 @@ export interface DeepgramTokenResponse {
   scheme: 'bearer' | 'token';
   /** Speech to text model the client should request. */
   model: string;
+  /** Whether to opt the live connection out of Deepgram's model training (AI-45). */
+  mipOptOut?: boolean;
 }
 
 /** High level state of the session, which drives the whole interface. */
