@@ -152,6 +152,12 @@ export function SessionRecord({
         </ul>
       </section>
 
+      {!summary && (
+        <p className="border-logo-red/40 bg-logo-red/10 rounded-md border p-4 text-sm">
+          The closure summary could not be read just now. Reload the page to try again.
+        </p>
+      )}
+
       {summary && (
         <section aria-labelledby="summary-heading">
           <h2 id="summary-heading" className="text-xl font-bold">

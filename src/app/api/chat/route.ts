@@ -217,7 +217,7 @@ export async function POST(request: Request) {
     // with nothing taught.
     await trainingStore(gate.person.orgId)
       .updateSession(room.session.id, (current) =>
-        current && current.status === 'scheduled'
+        current && current.status === 'scheduled' && !current.cancelledAt
           ? { ...current, status: 'open', openedAt: new Date().toISOString() }
           : current!,
       )

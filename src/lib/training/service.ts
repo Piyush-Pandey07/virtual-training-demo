@@ -122,8 +122,10 @@ export async function updateBatch(
   if (!batch || !visibleBatches(person, [batch]).length) {
     throw new TrainingRuleError(404, 'No such batch.');
   }
-  const next: Batch = {
-    ...batch,
+  // Everything that needs a read is worked out first, and only the fields that changed
+  // are applied to the batch as it stands at the moment of writing, so an edit made in
+  // between (somebody removed from the company, say) is not overwritten.
+  const changes: Partial<Batch> = {
     ...(input.name !== undefined ? { name: cleanName(input.name) } : {}),
     ...(input.facilitatorId !== undefined && person.role !== 'facilitator'
       ? { facilitatorId: await chosenFacilitator(person, input.facilitatorId) }
@@ -133,8 +135,10 @@ export async function updateBatch(
       : {}),
     updatedAt: (options.now ?? nowIso)(),
   };
-  await store.saveBatch(next);
-  return next;
+  return store.updateBatch(id, (current) => {
+    if (!current) throw new TrainingRuleError(404, 'No such batch.');
+    return { ...current, ...changes };
+  });
 }
 
 export async function removeBatch(
@@ -286,7 +290,16 @@ export async function changeSession(
           `Mark ${unmarked.length === 1 ? 'one participant' : `${unmarked.length} participants`} present or absent before closing.`,
         );
       }
-      next = { ...next, status: 'closed', closedAt: now, closedBy: person.id };
+      // A session run in the room without ever handing over to the trainer was never
+      // opened by the chat route, but it did take place: it is given its start now, so
+      // nothing reads it as a session that never happened.
+      next = {
+        ...next,
+        status: 'closed',
+        openedAt: next.openedAt ?? now,
+        closedAt: now,
+        closedBy: person.id,
+      };
     }
     return next;
   });
@@ -303,24 +316,39 @@ export async function removeFromTraining(
 ): Promise<void> {
   const store = trainingStore(person.orgId, options.store);
   const [batches, sessions] = await Promise.all([store.listBatches(), store.listSessions()]);
+  const without = (ids: string[]) => ids.filter((id) => id !== personId);
+  // Each one re-read and changed in a transaction, rather than a copy read above written
+  // back: a session opened in between would otherwise go back to scheduled. One that has
+  // started by then keeps them, as a session that ran always does. One deleted in between
+  // is skipped.
+  const gone = Symbol('gone');
+  const quietly = (work: Promise<unknown>) =>
+    work.catch((error: unknown) => {
+      if (error !== gone) throw error;
+    });
   await Promise.all([
     ...batches
       .filter((batch) => batch.participantIds.includes(personId))
       .map((batch) =>
-        store.saveBatch({
-          ...batch,
-          participantIds: batch.participantIds.filter((id) => id !== personId),
-        }),
+        quietly(
+          store.updateBatch(batch.id, (current) => {
+            if (!current) throw gone;
+            return { ...current, participantIds: without(current.participantIds) };
+          }),
+        ),
       ),
     ...sessions
       .filter(
         (session) => session.status === 'scheduled' && session.participantIds.includes(personId),
       )
       .map((session) =>
-        store.saveSession({
-          ...session,
-          participantIds: session.participantIds.filter((id) => id !== personId),
-        }),
+        quietly(
+          store.updateSession(session.id, (current) => {
+            if (!current) throw gone;
+            if (current.status !== 'scheduled') return current;
+            return { ...current, participantIds: without(current.participantIds) };
+          }),
+        ),
       ),
   ]);
 }
@@ -331,9 +359,16 @@ export async function removeSession(
   options: Options = {},
 ): Promise<void> {
   refuseUnlessOrganiser(person);
-  const session = await sessionFor(person, id, options);
-  if (session.status !== 'scheduled') {
-    throw new TrainingRuleError(409, 'Only a session that has not started can be deleted.');
-  }
-  await trainingStore(person.orgId, options.store).removeSession(id);
+  await sessionFor(person, id, options);
+  const store = trainingStore(person.orgId, options.store);
+  // Checked and marked in one transaction, so a first hand-over cannot open it between
+  // the check and the delete: the chat route will not open a session marked cancelled.
+  await store.updateSession(id, (current) => {
+    if (!current) throw new TrainingRuleError(404, 'No such session.');
+    if (current.status !== 'scheduled') {
+      throw new TrainingRuleError(409, 'Only a session that has not started can be deleted.');
+    }
+    return { ...current, cancelledAt: (options.now ?? nowIso)() };
+  });
+  await store.removeSession(id);
 }

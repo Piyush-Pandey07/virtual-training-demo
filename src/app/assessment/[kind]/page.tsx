@@ -21,6 +21,7 @@ import {
   assessmentPaper,
   feedbackDone,
   hasAttended,
+  preAssessmentClosed,
   ownResult,
   participation,
   Refused,
@@ -141,6 +142,19 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
               ) : (
                 waiting && <p className="mt-4 text-sm">{waiting}</p>
               )}
+            </section>
+          ) : kind === 'pre' && preAssessmentClosed(session) ? (
+            <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
+              <p className="leading-relaxed">
+                The pre-session assessment closed when the session started, so there is nothing to
+                do here. Once you have attended, the post-session assessment opens as usual.
+              </p>
+              <Link
+                href="/"
+                className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-5 inline-block rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
+              >
+                Back to your training
+              </Link>
             </section>
           ) : !attended ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">

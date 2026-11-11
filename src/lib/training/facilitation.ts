@@ -75,7 +75,9 @@ export async function checkFacilitated(
   const session = await trainingStore(person.orgId)
     .getSession(request.sessionId)
     .catch(() => undefined);
-  if (!session || !mayManageSession(person, session)) return { ok: false, response: notFound() };
+  if (!session || session.cancelledAt || !mayManageSession(person, session)) {
+    return { ok: false, response: notFound() };
+  }
   // The deck named must be the session's: a body that leaves it out would otherwise be
   // taught the company's default deck.
   if (!deckId || session.deckId !== deckId) return { ok: false, response: notFound() };

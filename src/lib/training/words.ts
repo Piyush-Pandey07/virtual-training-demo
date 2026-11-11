@@ -18,6 +18,10 @@ export function feedbackWord(feedback: SummaryRow['feedback']): string {
   return 'Not shown';
 }
 
-export function resultWord(row: Pick<SummaryRow, 'postPercent' | 'passed'>): string {
-  return row.postPercent === null ? 'Not taken' : row.passed ? 'Pass' : 'Fail';
+export function resultWord(
+  row: Pick<SummaryRow, 'postPercent' | 'passed'> & Partial<Pick<SummaryRow, 'postElsewhere'>>,
+): string {
+  if (row.postPercent === null) return 'Not taken';
+  const result = row.passed ? 'Pass' : 'Fail';
+  return row.postElsewhere ? `${result}, earlier sitting` : result;
 }

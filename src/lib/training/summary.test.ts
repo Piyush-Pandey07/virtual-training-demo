@@ -30,6 +30,7 @@ const summary: ClosureSummary = {
       preLevel: 'Intermediate',
       postPercent: 80,
       passed: true,
+      postElsewhere: false,
       feedback: 'submitted',
     },
     {
@@ -40,6 +41,7 @@ const summary: ClosureSummary = {
       preLevel: null,
       postPercent: null,
       passed: null,
+      postElsewhere: false,
       feedback: 'pending',
     },
   ],
@@ -75,6 +77,14 @@ describe('the closure summary download', () => {
       'Deck',
     );
     assert.match(tricky, /,'\t=1\+1,"a\rb@example\.com",/);
+  });
+
+  it('says when a post-session result came from an earlier sitting of the deck', () => {
+    const earlier = summaryCsv(
+      { ...summary, rows: [{ ...summary.rows[0]!, postElsewhere: true }] },
+      'Deck',
+    );
+    assert.match(earlier, /,80,"Pass, earlier sitting",Given/);
   });
 
   it('never lets a name run as a formula', () => {

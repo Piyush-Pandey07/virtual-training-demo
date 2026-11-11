@@ -36,8 +36,10 @@ export async function closureSummary(
   sessionId: string,
 ): Promise<ClosureSummary> {
   const session = await sessionFor(viewer, sessionId);
-  const results = await resultsForDeck(viewer, session.deckId, session.id).catch(() => null);
-  const byPerson = new Map((results?.rows ?? []).map((row) => [row.personId, row]));
+  // Not caught: a summary that could not read the results would list everybody as
+  // unknown and not taken, which reads as a fact. Better that it fails and says so.
+  const results = await resultsForDeck(viewer, session.deckId, session.id);
+  const byPerson = new Map(results.rows.map((row) => [row.personId, row]));
 
   const rows: SummaryRow[] = session.participantIds.map((personId) => {
     const result = byPerson.get(personId);
@@ -49,6 +51,7 @@ export async function closureSummary(
       preLevel: result?.pre?.level ? LEVEL_LABELS[result.pre.level] : null,
       postPercent: result?.post ? result.post.percent : null,
       passed: result?.post ? result.post.passed : null,
+      postElsewhere: Boolean(result?.post && result.post.sessionId !== session.id),
       feedback: result?.feedback ?? null,
     };
   });
@@ -60,7 +63,8 @@ export async function closureSummary(
       listed: rows.length,
       present: rows.filter((row) => row.attendance === 'present').length,
       absent: rows.filter((row) => row.attendance === 'absent').length,
-      passed: rows.filter((row) => row.passed === true).length,
+      // Only passes earned after this session.
+      passed: rows.filter((row) => row.passed === true && !row.postElsewhere).length,
       feedbackGiven: rows.filter((row) => row.feedback === 'submitted').length,
     },
   };

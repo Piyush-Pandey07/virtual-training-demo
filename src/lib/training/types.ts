@@ -54,6 +54,11 @@ export interface TrainingSession {
   /** Only the facilitator, or an administrator, can close a session. */
   closedAt: string | null;
   closedBy: string | null;
+  /**
+   * Set, in a transaction, just before a scheduled session is deleted, so a hand-over
+   * arriving in between cannot open it. Nothing else ever sees a session with it set.
+   */
+  cancelledAt?: string;
 }
 
 /** One participant's line in a session's closure summary (AI-33). */
@@ -65,5 +70,10 @@ export interface SummaryRow {
   preLevel: string | null;
   postPercent: number | null;
   passed: boolean | null;
+  /**
+   * The post-session result was taken after another sitting of this deck: a result is
+   * kept once per person and deck, so it is theirs, but not this session's.
+   */
+  postElsewhere: boolean;
   feedback: 'submitted' | 'pending' | null;
 }
