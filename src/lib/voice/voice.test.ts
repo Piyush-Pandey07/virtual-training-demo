@@ -385,7 +385,8 @@ describe('another provider, without reworking the screen', () => {
   });
 
   it('only synthesise.ts calls a provider, so that is the one place to change', () => {
-    for (const endpoint of ['/v1/speak', 'api.sarvam.ai']) {
+    // OpenAI's speech too: the staff test page asks for it through synthesise.ts as well.
+    for (const endpoint of ['/v1/speak', 'api.sarvam.ai', '/audio/speech']) {
       const callers = filesUnder('src').filter((f) => readFileSync(f, 'utf8').includes(endpoint));
       assert.deepEqual(
         callers.map((f) => f.replaceAll('\\', '/')),

@@ -6,7 +6,7 @@
  * The words are fixed here rather than sent by the browser. That keeps this from being
  * a second way to synthesise anything at all, and means every delegate hears the same
  * line from each voice, which is what makes the voices comparable. A Hindi voice says
- * the Hindi line.
+ * the Hindi line, and every other language's voice its own language's line.
  *
  * Synthesised by the same function as the trainer's real speech, so a sample sounds
  * exactly like the session will, and moving provider moves the samples with it.
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     return synthesisFailure(result, {
       route: '/api/voices/sample',
       person: gate.person,
-      language: voice.languageCode,
+      language: voice.languageCode ?? voice.language,
     });
   }
 

@@ -16,6 +16,7 @@ import 'server-only';
 
 import { cert, getApp, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import type { Role } from '../roster/types';
 
 /** How long a session cookie lasts. Firebase allows up to fourteen days. */
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -81,6 +82,19 @@ export async function revokeSessions(uid: string): Promise<void> {
 }
 
 /**
+ * Deletes the sign-in account itself (BRD v2.3, RUL-8: removing a person removes their
+ * login, not only their sessions). An account that is already gone is not an error.
+ */
+export async function deleteAccount(uid: string): Promise<void> {
+  try {
+    await getAuth(adminApp()).deleteUser(uid);
+  } catch (error) {
+    if ((error as { code?: string }).code === 'auth/user-not-found') return;
+    throw error;
+  }
+}
+
+/**
  * Creates an account, server-side.
  *
  * Deliberately not `createUserWithEmailAndPassword` in the browser. That call goes
@@ -126,11 +140,7 @@ export async function findAccountByEmail(email: string): Promise<string | null> 
 }
 
 /** Sets the role claim, so an authorisation check costs no database round trip. */
-export async function setRoleClaim(
-  uid: string,
-  role: 'admin' | 'trainee',
-  orgId?: string,
-): Promise<void> {
+export async function setRoleClaim(uid: string, role: Role, orgId?: string): Promise<void> {
   // Both claims are written together, because they are written together: the one call
   // that sets them is sign-in, and a claim set without the other would leave a session
   // that knows a role and not which customer it applies to.

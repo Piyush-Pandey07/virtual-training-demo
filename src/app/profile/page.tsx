@@ -1,14 +1,14 @@
 /**
- * My profile: what somebody has told the trainer about themselves, to view, change or
- * delete.
+ * My profile: what somebody has told the trainer about themselves, to view, change, or
+ * withdraw consent and delete.
  *
- * Their own and nobody else's. There is no id in the address and none is read: the
- * page shows the signed-in person's profile, and an administrator opening it sees their
- * own, exactly as anybody else would.
+ * Their own and nobody else's. There is no id in the address and none is read: the page
+ * shows the signed-in person's profile, and an administrator opening it sees their own,
+ * exactly as anybody else would. The views others are allowed are on /people/{id}/profile.
  *
- * Exists only while PROFILES_ENABLED is on. Off, it is a 404 before anything else is
- * asked, including whether the visitor is signed in, so a signed-out visitor is not sent
- * to sign in on the way to a page that is not there.
+ * Exists only for people PROFILES_ENABLED covers. Off, it is a 404 before anything else
+ * is asked, including whether the visitor is signed in, so a signed-out visitor is not
+ * sent to sign in on the way to a page that is not there.
  */
 
 import type { Metadata } from 'next';
@@ -18,77 +18,41 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
-import { profilesEnabled } from '@/lib/config';
-import { listDecks } from '@/lib/decks/registry';
-import { getProfile } from '@/lib/profiles/store';
-import { isExpertiseLevel, type LearnerProfileRecord, PERSONAL_FIELDS } from '@/lib/profiles/types';
-import { rosterStore } from '@/lib/roster/registry';
-import type { SignedInPerson } from '@/lib/roster/types';
+import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
+import { formValuesOf } from '@/lib/profiles/client';
+import { consentHistory, latestDecision } from '@/lib/profiles/consent';
+import { findProfile } from '@/lib/profiles/store';
+import { isRestricted, visibleTo } from '@/lib/retention/restricted';
 import { TRAINER_NAME } from '@/lib/trainer';
-import { ProfileEditor, type CourseLevel } from './ProfileEditor';
+import { ProfileEditor } from './ProfileEditor';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'My profile | Technavious' };
 
-/**
- * The courses a profile holds a level for, with their titles where this person may
- * know them.
- *
- * Titles come only from decks the person could attend: every deck in their customer for
- * an administrator, their assignments for anybody else. A level can be saved against any
- * well-formed deck id, so naming whatever deck an id resolved to would let somebody
- * guess ids and read back titles of decks nobody gave them, which is the confirmation
- * the guard's 404s exist to withhold.
- */
-async function coursesFor(
-  person: SignedInPerson,
-  profile: LearnerProfileRecord | undefined,
-): Promise<CourseLevel[]> {
-  const entries = Object.entries(profile?.expertise ?? {});
-  if (entries.length === 0) return [];
-
-  const [decks, assigned] = await Promise.all([
-    listDecks(person.orgId).catch(() => []),
-    person.role === 'admin'
-      ? Promise.resolve(null)
-      : rosterStore(person.orgId)
-          .listAssignmentsForPerson(person.id)
-          .then((rows) => new Set(rows.map((row) => row.deckId)))
-          .catch(() => new Set<string>()),
-  ]);
-  const titles = new Map(
-    decks
-      .filter((deck) => assigned === null || assigned.has(deck.id))
-      .map((deck) => [deck.id, deck.title]),
-  );
-
-  return (
-    entries
-      .map(([deckId, level]) => ({ deckId, level, title: titles.get(deckId) ?? null }))
-      .filter((course) => isExpertiseLevel(course.level))
-      // By title, with the courses they can no longer see at the end.
-      .sort((a, b) =>
-        a.title === null || b.title === null
-          ? Number(a.title === null) - Number(b.title === null)
-          : a.title.localeCompare(b.title),
-      )
-  );
-}
-
 export default async function ProfilePage() {
   if (!profilesEnabled()) notFound();
   const person = await requireUserPage('/profile');
+  if (!profilesEnabledFor(person)) notFound();
 
   // A failed read is told apart from an empty profile, so somebody whose profile could
   // not be read is not shown a blank form that looks as if it had been lost.
-  const read = await getProfile(person).then(
-    (profile) => ({ ok: true as const, profile }),
-    () => ({ ok: false as const, profile: undefined }),
+  //
+  // A profile restricted under the retention policy (AI-41) is not shown to its owner, only
+  // said to be there. The form starts empty, and saving it makes a new profile in use.
+  const read = await Promise.all([findProfile(person), consentHistory(person)]).then(
+    ([stored, history]) => ({
+      ok: true as const,
+      profile: visibleTo(person, stored),
+      restricted: isRestricted(stored),
+      latest: latestDecision(history),
+    }),
+    () => ({ ok: false as const, profile: undefined, restricted: false, latest: undefined }),
   );
-  const unreadable = !read.ok;
-  const profile = read.profile;
-  const courses = await coursesFor(person, profile);
+  const { profile, latest, restricted } = read;
+
+  const initial = formValuesOf(profile);
+  if (!initial.name && person.name) initial.name = person.name;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -107,12 +71,29 @@ export default async function ProfilePage() {
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">My profile</p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">What {TRAINER_NAME} knows about you</h1>
         <p className="text-muted mt-3 text-base leading-relaxed">
-          These details let the trainer pitch each course to your experience and use the odd example
-          that means something to you. All of it is optional, only you can see this page, and you
-          can delete it at any time.
+          These details let the trainer choose explanations and examples that suit your background.
+          You, the facilitator of your sessions and Technavious&apos;s administrators can see them;
+          your company&apos;s administrators cannot. You can withdraw your consent and delete them
+          at any time.
         </p>
 
-        {unreadable ? (
+        {latest && (
+          <p className="text-muted mt-4 text-sm">
+            {latest.decision === 'given'
+              ? `You agreed to the privacy notice on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}.`
+              : `You withdrew your consent on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}. Your training carries on without a profile.`}
+          </p>
+        )}
+
+        {restricted && !profile && (
+          <p className="text-muted mt-4 text-sm leading-relaxed">
+            The profile you gave before has been set aside, because you have not had a session for
+            90 days. The trainer no longer uses it. Fill the form in again if you would like the
+            trainer to know about you.
+          </p>
+        )}
+
+        {!read.ok ? (
           <div
             role="alert"
             className="border-logo-red/40 bg-logo-red/10 mt-6 rounded-md border p-4 text-sm"
@@ -124,11 +105,9 @@ export default async function ProfilePage() {
           </div>
         ) : (
           <ProfileEditor
-            initial={Object.fromEntries(
-              PERSONAL_FIELDS.map((field) => [field.key, profile?.[field.key] ?? '']),
-            )}
-            courses={courses}
+            initial={initial}
             exists={Boolean(profile)}
+            withdrawn={latest?.decision === 'withdrawn'}
           />
         )}
       </main>

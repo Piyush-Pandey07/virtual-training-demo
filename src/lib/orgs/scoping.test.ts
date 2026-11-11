@@ -60,6 +60,32 @@ const STORES = [
   'purge',
   'suspend',
   'resume',
+  // Batches and trainer-led sessions, with their attendance.
+  'trainingStore',
+  // The middle of a group's assessed levels, read from their assessment results.
+  'groupLevel',
+  'trainingDocuments',
+  // Question banks, assessment results and feedback, and what the participant journey and
+  // the trainer prompt read from them.
+  'assessmentStore',
+  'assessmentDocuments',
+  'assessedLevel',
+  'preAssessmentDone',
+  'preAssessmentRequired',
+  'postAssessmentDone',
+  'feedbackDone',
+  'nextStepAfterSession',
+  'assessmentPaper',
+  'ownResult',
+  // Deck approvals, which decide whether a customer's deck may be assigned.
+  'deckApprovalDocuments',
+  'deckApprovalFor',
+  'deckApprovalState',
+  'deckApprovalStates',
+  'assignmentRefusal',
+  // The audit history of who viewed or changed a customer's data.
+  'auditDocuments',
+  'auditHistory',
 ] as const;
 
 /**
@@ -77,6 +103,8 @@ const ORG_FIRST_BUT_NOT_A_READER: Record<string, string> = {
   emptyUsage: 'Constructs a zeroed counter record. Reads nothing.',
   forgetDeckStores: 'Evicts a cache entry. Reads no rows.',
   forgetRosterStore: 'Evicts a cache entry. Reads no rows.',
+  profilesEnabledInOrg:
+    'Compares an id with the home organisation to read a setting. Reads nothing.',
 };
 
 /**

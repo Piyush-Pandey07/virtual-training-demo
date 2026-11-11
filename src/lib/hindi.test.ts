@@ -137,11 +137,13 @@ describe('what the trainer is told', () => {
   });
 
   it('counts Hindi on its own line, for the Sarvam credit', () => {
-    // Every Sarvam language now, Hindi among them, under the field's original name.
+    // Every Sarvam language now, Hindi among them, under the field's original name, and
+    // none of OpenAI's, which are not drawn from the Sarvam credit.
     assert.match(
       CHAT_ROUTE,
-      /hindiCharacters: pacedToPlayback\(language\) \? finalText\.length : 0,/,
+      /hindiCharacters: spokenBySarvam\(language\) \? finalText\.length : 0,/,
     );
+    assert.match(CHAT_ROUTE, /ttsCharacters: finalText\.length,/);
   });
 });
 
@@ -181,7 +183,11 @@ describe('cutting Hindi into sentences to speak', () => {
   });
 
   it('is the cut the player uses', () => {
-    assert.match(bodyOf(PLAYER, 'drain'), /const cut = nextSpeechCut\(buffer\);/);
+    // The opening chunk of a turn uses the shorter cut, which also ends at a danda.
+    assert.match(
+      bodyOf(PLAYER, 'drain'),
+      /const cut = opening \? nextOpeningCut\(buffer\) : nextSpeechCut\(buffer\);/,
+    );
   });
 });
 

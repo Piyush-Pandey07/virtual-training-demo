@@ -19,10 +19,19 @@ import { briefReadsAsSummary } from '@/lib/analysis/slide-detail';
 import { pageAssetName } from '@/lib/decks/asset-paths';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { mayManageBanks } from '@/lib/assessments/access';
+import { banksHref, resultsHref } from '@/lib/assessments/paths';
 import { currentPerson } from '@/lib/auth/session';
+import {
+  approvalStateOf,
+  assignmentRefusalFor,
+  deckApprovalFor,
+  mayApproveDecks,
+} from '@/lib/decks/approval';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { effectiveRole } from '@/lib/auth/roles';
+import { ApproveDeck } from './ApproveDeck';
 import { AssignDeck, type Assignee, type Candidate } from './AssignDeck';
 import { DeleteDeck } from './DeleteDeck';
 import { DeckReview, type ReviewDeck } from './DeckReview';
@@ -84,6 +93,10 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   // Awaited inside a try below. This covers the one path where it never is: a bad id
   // reaching notFound() first, which would otherwise leave a rejection unhandled.
   rosterRead?.catch(() => undefined);
+  // The approval record, beside the deck, for the same reason. A failure reads as no
+  // approval, which is the safe way to be wrong: the page asks for one, and the
+  // assignment routes refuse on their own reading regardless.
+  const approvalRead = deckApprovalFor(admin.orgId, id).catch(() => undefined);
 
   // A bad id throws from the store rather than returning nothing, and a bad link
   // should be a 404 rather than a stack trace.
@@ -91,6 +104,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   if (!stored) notFound();
 
   const { record } = stored;
+  const approval = approvalStateOf(await approvalRead, record, stored.status);
 
   const review: ReviewDeck = {
     id: record.meta.id,
@@ -193,7 +207,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <BrandHeader>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {/* Where somebody lands after publishing, which is exactly when they want to
               know who it went to. */}
           <Link
@@ -202,6 +216,22 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
           >
             Who has attended
           </Link>
+          <Link
+            href={resultsHref(id)}
+            className="text-muted hover:text-teal text-sm transition-colors"
+          >
+            Results and feedback
+          </Link>
+          {/* The Benchmark administrator's alone: a company administrator never sets the
+              paper their own people are measured by. */}
+          {mayManageBanks(admin) && (
+            <Link
+              href={banksHref(id)}
+              className="text-muted hover:text-teal text-sm transition-colors"
+            >
+              Question banks
+            </Link>
+          )}
           <MainNav person={admin} />
         </div>
       </BrandHeader>
@@ -220,10 +250,21 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
         <div className="mt-8 space-y-8">
           <DeckReview initial={review} />
 
+          {/* Before the assign panel, because it is the reason that panel is open or
+              closed (AI-39). */}
+          <ApproveDeck
+            deckId={review.id}
+            approval={approval}
+            published={stored.status === 'published'}
+            mayApprove={mayApproveDecks(admin)}
+            assignedCount={assigned.length}
+          />
+
           {rosterAvailable && (
             <AssignDeck
               deckId={review.id}
               published={stored.status === 'published'}
+              refusal={assignmentRefusalFor(approval)}
               candidates={candidates}
               assigned={assigned}
             />

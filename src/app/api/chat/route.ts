@@ -22,15 +22,25 @@ import { DEFAULT_DECK_ID, loadDeck } from '@/lib/decks/registry';
 import { classifyUtterance, isNavigationOnly } from '@/lib/intent';
 import { bestSlideForQuestion } from '@/lib/knowledge';
 import { sessionLanguage } from '@/lib/language';
-import { buildSystemInstruction, buildTurnPrompt, sanitiseForSpeech } from '@/lib/trainer-prompt';
+import {
+  buildFacilitatedSystemInstruction,
+  buildFacilitatedTurnPrompt,
+  buildSystemInstruction,
+  buildTurnPrompt,
+  sanitiseForSpeech,
+} from '@/lib/trainer-prompt';
+import { checkFacilitated, parseFacilitated, type Room } from '@/lib/training/facilitation';
+import { assessedLevel, groupLevel } from '@/lib/assessments/service';
+import { trainingStore } from '@/lib/training/store';
 import type { ChatEvent, ChatRequest, HistoryTurn, LearnerProfile, TurnKind } from '@/lib/types';
-import { languageInfo, pacedToPlayback } from '@/lib/languages';
+import { languageInfo, spokenBySarvam } from '@/lib/languages';
 import { languagesFor, speaksAsFor } from '@/lib/voice/catalogue';
 
 import { checkAssignedDeck } from '@/lib/auth/guard';
 import { classifyThrown } from '@/lib/failures/classify';
 import { failurePayload, failureResponse, type FailureContext } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
+import { liveGlossary } from '@/lib/glossary/store';
 import { profileForTrainer } from '@/lib/profiles/for-trainer';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
@@ -104,8 +114,15 @@ export async function POST(request: Request) {
   // whatever deck id its body names. A check on the page alone would protect
   // nothing: the browser could post another id and have the trainer read out a deck
   // the trainee was never assigned.
-  const gate = await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
+  //
+  // A hand-over in a trainer-led session is allowed by the session instead: the person
+  // asking runs it, it is for this deck, and it is not closed (AI-01).
+  const facilitated = parseFacilitated(body.facilitated);
+  const gate = facilitated
+    ? await checkFacilitated(facilitated, body.deckId)
+    : await checkAssignedDeck(body.deckId ?? DEFAULT_DECK_ID);
   if (!gate.ok) return gate.response;
+  const room = 'room' in gate ? (gate as { room: Room }).room : null;
 
   // Before anything is billed. Every call here costs money upstream, and the session
   // cap counts sessions rather than calls, so this is what stops one account, or a
@@ -118,15 +135,28 @@ export async function POST(request: Request) {
   // The learner's profile is the third, for the same reason. It is read for the person
   // the guard signed in, never from the body, and with PROFILES_ENABLED off it is not
   // read at all: see src/lib/profiles/for-trainer.ts.
+  //
+  // The glossary starts loading alongside all three. Almost always it is this server's
+  // copy, read from Firestore at most once every five minutes, and it never fails: see
+  // src/lib/glossary/store.ts.
+  const glossaryLoad = liveGlossary();
   const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
-    profileForTrainer(gate.person),
+    // Never in a group: profile details are not spoken in front of others (AI-37).
+    room ? Promise.resolve(null) : profileForTrainer(gate.person),
   ]);
   if (limited) return limited;
   if (!deck) return badRequest('No such deck.');
+  const glossary = await glossaryLoad;
 
-  const kind = VALID_KINDS.includes(body.kind) ? body.kind : 'narrate';
+  const kind = facilitated
+    ? facilitated.turn === 'answer'
+      ? 'answer'
+      : 'narrate'
+    : VALID_KINDS.includes(body.kind)
+      ? body.kind
+      : 'narrate';
   const slideId = clampSlideId(deck, Number(body.slideId));
   const slide = getSlide(deck, slideId);
   if (!slide) return badRequest(`slideId must be between 1 and ${totalSlides(deck)}.`);
@@ -165,7 +195,9 @@ export async function POST(request: Request) {
   //
   // Somebody who abandons a session and starts again counts twice. That is right: it
   // is twice the spend.
-  const startingASession = kind === 'narrate' && coveredSlideIds.length === 0;
+  const startingASession = room
+    ? room.session.status === 'scheduled'
+    : kind === 'narrate' && coveredSlideIds.length === 0;
   if (startingASession) {
     const verdict = await mayStartSession(gate.person.orgId);
     if (!verdict.allowed) {
@@ -177,6 +209,19 @@ export async function POST(request: Request) {
       );
     }
     recordQuietly(gate.person.orgId, { sessions: 1 });
+  }
+  if (room && startingASession) {
+    // The first hand-over opens a trainer-led session, which is when it starts
+    // counting, as the first narration does for a one-to-one session. Only once the cap
+    // has allowed it: a refused session left open would unlock the post-session steps
+    // with nothing taught.
+    await trainingStore(gate.person.orgId)
+      .updateSession(room.session.id, (current) =>
+        current && current.status === 'scheduled'
+          ? { ...current, status: 'open', openedAt: new Date().toISOString() }
+          : current!,
+      )
+      .catch(() => undefined);
   }
 
   const failureContext: FailureContext = {
@@ -208,7 +253,10 @@ export async function POST(request: Request) {
   let effectiveSlide = slide;
   let coercedNav: number | null = null;
 
-  if (kind === 'answer' && isNavigationOnly(question)) {
+  // In a trainer-led session the facilitator moves the deck, never the trainer.
+  if (room) {
+    // Nothing to coerce.
+  } else if (kind === 'answer' && isNavigationOnly(question)) {
     const goingBack = classifyUtterance(question) === 'back';
     const target = slideId + (goingBack ? -1 : 1);
 
@@ -254,6 +302,7 @@ export async function POST(request: Request) {
             slide: turnSlide,
             history,
             question: turnKind === 'answer' ? question : undefined,
+            glossary,
             coveredSlideIds,
             learner,
             language,
@@ -263,7 +312,48 @@ export async function POST(request: Request) {
     },
   ];
 
-  const contents = turnFor(effectiveKind, effectiveSlide);
+  const contents: Content[] = room
+    ? [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: buildFacilitatedTurnPrompt({
+                deck,
+                slide: effectiveSlide,
+                history,
+                turn: facilitated!.turn,
+                question: facilitated!.turn === 'answer' ? question : undefined,
+                askedBy: room.askedBy,
+                attendees: room.attendees,
+                language,
+                glossary,
+              }),
+            },
+          ],
+        },
+      ]
+    : turnFor(effectiveKind, effectiveSlide);
+
+  // The assessed level (AI-37): the participant's own, or in a trainer-led session the
+  // group's, taken as the middle of the attendees' levels. Null without an assessment,
+  // which leaves the instruction exactly as it was.
+  const level = room
+    ? await groupLevel(
+        gate.person.orgId,
+        room.session.participantIds.filter((id) => room.session.attendance[id] !== 'absent'),
+        deck.meta.id,
+      ).catch(() => null)
+    : await assessedLevel(gate.person.orgId, gate.person.id, deck.meta.id).catch(() => null);
+
+  // Built before the stream, so nothing inside it handles the profile.
+  const systemInstruction = room
+    ? buildFacilitatedSystemInstruction(
+        deck,
+        { attendees: room.attendees, ...(level ? { level } : {}) },
+        { language, speaksAs },
+      )
+    : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile, level);
 
   const encoder = new TextEncoder();
 
@@ -290,12 +380,7 @@ export async function POST(request: Request) {
       const model = effectiveKind === 'answer' ? GEMINI_ANSWER_MODEL() : GEMINI_MODEL();
 
       const config = {
-        systemInstruction: buildSystemInstruction(
-          deck,
-          traineeName,
-          { language, speaksAs },
-          profile,
-        ),
+        systemInstruction,
         /**
          * Narration is fully briefed, so variation buys nothing and costs length
          * discipline.
@@ -379,7 +464,8 @@ export async function POST(request: Request) {
           // Counted again on its own line, because Sarvam bills it, from a prepaid
           // credit, and the question of how much of that a session uses needs an answer.
           // Every Sarvam language, under the field's original name; see usage/types.ts.
-          hindiCharacters: pacedToPlayback(language) ? finalText.length : 0,
+          // OpenAI's languages are in ttsCharacters only: billed as used, not prepaid.
+          hindiCharacters: spokenBySarvam(language) ? finalText.length : 0,
         });
         if (!finalText) {
           // Usually a passing upstream issue, so it is marked as worth asking again.

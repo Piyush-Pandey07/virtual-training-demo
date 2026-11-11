@@ -118,7 +118,8 @@ export function VoicePicker({
                     }}
                     className="accent-teal size-4 shrink-0"
                   />
-                  <span className="text-mist font-semibold" lang={option.code}>
+                  {/* dir="auto", so Arabic reads right to left and everything else as it was. */}
+                  <span className="text-mist font-semibold" lang={option.code} dir="auto">
                     {option.name}
                   </span>
                   {option.name !== option.englishName && (
@@ -129,7 +130,7 @@ export function VoicePicker({
             })}
           </div>
           {current.note && (
-            <p className="text-muted mt-2 text-xs leading-relaxed">
+            <p className="text-muted mt-2 text-xs leading-relaxed" dir="auto">
               {current.note.replace('The trainer', TRAINER_NAME)}
             </p>
           )}

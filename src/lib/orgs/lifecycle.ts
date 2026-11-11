@@ -41,6 +41,21 @@ const OWNED_COLLECTIONS = [
   // Learner profiles: personal details somebody chose to give, so the last thing that
   // should outlive the customer they were given to.
   'profiles',
+  // Who agreed to which privacy notice, and who withdrew. Kept when a person leaves, as
+  // the notice promises, but not past the customer: closing the account takes them too.
+  'consents',
+  // Batches and trainer-led sessions, with their attendance.
+  'batches',
+  'trainingSessions',
+  // Question banks, assessment results and session feedback. Each row carries its own id.
+  'questionBanks',
+  'assessmentResults',
+  'feedback',
+  // Who approved which deck, and the fingerprint they approved (AI-39), and the audit
+  // history of who viewed or changed the customer's data (AI-40). The history is the
+  // customer's record, so it goes with them rather than outliving them.
+  'deckApprovals',
+  'audit',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -136,7 +151,9 @@ export async function movePerson(
   // was given to the customer they were in, under a notice that says it goes when they
   // leave, and left behind it would sit where nobody can reach it, its owner included.
   // Done whatever PROFILES_ENABLED says, since one saved while it was on still exists.
-  await deleteProfile({ id: personId, orgId: fromOrgId }).catch(() => undefined);
+  await deleteProfile({ id: personId, orgId: fromOrgId, emailKey: person.emailKey }).catch(
+    () => undefined,
+  );
 
   // The claim in their cookie still says the old customer. Best effort: a failure here
   // costs them a stale session, not access to anything they should not have, because
@@ -249,8 +266,21 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks and the seed marker all carry their own id.
-  if (collection === 'people' || collection === 'decks' || collection === 'deck-seed') {
+  // people, decks, the seed marker, consent records, batches, trainer-led sessions, the
+  // assessment records, deck approvals and audit entries all carry their own id.
+  if (
+    collection === 'people' ||
+    collection === 'decks' ||
+    collection === 'deck-seed' ||
+    collection === 'batches' ||
+    collection === 'trainingSessions' ||
+    collection === 'questionBanks' ||
+    collection === 'assessmentResults' ||
+    collection === 'feedback' ||
+    collection === 'deckApprovals' ||
+    collection === 'audit' ||
+    collection === 'consents'
+  ) {
     return typeof row.id === 'string' ? row.id : undefined;
   }
   // assignments and attempts are both keyed on the pair.

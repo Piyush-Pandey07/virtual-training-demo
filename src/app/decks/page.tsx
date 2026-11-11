@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
+import { deckApprovalStates } from '@/lib/decks/approval';
 import { deckStore, listDecks } from '@/lib/decks/registry';
 
 // Read at request time. Prerendering this would bake in whichever decks existed
@@ -37,6 +38,12 @@ export default async function DeckLibraryPage() {
 
   const decks = await listDecks(admin.orgId);
   const store = deckStore(admin.orgId);
+  // So a published deck that needs approving again stands out here, not only on its own
+  // page (AI-39). Unreadable approvals simply show no label.
+  const approvals = await deckApprovalStates(
+    admin.orgId,
+    decks.filter((deck) => deck.status === 'published'),
+  ).catch(() => null);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -88,6 +95,15 @@ export default async function DeckLibraryPage() {
                   >
                     {deck.status === 'published' ? 'Published' : 'Draft'}
                   </span>
+                  {approvals && deck.status === 'published' && (
+                    <span className="text-muted shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold">
+                      {approvals.get(deck.id)?.state === 'approved'
+                        ? 'Approved'
+                        : approvals.get(deck.id)?.state === 'changed'
+                          ? 'Needs re-approval'
+                          : 'Needs approval'}
+                    </span>
+                  )}
                 </div>
 
                 <dl className="text-muted mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs">

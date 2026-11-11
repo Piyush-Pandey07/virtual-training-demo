@@ -16,7 +16,7 @@ import type { Role } from '../roster/types';
  * No imports beyond the role type, so both halves of a page can use it.
  */
 
-export type RoleLabel = 'Admin' | 'Company' | 'Employee';
+export type RoleLabel = 'Admin' | 'Company' | 'Facilitator' | 'Employee';
 
 /**
  * The label for somebody, given their stored role and whether they are our own staff.
@@ -27,6 +27,7 @@ export type RoleLabel = 'Admin' | 'Company' | 'Employee';
  */
 export function roleLabel(role: Role, platform = false): RoleLabel {
   if (platform) return 'Admin';
+  if (role === 'facilitator') return 'Facilitator';
   return role === 'admin' ? 'Company' : 'Employee';
 }
 
@@ -34,6 +35,7 @@ export function roleLabel(role: Role, platform = false): RoleLabel {
 export const ROLE_BLURB: Record<RoleLabel, string> = {
   Admin: 'Technavious. Sees every company using this platform.',
   Company: 'Uploads decks, assigns them, and sees who has attended at their company.',
+  Facilitator: 'Runs trainer-led sessions for their own batches.',
   Employee: 'Attends the training assigned to them.',
 };
 

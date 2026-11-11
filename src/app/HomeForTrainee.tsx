@@ -17,6 +17,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { COMPLETION_THRESHOLD } from '@/lib/roster/completion';
 import type { ProgressRow, SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
+import type { JourneyStep, SessionJourney } from '@/lib/training/journey';
 
 function formatDate(iso: string): string {
   const at = new Date(iso);
@@ -116,7 +117,63 @@ function TrainingCard({ row }: { row: ProgressRow }) {
   );
 }
 
-export function HomeForTrainee({ person, rows }: { person: SignedInPerson; rows: ProgressRow[] }) {
+const STEP_TONE: Record<JourneyStep['state'], string> = {
+  done: 'text-teal',
+  open: 'text-mist',
+  locked: 'text-muted',
+  'not needed': 'text-muted',
+};
+
+const STEP_MARK: Record<JourneyStep['state'], string> = {
+  done: 'Done',
+  open: 'To do',
+  locked: 'Not yet',
+  'not needed': 'Not needed',
+};
+
+/** One trainer-led session's steps, in the order they have to be done (AI-26). */
+function JourneyCard({ journey }: { journey: SessionJourney }) {
+  return (
+    <li className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5">
+      <p className="text-mist font-semibold">{journey.deckTitle}</p>
+      <p className="text-muted mt-1 text-sm">
+        Trainer-led{journey.when ? `, ${journey.when}` : ''}
+      </p>
+      <ol className="mt-4 space-y-2">
+        {journey.steps.map((step, index) => (
+          <li key={step.label} className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-muted w-5 shrink-0">{index + 1}.</span>
+            <span className={`min-w-0 flex-1 ${STEP_TONE[step.state]}`}>
+              {step.href ? (
+                <Link href={step.href} className="text-teal font-semibold hover:underline">
+                  {step.label}
+                </Link>
+              ) : (
+                step.label
+              )}
+              {step.note && <span className="text-muted block text-xs">{step.note}</span>}
+            </span>
+            <span className={`text-xs ${STEP_TONE[step.state]}`}>{STEP_MARK[step.state]}</span>
+          </li>
+        ))}
+      </ol>
+    </li>
+  );
+}
+
+export function HomeForTrainee({
+  person,
+  rows: allRows,
+  journeys = [],
+}: {
+  person: SignedInPerson;
+  rows: ProgressRow[];
+  journeys?: SessionJourney[];
+}) {
+  // A deck taught in a trainer-led session is assigned so its steps can be done here,
+  // but it is attended in the room, so it is not offered as a session to start alone.
+  const inTheRoom = new Set(journeys.map((journey) => journey.deckId));
+  const rows = allRows.filter((row) => !inTheRoom.has(row.deckId));
   const outstanding = rows.filter((row) => row.completedAt === null);
   const done = rows.filter((row) => row.completedAt !== null);
 
@@ -143,7 +200,21 @@ export function HomeForTrainee({ person, rows }: { person: SignedInPerson; rows:
               : `${outstanding.length} ${outstanding.length === 1 ? 'session' : 'sessions'} to attend. ${TRAINER_NAME} presents each one and answers your questions out loud, and you can stop and pick up where you left off.`}
         </p>
 
-        {rows.length === 0 ? (
+        {journeys.length > 0 && (
+          <section className="mt-10">
+            <h2 className="text-xl font-semibold">Trainer-led sessions</h2>
+            <p className="text-muted mt-1 text-sm">
+              The session runs in the room. Do each step here, on your own device, in order.
+            </p>
+            <ul className="mt-4 grid gap-4">
+              {journeys.map((journey) => (
+                <JourneyCard key={journey.sessionId} journey={journey} />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {rows.length === 0 && journeys.length > 0 ? null : rows.length === 0 ? (
           <p className="border-charcoal-line text-muted mt-10 rounded-xl border border-dashed p-8 text-center text-sm">
             Nothing assigned yet.
           </p>

@@ -11,6 +11,11 @@ export interface AssignableDeck {
   title: string;
   slideCount: number;
   estimatedMinutes: number;
+  /**
+   * Why it cannot be chosen yet, when it has not been approved as it stands (AI-39).
+   * Shown beside the title, and the option is disabled.
+   */
+  unavailable?: string;
 }
 
 function formatDate(iso: string | null): string {
@@ -90,11 +95,18 @@ export function PersonDetail({
               >
                 <option value="">Choose a deck</option>
                 {assignable.map((deck) => (
-                  <option key={deck.id} value={deck.id}>
+                  <option key={deck.id} value={deck.id} disabled={Boolean(deck.unavailable)}>
                     {deck.title} · {deck.estimatedMinutes} min
+                    {deck.unavailable ? ` · ${deck.unavailable}` : ''}
                   </option>
                 ))}
               </select>
+              {assignable.some((deck) => deck.unavailable) && (
+                <p className="text-muted mt-2 text-xs leading-relaxed">
+                  A deck that needs approval cannot be assigned until the deck approver approves it
+                  on its deck page.
+                </p>
+              )}
             </div>
 
             <div>

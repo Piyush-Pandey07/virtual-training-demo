@@ -11,8 +11,13 @@
  * given would let a browser rewrite `image` to point anywhere, or write
  * `internalNotes`, which is the one field the whole design keeps away from both the
  * model and the trainee.
+ *
+ * Either one costs the deck its approval (AI-39) when it changes what the deck teaches
+ * or withdraws it: unpublishing and deleting always, an edit only when the fingerprint
+ * of the saved deck differs from the approved one. See `decks/approval.ts`.
  */
 
+import { clearDeckApproval, noteDeckSaved } from '@/lib/decks/approval';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { deckStore } from '@/lib/decks/registry';
 import { assetStore } from '@/lib/decks/registry';
@@ -85,6 +90,31 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
   if (!isObject(raw)) return meta;
 
   const next: DeckMeta = { ...meta };
+  // Free text the administrator may leave empty, unlike the spoken fields above, so an
+  // empty value removes it rather than being refused (AI-03).
+  for (const field of ['topicInfo', 'caseStudies'] as const) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') {
+      problems.push(`meta.${field} must be a string.`);
+      continue;
+    }
+    const clean = value
+      .replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ')
+      .trim()
+      .slice(0, 4000);
+    if (clean) next[field] = clean;
+    else delete next[field];
+  }
+  // A number, unlike the rest: the share of teaching time that completes the deck.
+  if (raw.completionPercent !== undefined) {
+    const percent = Number(raw.completionPercent);
+    if (!Number.isInteger(percent) || percent < 50 || percent > 100) {
+      problems.push('meta.completionPercent must be a whole number from 50 to 100.');
+    } else {
+      next.completionPercent = percent;
+    }
+  }
   for (const field of EDITABLE_META) {
     const value = raw[field];
     if (value === undefined) continue;
@@ -255,6 +285,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const summary = await store.save(deck, status);
+  // Unpublishing withdraws the deck, which always needs a fresh approval, even if it is
+  // published again unchanged. Anything else clears it only if the content moved.
+  if (stored.status === 'published' && status === 'draft') {
+    await clearDeckApproval(gate.person, id, 'withdrawn').catch(() => false);
+  } else {
+    await noteDeckSaved(gate.person, deck, status);
+  }
   return Response.json({ deck: summary, blocking: checkReadyToPublish(deck) });
 }
 
@@ -278,6 +315,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       rosterStore(gate.person.orgId),
       id,
     );
+    await clearDeckApproval(gate.person, id, 'withdrawn').catch(() => false);
 
     // Said back rather than done silently. Removing a deck quietly takes it off other
     // people's lists, and the administrator doing it is usually not the one who assigned

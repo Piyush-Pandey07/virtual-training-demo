@@ -22,7 +22,7 @@ export const MAX_CHUNK_CHARS = 320;
  *
  * A sentence ending followed by whitespace is the safe place. The danda is how Hindi ends
  * a sentence, and without it Hindi waited for 320 characters before making a sound, then
- * cut wherever that landed.
+ * cut wherever that landed. Arabic ends a question with ؟ for the same reason.
  *
  * Past the length limit with no sentence ending, a comma will do, and failing that the
  * last space. Never inside a word: in English that splits a word between two requests,
@@ -32,7 +32,7 @@ export const MAX_CHUNK_CHARS = 320;
 export function nextSpeechCut(buffer: string): number {
   if (buffer.length < MIN_CHUNK_CHARS) return -1;
 
-  const sentenceEnd = /[.!?।॥](?=\s)/g;
+  const sentenceEnd = /[.!?؟।॥](?=\s)/g;
   let match: RegExpExecArray | null;
   while ((match = sentenceEnd.exec(buffer)) !== null) {
     if (match.index + 1 >= MIN_CHUNK_CHARS) return match.index + 1;
@@ -45,6 +45,34 @@ export function nextSpeechCut(buffer: string): number {
 
   const space = buffer.lastIndexOf(' ', MAX_CHUNK_CHARS);
   return space > MIN_CHUNK_CHARS ? space : MAX_CHUNK_CHARS;
+}
+
+/** The shortest first chunk of a turn, and the shortest at a clause break. */
+const OPENING_MIN_CHARS = 20;
+const OPENING_CLAUSE_MIN_CHARS = 25;
+
+/**
+ * Where to cut the first chunk of a turn (AI-44).
+ *
+ * Synthesis takes time in proportion to length: measured on the live site, a 32
+ * character line came back whole in 1.3 seconds and a 180 character one in 3.9, while
+ * the first byte took 0.8 seconds either way. The first chunk is what the trainee waits
+ * for in silence, so it is cut at the first sentence end after 20 characters, or the
+ * first clause break after 25, rather than waiting for the usual 60. Every chunk after it
+ * plays while the next is fetched, so only this one is cut short.
+ */
+export function nextOpeningCut(buffer: string): number {
+  if (buffer.length < OPENING_MIN_CHARS) return -1;
+  const sentenceEnd = /[.!?؟।॥](?=\s)/g;
+  let match: RegExpExecArray | null;
+  while ((match = sentenceEnd.exec(buffer)) !== null) {
+    if (match.index + 1 >= OPENING_MIN_CHARS) return match.index + 1;
+  }
+  const clause = /[,;:،](?=\s)/g;
+  while ((match = clause.exec(buffer)) !== null) {
+    if (match.index + 1 >= OPENING_CLAUSE_MIN_CHARS) return match.index + 1;
+  }
+  return nextSpeechCut(buffer);
 }
 
 /**

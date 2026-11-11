@@ -1,5 +1,7 @@
 /** Server-side configuration. Reads from the environment with sensible defaults. */
 
+import { HOME_ORG_ID } from './orgs/types';
+
 /** Reads a required environment variable, or throws a message worth showing. */
 export function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -116,33 +118,119 @@ export const languagesForEveryone = (): ReadonlySet<string> =>
   );
 
 /**
- * OpenAI, for the OpenAI test only.
+ * OpenAI: the staff OpenAI test, and the voice of Arabic, Malay, Indonesian, Filipino and
+ * Vietnamese sessions.
  *
- * Nothing a trainee uses touches OpenAI. The test page lets Technavious staff hear its
- * voices and compare its transcription with Deepgram's, which is the comparison the
- * feedback of September asked for before choosing between Deepgram with Sarvam and
- * OpenAI alone. Without the key the page says what is missing and does nothing else.
+ * The test page lets Technavious staff hear its voices and compare its transcription with
+ * Deepgram's, which is the comparison the feedback of September asked for before choosing
+ * between Deepgram with Sarvam and OpenAI alone. Sessions use its speech only, for the
+ * languages neither Deepgram nor Sarvam speaks; listening stays with Deepgram. Without the
+ * key the page says what is missing and does nothing else, and those languages are not
+ * offered, as the Sarvam languages are not without Sarvam's.
  */
 export const OPENAI_TTS_MODEL = () => envOr('OPENAI_TTS_MODEL', 'gpt-4o-mini-tts');
 export const OPENAI_TRANSCRIBE_MODEL = () => envOr('OPENAI_TRANSCRIBE_MODEL', 'gpt-4o-transcribe');
 export const openAiConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim());
 
 /**
- * Learner profiles: the city, interests and experience a participant may tell the
- * trainer about, so it can pitch and illustrate its teaching for them.
+ * Learner profiles, the privacy notice and consent: what a participant tells the trainer
+ * about themselves, the notice everybody agrees to before using the app, and the bulk
+ * upload that prefills profiles for a batch.
  *
- * Off unless the variable is exactly "true", and it must stay off until Technavious has
- * approved the privacy notice the profile form shows. The DPDP Act 2023 applies, and
- * nobody may be asked for personal data under a notice that has not been signed off.
+ * Three settings, because UAT runs on production. "true" is everybody. "staff" is
+ * Technavious's own people only, so the feature can be tried on the live deployment
+ * without a customer meeting it, the same way languages are trialled. Anything else is
+ * off. The DPDP Act 2023 applies, so "true" waits for Technavious to approve the notice.
  *
- * Off means absent, not hidden. The profile routes answer 404 as any other route that
- * is not there does, no page offers a form or a link, nothing is read or written, and
- * the trainer's instructions are byte for byte what they were before profiles existed.
+ * Off means absent, not hidden, for everybody the setting leaves out. The profile and
+ * consent routes answer 404 as any other route that is not there does, no page offers a
+ * form or a link, nobody is sent to a consent page, nothing is read or written, and the
+ * trainer's instructions are byte for byte what they were before profiles existed.
  *
- * Exactly "true" rather than anything truthy, so a stray "1", "yes" or "false" left in
- * a deployment's settings cannot switch on a feature that collects personal data.
+ * Exact values rather than anything truthy, so a stray "1", "yes" or "false" left in a
+ * deployment's settings cannot switch on a feature that collects personal data.
  */
-export const profilesEnabled = () => process.env.PROFILES_ENABLED === 'true';
+export type ProfilesSwitch = 'everyone' | 'staff' | 'off';
+
+export function profilesSwitch(): ProfilesSwitch {
+  const value = process.env.PROFILES_ENABLED;
+  if (value === 'true') return 'everyone';
+  if (value === 'staff') return 'staff';
+  return 'off';
+}
+
+/**
+ * Whether profiles are on for anybody at all.
+ *
+ * The first question every profile route and page asks, before who is there: with the
+ * switch off it is a 404 that has not even looked at the session.
+ */
+export const profilesEnabled = () => profilesSwitch() !== 'off';
+
+/** What `profilesEnabledFor` needs to know about somebody. */
+export interface ProfilesSubject {
+  platform?: boolean;
+  /** The organisation they belong to, as opposed to one they are looking inside. */
+  homeOrgId?: string;
+  /** Read when there is no home organisation, which is a roster row rather than a session. */
+  orgId?: string;
+}
+
+/**
+ * Whether profiles are on for this person.
+ *
+ * In "staff" mode that is Technavious: platform staff, or anybody whose own organisation
+ * is Technavious's. Decided on the organisation they belong to, never the one they are
+ * looking inside, so staff supporting a customer keep their own notice and profile.
+ */
+export function profilesEnabledFor(person: ProfilesSubject | null | undefined): boolean {
+  if (!person) return false;
+  const setting = profilesSwitch();
+  if (setting === 'everyone') return true;
+  if (setting === 'off') return false;
+  return Boolean(person.platform) || (person.homeOrgId ?? person.orgId) === HOME_ORG_ID;
+}
+
+/**
+ * Whether profiles are on for the people of one organisation.
+ *
+ * For the screens that act on somebody else, an upload or a facilitator's view, where
+ * the people affected belong to the organisation being looked at. In "staff" mode that is
+ * only Technavious's own, so staff looking inside a customer cannot collect profiles for
+ * people the setting leaves out.
+ */
+export function profilesEnabledInOrg(orgId: string): boolean {
+  const setting = profilesSwitch();
+  return setting === 'everyone' || (setting === 'staff' && orgId === HOME_ORG_ID);
+}
+
+/**
+ * Who approves a deck before it can be assigned (BRD v2.3, AI-39), as addresses
+ * separated by commas, compared without regard to case.
+ *
+ * Srikant's address goes here. While it is empty, every Technavious administrator may
+ * approve instead, so UAT can exercise approval before the list is settled; once one
+ * address is set, only the people listed may approve, Technavious administrators
+ * included. `mayApproveDecks` in `decks/approval.ts` is where that rule is applied.
+ */
+export const deckApprovers = (): ReadonlySet<string> =>
+  new Set(
+    (process.env.DECK_APPROVERS ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+/**
+ * The secret Vercel Cron sends to the daily jobs, as `Authorization: Bearer <secret>`.
+ *
+ * Set it in the project's environment variables and Vercel adds the header to every
+ * cron invocation by itself. A request without exactly this header is answered 404, the
+ * same as a route that does not exist, and with the variable unset every request is, so
+ * a deployment that never configured it has no retention job anybody can trigger rather
+ * than one everybody can. Null when unset or blank.
+ */
+export const cronSecret = (): string | null => process.env.CRON_SECRET?.trim() || null;
 
 /**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600

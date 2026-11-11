@@ -29,7 +29,10 @@ import {
 } from '@/lib/openai-test/samples';
 
 interface OpenAiTestProps {
-  /** Whether OPENAI_API_KEY is set. Without it the OpenAI buttons are switched off. */
+  /**
+   * Whether OPENAI_API_KEY is set. Without it the OpenAI buttons are switched off, and so
+   * is today's voice for the languages a session speaks through OpenAI.
+   */
   configured: boolean;
   /** Whether today's Hindi voice, Sarvam's, is offered, so it can be compared. */
   hindi: boolean;
@@ -103,7 +106,7 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
       const context = contextRef.current;
       await context.resume().catch(() => undefined);
 
-      const today = todaysVoiceFor(language, hindi);
+      const today = todaysVoiceFor(language, hindi, configured);
       if (who === 'today' && !today.ok) return;
       const label = who === 'openai' ? `OpenAI ${voice}` : today.ok ? today.label : 'Today';
       const named = languageName(language);
@@ -184,7 +187,7 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
         setLog((current) => [...current, { ...logged, error: message }]);
       }
     },
-    [hindi, instructions, language, stopPlayback, text, voice],
+    [configured, hindi, instructions, language, stopPlayback, text, voice],
   );
 
   useEffect(
@@ -302,7 +305,7 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
     }
   }, [log]);
 
-  const today = todaysVoiceFor(language, hindi);
+  const today = todaysVoiceFor(language, hindi, configured);
 
   return (
     <div>
@@ -314,8 +317,9 @@ export function OpenAiTest({ configured, hindi }: OpenAiTestProps) {
           <p className="font-semibold">OpenAI is not connected yet.</p>
           <p className="text-muted mt-1 leading-relaxed">
             Add <code className="text-mist">OPENAI_API_KEY</code> to the Production environment
-            variables in Vercel and redeploy. Until then the OpenAI buttons are switched off;
-            today&apos;s voices and Deepgram&apos;s listening still work here for comparison.
+            variables in Vercel and redeploy. Until then the OpenAI buttons are switched off, and so
+            are Arabic, Malay, Indonesian, Filipino and Vietnamese sessions; the other
+            languages&apos; voices and Deepgram&apos;s listening still work here for comparison.
           </p>
         </div>
       )}

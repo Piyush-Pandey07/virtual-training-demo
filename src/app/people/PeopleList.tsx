@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import type { Role } from '@/lib/roster/types';
-import { otherRoleLabel, roleLabel } from '@/lib/auth/labels';
+import { ROLES, type Role } from '@/lib/roster/types';
+import { roleLabel } from '@/lib/auth/labels';
 import { duration } from '@/lib/roster/stats';
 
 export interface PersonLine {
@@ -39,6 +39,8 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Whose removal is waiting for a second click. */
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   async function send(what: string, url: string, init: RequestInit) {
     setBusy(what);
@@ -48,7 +50,8 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
         headers: { 'Content-Type': 'application/json' },
         ...init,
       });
-      const result = (await response.json()) as { error?: string };
+      // A removal answers 204, with no body to read.
+      const result = response.status === 204 ? {} : ((await response.json()) as { error?: string });
       if (!response.ok) throw new Error(result.error ?? 'That did not work.');
       router.refresh();
     } catch (cause) {
@@ -177,21 +180,29 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
                       pinned
                     </span>
                   ) : (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        void send(person.id, `/api/people/${encodeURIComponent(person.id)}`, {
-                          method: 'PATCH',
-                          body: JSON.stringify({
-                            role: person.role === 'admin' ? 'trainee' : 'admin',
-                          }),
-                        })
-                      }
-                      className="border-charcoal-line text-muted hover:text-mist rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
-                    >
-                      Make {otherRoleLabel(person.role)}
-                    </button>
+                    <>
+                      <label className="sr-only" htmlFor={`role-${person.id}`}>
+                        Role for {person.name || person.email}
+                      </label>
+                      <select
+                        id={`role-${person.id}`}
+                        value={person.role}
+                        disabled={busy !== null}
+                        onChange={(event) =>
+                          void send(person.id, `/api/people/${encodeURIComponent(person.id)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ role: event.target.value }),
+                          })
+                        }
+                        className="bg-charcoal border-charcoal-line text-muted rounded-md border px-2 py-1.5 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {roleLabel(role)}
+                          </option>
+                        ))}
+                      </select>
+                    </>
                   )}
 
                   <Link
@@ -200,6 +211,43 @@ export function PeopleList({ people, meId }: { people: PersonLine[]; meId: strin
                   >
                     Assign
                   </Link>
+
+                  {/* AI-42. Removing somebody deletes their login and their profile, so it
+                      asks once more rather than acting on the first click. */}
+                  {person.id !== meId &&
+                    !person.pinnedAdmin &&
+                    (confirming === person.id ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() =>
+                            void send(person.id, `/api/people/${encodeURIComponent(person.id)}`, {
+                              method: 'DELETE',
+                            }).then(() => setConfirming(null))
+                          }
+                          className="bg-logo-red text-mist rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        >
+                          Yes, remove
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirming(null)}
+                          className="text-muted hover:text-mist text-xs font-semibold"
+                        >
+                          Keep
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => setConfirming(person.id)}
+                        className="border-charcoal-line text-muted hover:text-logo-red rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    ))}
                 </div>
               </div>
             </li>

@@ -61,7 +61,21 @@ export interface LearnerProfile {
  * listening and the prompt is in languages.ts.
  */
 export type SessionLanguage =
-  'en' | 'en-IN' | 'hi' | 'mr' | 'ta' | 'te' | 'kn' | 'ml' | 'bn' | 'gu';
+  | 'en'
+  | 'en-IN'
+  | 'hi'
+  | 'mr'
+  | 'ta'
+  | 'te'
+  | 'kn'
+  | 'ml'
+  | 'bn'
+  | 'gu'
+  | 'ar'
+  | 'ms'
+  | 'id'
+  | 'tl'
+  | 'vi';
 
 /** Who said a given line. */
 export type Speaker = 'trainer' | 'trainee';
@@ -113,6 +127,16 @@ export interface ChatRequest {
    * speaks it, so the trainer has to know which voice it is speaking in.
    */
   voice?: string;
+  /**
+   * Present for a hand-over in a trainer-led session, absent for a one-to-one turn.
+   * Everything about the room is read from the session on the server; this only says
+   * which session, what the facilitator handed over for, and who asked.
+   */
+  facilitated?: {
+    sessionId: string;
+    turn: 'explain' | 'answer' | 'greet' | 'engage';
+    askedBy?: string;
+  };
 }
 
 /** Server sent events emitted by POST /api/chat. */

@@ -355,11 +355,26 @@ language, and need `SARVAM_API_KEY`.
 
 ### The data centre glossary
 
-The Benchmark team's glossary (`docs/DC Glossary List.docx`, 296 rows) is imported into
-`src/lib/glossary/entries.ts` by `scripts/import-glossary.ts`, which merges terms that appear in
-more than one section (271 entries), fixes plain errors, and writes British spellings. To update it,
-replace the .docx in `docs/`, run `npx tsx scripts/import-glossary.ts "docs/DC Glossary List.docx"`,
-and read the diff.
+The glossary decides what terms mean; the deck decides what is taught. **The administrator manages
+it at `/glossary`** (Technavious only; anybody else gets a 404): search, add a term, change its
+words, hold a definition back or release it with a reason, delete one, or reset the whole glossary
+to the imported file. Terms that are not in the Benchmark team's file, such as CDFA and HV/MV, are
+added there. An acronym is matched only as written, so HV/MV is entered as a code, in capitals.
+
+The live glossary is the `glossary` Firestore collection, outside every customer's data, one
+document per entry, beside `glossaryState`, which records when it was seeded. It is seeded from
+`src/lib/glossary/entries.ts` the first time anything reads it, and that file stays the seed and
+the fallback: without Firestore the glossary is the file held in memory, and if Firestore cannot be
+read a server keeps the list it last had. Each server reads the collection at most once every five
+minutes, and an edit empties the copy on the server that made it, so a change reaches every session
+within five minutes without a read on every turn.
+
+The Benchmark team's file (`docs/DC Glossary List.docx`, 296 rows) is imported into `entries.ts` by
+`scripts/import-glossary.ts`, which merges terms that appear in more than one section (271 entries),
+fixes plain errors, and writes British spellings. To update the seed, replace the .docx in `docs/`,
+run `npx tsx scripts/import-glossary.ts "docs/DC Glossary List.docx"`, and read the diff. A new seed
+reaches a deployment that has already been seeded only through **Reset to the imported file**,
+which also removes every term added on the page.
 
 - **What the trainer gets:** on narration and answer turns, the definitions of up to six terms that
   turn uses (the trainee's question first, then the slide's title and bullets, then its notes), so
@@ -372,7 +387,8 @@ and read the diff.
 - **Live transcription listens for the deck's acronyms** through Deepgram's keyterm prompting. On
   one recording that turned "CRY units", "RDA" and "LOTTO" into CRAH, RDHx and LOTO.
 - **Six definitions are held back** (`held` in the entries) until the glossary's owners confirm
-  them; the reasons are in `scripts/import-glossary.ts`.
+  them; the reasons are in `scripts/import-glossary.ts`. A held term is never given to the trainer,
+  and the page holds and releases terms with a reason kept on the entry.
 
 ### What trainees see when something fails, and the developer log
 
@@ -385,6 +401,51 @@ can see, such as dropped connections and timeouts, with what it knows about its 
 The log is the `devlog` Firestore collection, outside every customer's data. Entries carry `expireAt`
 90 days ahead. **Enable a TTL policy on `devlog` / `expireAt` in the Firebase console**, as for
 `ratelimits` / `expireAt`, or entries are never deleted.
+
+### Retention: the daily job
+
+Learner profiles, assessment results and feedback follow the rule in the privacy notice (AI-41). The
+code is in `src/lib/retention/`, and the arithmetic in `policy.ts`.
+
+| Days after last use | What happens                                                                 |
+| ------------------- | ---------------------------------------------------------------------------- |
+| 0 to 89             | In use, by everybody the record's own rules allow                            |
+| 90 to 364           | **Restricted**: only Technavious administrators see it; the trainer does not |
+| 365 and after       | **Deleted**                                                                  |
+
+Training progress (attempts), trainer-led attendance and consent records are kept for at least five
+years and the job never changes them.
+
+- **Last use.** A participant's last session is the latest of their AI-led attempt activity
+  (`lastSeenAt`) and any trainer-led session they attended (`closedAt`, or `openedAt` while it is
+  open; not if they were marked absent, and not a session that was only scheduled). A record's last
+  use is the later of that and its own date: when the profile was last saved or uploaded, or when the
+  result or feedback was submitted. So a participant who has never sat a session is measured from
+  the record itself, and one who edited their profile yesterday has used it yesterday.
+- **Coming back.** A session after a restriction puts the records back in use, and the next run
+  lifts it. Filling in My profile again lifts it for the profile at once.
+- **Restricted, in practice.** The job writes one field, `retention`, on the record, and every read
+  asks `visibleTo` in `src/lib/retention/restricted.ts`: the profile views and their route
+  (`viewProfile`), the participant's own profile page, route and consent page, the trainer's
+  profile (`profileForTrainer`), the assessed level used to pitch a session (`assessedLevel`), the
+  results and feedback screen (`resultsForDeck`), a participant's own result on the assessment
+  page, and the score returned with a refused second submission. A restricted result still counts
+  as taken, so nobody is offered the paper again.
+- **The route.** `GET /api/cron/retention`, scheduled in `vercel.json` once a day at 21:30 UTC
+  (03:00 in India; Hobby runs it at some point in that hour). Vercel sends `Authorization: Bearer
+  <CRON_SECRET>`; **set `CRON_SECRET`** under Settings, Environment Variables, to a long random
+  value, or the route answers 404 to everybody, Vercel included.
+- **Bounded and idempotent.** It stops itself at 45 seconds or 2,000 writes, records the
+  organisation it reached in the `retention` collection, and starts there the next day. Running it
+  twice changes nothing the second time. Anything it cannot read, a person's attempts or an
+  organisation's sessions, is skipped for the day rather than judged.
+- **Dry run, for UAT.** Add `?dryRun=1` to report what it would do without changing anything, with
+  up to 25 record ids per organisation. `&asOf=2027-03-01` judges as of that date, which only a dry
+  run accepts:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET"   "https://your-deployment.vercel.app/api/cron/retention?dryRun=1&asOf=2027-03-01"
+```
 
 ### Why sentence chunking
 

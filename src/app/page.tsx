@@ -13,6 +13,9 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { DEFAULT_DECK_ID, deckStore, listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { peopleOverview, trainingFor } from '@/lib/roster/report';
+import { journeysFor } from '@/lib/training/journey';
+import { isAdministrator } from '@/lib/auth/permissions';
+import { recentProviderAlerts } from '@/lib/failures/alerts';
 import { HomeForAdmin } from './HomeForAdmin';
 import { HomeForTrainee } from './HomeForTrainee';
 
@@ -30,13 +33,19 @@ export default async function HomePage() {
   const person = await requireUserPage('/');
 
   if (person.role !== 'admin') {
-    return <HomeForTrainee person={person} rows={await trainingFor(person.orgId, person)} />;
+    const [rows, journeys] = await Promise.all([
+      trainingFor(person.orgId, person),
+      journeysFor(person).catch(() => []),
+    ]);
+    return <HomeForTrainee person={person} rows={rows} journeys={journeys} />;
   }
 
   const store = deckStore(person.orgId);
-  const [decks, people] = await Promise.all([
+  const [decks, people, alerts] = await Promise.all([
     listDecks(person.orgId),
     peopleOverview(person.orgId).catch(() => []),
+    // Technavious administrators only: the services that need somebody to act (AI-11).
+    isAdministrator(person) ? recentProviderAlerts().catch(() => []) : Promise.resolve([]),
   ]);
 
   // Uploaded decks only. The built-in deck is reachable from the one button in the
@@ -56,6 +65,7 @@ export default async function HomePage() {
       peopleCount={people.length}
       outstanding={people.reduce((total, row) => total + row.assigned - row.completed, 0)}
       rosterReady={rosterStore(person.orgId).writable}
+      alerts={alerts}
     />
   );
 }

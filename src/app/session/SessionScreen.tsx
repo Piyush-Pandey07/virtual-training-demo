@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { BrandHeader } from '@/components/BrandHeader';
-import { ProfileOffer } from '@/components/ProfileOffer';
 import { SessionControls } from '@/components/SessionControls';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
@@ -14,7 +13,6 @@ import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { describeFailure } from '@/lib/failures/codes';
-import type { ProfileOfferState } from '@/lib/profiles/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { SessionLanguage } from '@/lib/types';
 
@@ -25,20 +23,18 @@ interface HealthState {
 
 /**
  * Pre-session screen. Collects an optional name, the session's language and the
- * trainer's voice, and unlocks audio on the click. Where learner profiles are switched
- * on, it also offers the optional profile form, which never stands in the way of
- * starting.
+ * trainer's voice, and unlocks audio on the click. The learner profile is not asked for
+ * here: where profiles are switched on, it is completed on the consent page before
+ * anybody reaches a session.
  */
 function Lobby({
   onStart,
   connecting,
   resume,
-  profileOffer,
 }: {
   onStart: (name: string, voice?: string, language?: SessionLanguage) => void;
   connecting: boolean;
   resume: ResumeState | null;
-  profileOffer: ProfileOfferState | null;
 }) {
   const deck = useDeck();
   const [name, setName] = useState('');
@@ -118,11 +114,6 @@ function Lobby({
         disabled={connecting}
       />
 
-      {/* Absent unless PROFILES_ENABLED is on and there is something not yet asked. The
-          Start button below does not look at it, so skipping it, ignoring it or leaving
-          it half done all start the session exactly as before. */}
-      {profileOffer && <ProfileOffer offer={profileOffer} disabled={connecting} />}
-
       {blocked && (
         <div
           role="alert"
@@ -169,12 +160,12 @@ function Lobby({
 export function SessionScreen({
   reviewed,
   resume = null,
-  profileOffer = null,
+  afterSession = null,
 }: {
   reviewed: boolean;
   resume?: ResumeState | null;
-  /** Null whenever PROFILES_ENABLED is off, which the server decides. */
-  profileOffer?: ProfileOfferState | null;
+  /** The post-session assessment or feedback, when either is still to do. */
+  afterSession?: { href: string; label: string } | null;
 }) {
   const deck = useDeck();
   const session = useTrainingSession(resume);
@@ -297,7 +288,6 @@ export function SessionScreen({
             connecting={session.phase === 'connecting'}
             onStart={(name, voice, language) => void session.startSession(name, voice, language)}
             resume={resume}
-            profileOffer={profileOffer}
           />
         </main>
       ) : (
@@ -357,10 +347,10 @@ export function SessionScreen({
                     You covered {session.coveredSlideIds.length} of {deck.totalSlides} slides.
                   </p>
                   <Link
-                    href="/"
+                    href={afterSession?.href ?? '/'}
                     className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
                   >
-                    Back to the start
+                    {afterSession?.label ?? 'Back to the start'}
                   </Link>
                 </div>
               )}

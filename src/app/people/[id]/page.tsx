@@ -13,8 +13,11 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireAdminPage } from '@/lib/auth/guard';
 import { roleLabel } from '@/lib/auth/labels';
+import { isAdministrator } from '@/lib/auth/permissions';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { currentPerson } from '@/lib/auth/session';
+import { profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
+import { deckApprovalStates } from '@/lib/decks/approval';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { trainingFor } from '@/lib/roster/report';
@@ -60,14 +63,26 @@ export default async function PersonPage({ params }: PersonPageProps) {
   // Only published decks, and only ones they do not already have. A draft has not
   // been checked by anybody, and the API refuses it too — this just avoids offering
   // a choice that would be rejected.
-  const assignable: AssignableDeck[] = decks
-    .filter((deck) => deck.status === 'published' && !already.has(deck.id))
-    .map((deck) => ({
+  const offered = decks.filter((deck) => deck.status === 'published' && !already.has(deck.id));
+  // A published deck that is not approved as it stands is still listed, but disabled with
+  // the reason (AI-39), so an administrator looking for it learns why it cannot be chosen
+  // rather than wondering where it went. A failure to read approvals disables them all.
+  const approvals = await deckApprovalStates(admin.orgId, offered).catch(() => null);
+  const assignable: AssignableDeck[] = offered.map((deck) => {
+    const approval = approvals?.get(deck.id);
+    return {
       id: deck.id,
       title: deck.title,
       slideCount: deck.slideCount,
       estimatedMinutes: deck.estimatedMinutes,
-    }));
+      ...(approval?.state === 'approved'
+        ? {}
+        : {
+            unavailable:
+              approval?.state === 'changed' ? 'changed since approval' : 'needs approval',
+          }),
+    };
+  });
 
   const complete = rows.filter((row) => row.completedAt !== null).length;
 
@@ -94,6 +109,18 @@ export default async function PersonPage({ params }: PersonPageProps) {
           {rows.length === 0 ? 'nothing assigned' : `${complete} of ${rows.length} complete`}
           {person.lastSeenAt === null ? ' · has never signed in' : ''}
         </p>
+        {/* The learner profile, for the administrator only: a company administrator may
+            not see it (AI-06), so they are not offered a link to a page that refuses them. */}
+        {isAdministrator(admin) &&
+          profilesEnabledFor(admin) &&
+          profilesEnabledInOrg(admin.orgId) && (
+            <Link
+              href={`/people/${encodeURIComponent(person.id)}/profile`}
+              className="text-teal hover:text-mist mt-3 inline-block text-sm font-semibold transition-colors"
+            >
+              Learner profile
+            </Link>
+          )}
 
         <div className="mt-10 space-y-8">
           <EmployeeStats

@@ -73,16 +73,24 @@ describe('prompt size stays bounded as the deck grows', () => {
     const big = syntheticDeck(60);
     const longest: LearnerProfileRecord = {
       personId: 'p',
+      source: 'self',
+      confirmed: true,
+      name: 'n'.repeat(80),
+      education: 'e'.repeat(100),
+      yearsExperience: 60,
+      department: 'd'.repeat(80),
+      proficiency: 'advanced',
       city: 'c'.repeat(60),
-      domainInterest: 'd'.repeat(200),
-      interests: 'i'.repeat(200),
-      expertise: { [big.meta.id]: 'expert' },
+      studiedAt: 's'.repeat(100),
+      experienceByArea: 'x'.repeat(200),
+      interests: 'i'.repeat(150),
+      hobbies: 'h'.repeat(150),
       consent: { version: 'v', at: '2026-11-01T00:00:00.000Z' },
       updatedAt: '2026-11-01T00:00:00.000Z',
     };
     const instruction = buildSystemInstruction(big, 'Asha', undefined, longest);
     const added = instruction.length - buildSystemInstruction(big, 'Asha').length;
-    assert.ok(added < 750, `the profile added ${added} characters`);
+    assert.ok(added < 1200, `the profile added ${added} characters`);
 
     for (const kind of ['narrate', 'answer', 'quiz', 'recap'] as TurnKind[]) {
       const chars =

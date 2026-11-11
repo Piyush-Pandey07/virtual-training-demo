@@ -4,8 +4,15 @@
  * The chat route waits on this before the trainer says a word, alongside the deck and
  * the rate limit, so it is built never to be the slow or the failing part of that.
  *
- *  - With PROFILES_ENABLED off it answers at once, without touching storage, and the
- *    instruction is then exactly what it was before profiles existed.
+ *  - With PROFILES_ENABLED off for this person it answers at once, without touching
+ *    storage, and the instruction is then exactly what it was before profiles existed.
+ *  - Only a confirmed profile is handed over. One uploaded by their organisation is what
+ *    somebody else said about them until they have seen it and agreed to the notice, and
+ *    none of it reaches the model before then.
+ *  - A profile the retention job has restricted (AI-41) is not handed over either. It is
+ *    90 days since their last session, the profile is no longer in use, and giving it to
+ *    the model would be using it. The trainer asks `visibleTo` as nobody in particular,
+ *    which no restricted record passes.
  *  - A read that fails, or takes longer than a fraction of a second, gives no profile
  *    rather than an error or a wait. Teaching somebody without their profile is a
  *    slightly less personal session; refusing to teach them, or making them wait, is a
@@ -17,7 +24,8 @@
 
 import 'server-only';
 
-import { profilesEnabled } from '../config';
+import { profilesEnabledFor, type ProfilesSubject } from '../config';
+import { visibleTo } from '../retention/restricted';
 import { getProfile, type ProfileOwner, type ProfileStoreOptions } from './store';
 import type { LearnerProfileRecord } from './types';
 
@@ -29,14 +37,18 @@ export interface TrainerProfileOptions extends ProfileStoreOptions {
 }
 
 export async function profileForTrainer(
-  person: ProfileOwner,
+  person: ProfileOwner & ProfilesSubject,
   options: TrainerProfileOptions = {},
 ): Promise<LearnerProfileRecord | undefined> {
-  if (!profilesEnabled()) return undefined;
+  if (!profilesEnabledFor(person)) return undefined;
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const read = getProfile(person, options);
+    // Under their own id only. Confirming a profile writes it there, so an uploaded copy
+    // still under a placeholder id is unconfirmed by definition and not worth a query.
+    const read = getProfile(person, options).then((profile) =>
+      profile?.confirmed === true ? visibleTo(null, profile) : undefined,
+    );
     // Left to finish on its own if the budget runs out first, with nobody to report a
     // failure to, so a late failure is swallowed rather than left unhandled.
     read.catch(() => undefined);

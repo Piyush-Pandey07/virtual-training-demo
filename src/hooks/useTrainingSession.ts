@@ -58,6 +58,8 @@ const BARGE_IN_MIN_WORDS = 2;
  * is the very thing trainees complained of. Before that, a retry is invisible.
  */
 const CHAT_ATTEMPTS = 3;
+/** How long a narration fetched ahead may take before it is given up (AI-44). */
+const PREFETCH_LIMIT_MS = 30_000;
 
 /**
  * How long a turn may go without sending anything before it is treated as lost.
@@ -332,6 +334,89 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
    * Runs one trainer turn: streams from Gemini, speaks it as it arrives, and
    * records it once playback has finished.
    */
+  /**
+   * The next slide's narration, asked for while this slide plays (AI-44).
+   *
+   * Measured on the live site, a slide start took a median of 4.3 seconds to the first
+   * sound, against a target of 3, and almost half of it was the model writing the first
+   * sentence. Fetching it ahead takes that out of the wait. It is the text only: no
+   * speech is synthesised until the slide is actually taught, so a trainee who asks a
+   * question instead wastes one model call and nothing billed by the second.
+   */
+  const prefetchRef = useRef<{
+    slideId: number;
+    transcriptLength: number;
+    controller: AbortController;
+    text: Promise<string | null>;
+    /** The narration once it has arrived whole; undefined while it is still coming. */
+    settled?: string | null;
+  } | null>(null);
+
+  const prefetchNarration = useCallback(
+    (slideId: number) => {
+      prefetchRef.current?.controller.abort();
+      const controller = new AbortController();
+      const body = JSON.stringify({
+        deckId: deck.meta.id,
+        kind: 'narrate',
+        slideId,
+        history: buildHistory(),
+        traineeName: traineeNameRef.current,
+        coveredSlideIds: coveredRef.current,
+        learner: learnerRef.current,
+        language: languageRef.current,
+        voice: chosenVoiceRef.current,
+      });
+      const text = (async (): Promise<string | null> => {
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) return null;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let pending = '';
+          let spoken = '';
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            const frames = pending.split('\n\n');
+            pending = frames.pop() ?? '';
+            for (const frame of frames) {
+              const line = frame.split('\n').find((entry) => entry.startsWith('data: '));
+              if (!line) continue;
+              const event = JSON.parse(line.slice(6)) as ChatEvent;
+              // A turn that moved the deck or failed is not one to replay.
+              if (event.type === 'error' || event.type === 'nav') return null;
+              if (event.type === 'text') spoken += event.delta;
+            }
+          }
+          return spoken.trim() || null;
+        } catch {
+          return null;
+        }
+      })();
+      // A stalled connection is given up rather than held open.
+      const limit = setTimeout(() => controller.abort(), PREFETCH_LIMIT_MS);
+      const entry: NonNullable<typeof prefetchRef.current> = {
+        slideId,
+        transcriptLength: transcriptRef.current.length,
+        controller,
+        text,
+      };
+      void text.then((result) => {
+        clearTimeout(limit);
+        entry.settled = result;
+      });
+      prefetchRef.current = entry;
+    },
+    [buildHistory, deck.meta.id],
+  );
+
   const runTurn = useCallback(
     async (kind: TurnKind, opts: { question?: string; slideId?: number } = {}) => {
       // Before anything else, and in particular before player.interrupt() below, which
@@ -379,6 +464,22 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       let sawText = false;
       /** Set when the model moved the deck during this turn. */
       let navigatedTo: number | null = null;
+
+      // The narration fetched ahead for this slide, if nothing has been said since it
+      // was asked for. Anything else, a question in between above all, and it is dropped.
+      const ahead = prefetchRef.current;
+      prefetchRef.current = null;
+      // Only once it has arrived whole: waiting for the rest of it would be slower than
+      // streaming the turn afresh, which speaks from its first sentence.
+      const usable =
+        kind === 'narrate' &&
+        ahead !== null &&
+        ahead.settled &&
+        ahead.slideId === targetSlide &&
+        ahead.transcriptLength === transcriptRef.current.length
+          ? ahead
+          : null;
+      if (ahead && !usable) ahead.controller.abort();
 
       const body = JSON.stringify({
         // Named explicitly. The server loads a deck per request, and without
@@ -499,7 +600,17 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       };
 
       try {
-        for (let tries = 1; ; tries += 1) {
+        // Already whole, so taken at once rather than awaited.
+        const fetchedAhead = usable?.settled ?? null;
+        if (fetchedAhead && isCurrent()) {
+          // Spoken straight away: the trainer starts as soon as the first chunk is
+          // synthesised, instead of first waiting for the model (AI-44).
+          sawText = true;
+          setPhase('speaking');
+          spoken = fetchedAhead;
+          player.push(fetchedAhead);
+        }
+        for (let tries = 1; !fetchedAhead; tries += 1) {
           try {
             await streamTurn();
             break;
@@ -518,8 +629,12 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           }
         }
 
-        player.flush();
-        await player.waitUntilDone();
+        // A turn superseded meanwhile leaves the player to the turn that replaced it,
+        // whose half-buffered sentence would otherwise be spoken as a fragment.
+        if (isCurrent()) {
+          player.flush();
+          await player.waitUntilDone();
+        }
 
         // Recorded even if this turn has been superseded, because it was
         // generated and at least partly heard, and the model needs it as context.
@@ -546,6 +661,15 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
         }
 
         setPhase(kind === 'recap' ? 'ended' : 'listening');
+
+        // While the trainee takes in this slide, ask for the next one's narration, so
+        // pressing Next does not wait on the model. Only after a narration, and only for
+        // a slide not yet taught; a question in between makes it stale and it is dropped.
+        if (kind === 'narrate') {
+          const index = deck.slides.findIndex((entry) => entry.id === taughtSlide);
+          const next = deck.slides[index + 1];
+          if (next && !coveredRef.current.includes(next.id)) prefetchNarration(next.id);
+        }
       } catch (caught) {
         // An interrupted turn still said something, and the model needs it as
         // context: without this the trainee's next question is answered as though
@@ -585,7 +709,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
         if (isCurrent()) busyRef.current = false;
       }
     },
-    [appendEntry, buildHistory, deck],
+    [appendEntry, buildHistory, deck, prefetchNarration],
   );
 
   /** A trainee utterance: either a nudge to continue, or a question to answer. */

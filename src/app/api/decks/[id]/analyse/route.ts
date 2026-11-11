@@ -25,6 +25,7 @@ import {
 } from '@/lib/analysis/outline';
 import { analyseSlideDetail, detailBatches, mergeSlideDetail } from '@/lib/analysis/slide-detail';
 import { analyseTopics, backfillSlideIds, mergeTopics, topicBatches } from '@/lib/analysis/topics';
+import { noteDeckSaved } from '@/lib/decks/approval';
 import { deckStore } from '@/lib/decks/registry';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
@@ -121,6 +122,16 @@ export async function POST(request: Request, { params }: RouteContext) {
   }
 
   const deck = stored.record;
+  const status = stored.status;
+
+  /**
+   * Saves a step's answer, and clears the deck's approval if the answer changed what it
+   * teaches (AI-39). A step that rewrites nothing leaves the approval as it was.
+   */
+  const save = async (record: typeof deck) => {
+    await store.save(record, status);
+    await noteDeckSaved(gate.person, record, status);
+  };
 
   /**
    * The whole run, as a list of steps the browser walks.
@@ -166,7 +177,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     if (current.kind === 'meta') {
       const analysis = await analyseDeckMeta(deck);
       const meta = mergeDeckMeta(deck.meta, analysis, new Date().toISOString());
-      await store.save({ ...deck, meta }, stored.status);
+      await save({ ...deck, meta });
 
       return Response.json({
         step,
@@ -181,7 +192,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     if (current.kind === 'backfill') {
       const filled = backfillSlideIds(deck);
-      await store.save(filled, stored.status);
+      await save(filled);
 
       // What a trainer most wants at the end of a run: whether the deck can be
       // published now, and if not, what is still missing.
@@ -201,7 +212,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     if (current.kind === 'outline') {
       const outlines = await analyseSlideBatch(gate.person.orgId, deck, deck.meta, pages);
-      await store.save(mergeSlideOutlines(deck, outlines), stored.status);
+      await save(mergeSlideOutlines(deck, outlines));
 
       return Response.json({
         step,
@@ -215,7 +226,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     if (current.kind === 'detail') {
       const details = await analyseSlideDetail(gate.person.orgId, deck, deck.meta, pages);
-      await store.save(mergeSlideDetail(deck, details), stored.status);
+      await save(mergeSlideDetail(deck, details));
 
       return Response.json({
         step,
@@ -228,7 +239,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     const generated = await analyseTopics(gate.person.orgId, deck, deck.meta, pages);
-    await store.save(mergeTopics(deck, pages, generated), stored.status);
+    await save(mergeTopics(deck, pages, generated));
 
     return Response.json({
       step,

@@ -17,7 +17,9 @@ import 'server-only';
 
 import { notFound, redirect } from 'next/navigation';
 
+import { consentAddress, needsConsent } from '../profiles/gate';
 import { rosterStore } from '../roster/registry';
+import { facilitatesDeck } from '../training/access';
 import type { SignedInPerson } from '../roster/types';
 import { currentPerson } from './session';
 
@@ -68,11 +70,30 @@ export async function requireAssignedDeck(deckId: string): Promise<SignedInPerso
   // it, and nothing outside it: every route that loads a deck now does so through a
   // store built for this person's organisation, so a deck id from elsewhere resolves
   // to nothing whatever this returns.
-  if (person.role === 'admin') return person;
-
-  const assigned = await rosterStore(person.orgId).isAssigned(person.id, deckId);
-  if (!assigned) throw new NotAuthorised(404, 'Not found.');
+  if (person.role !== 'admin') {
+    const assigned = await rosterStore(person.orgId).isAssigned(person.id, deckId);
+    if (!assigned) throw new NotAuthorised(404, 'Not found.');
+  }
+  await refuseWithoutConsent(person);
   return person;
+}
+
+/**
+ * Nobody attends before agreeing to the privacy notice (BRD v2.3, AI-27).
+ *
+ * The pages already send them to the consent page, but the page is not the control: the
+ * session talks to `/api/chat`, which would otherwise teach whoever posts to it. Asked
+ * after the assignment, so a deck somebody was not given is still a 404 that confirms
+ * nothing. A 403 here is honest: the session is theirs, the agreement is what is missing.
+ * Nobody PROFILES_ENABLED leaves out is ever asked.
+ */
+async function refuseWithoutConsent(person: SignedInPerson): Promise<void> {
+  if (await needsConsent(person)) {
+    throw new NotAuthorised(
+      403,
+      'Read and agree to the privacy notice before you attend. Reload the page to see it.',
+    );
+  }
 }
 
 /**
@@ -108,10 +129,51 @@ export function checkAssignedDeck(deckId: string): Promise<Gate> {
   return gate(() => requireAssignedDeck(deckId));
 }
 
+/**
+ * For a deck's slide images: whoever may attend it, and also the facilitator of a
+ * trainer-led session on it, who puts the slides on the screen in the room without being
+ * assigned the deck. Only the images: a facilitator still cannot attend it alone or
+ * record progress on it, which `requireAssignedDeck` keeps for the routes that do.
+ */
+export async function requireDeckViewer(deckId: string): Promise<SignedInPerson> {
+  const person = await requireUser();
+  if (person.role !== 'admin') {
+    const allowed =
+      (await rosterStore(person.orgId).isAssigned(person.id, deckId)) ||
+      (await facilitatesDeck(person, deckId));
+    if (!allowed) throw new NotAuthorised(404, 'Not found.');
+  }
+  await refuseWithoutConsent(person);
+  return person;
+}
+
+export function checkDeckViewer(deckId: string): Promise<Gate> {
+  return gate(() => requireDeckViewer(deckId));
+}
+
 // ------------------------------------------------------------------- for pages
 
-/** Sends a signed-out visitor to sign in, remembering where they were going. */
+/**
+ * Sends a signed-out visitor to sign in, and somebody who has not agreed to the current
+ * privacy notice to agree to it, remembering where they were going either way.
+ *
+ * Every guarded page comes through here, so the notice is shown before anything else to
+ * everybody PROFILES_ENABLED covers, administrators and facilitators included. For
+ * everybody else `needsConsent` answers at once without reading anything.
+ */
 export async function requireUserPage(next?: string): Promise<SignedInPerson> {
+  const person = await requireUserPageBeforeConsent(next);
+  if (await needsConsent(person)) redirect(consentAddress(next));
+  return person;
+}
+
+/**
+ * Signed in, whether or not they have agreed to the notice yet.
+ *
+ * For the consent page alone. Anything else guarded with this is a page somebody can use
+ * without agreeing, which is exactly what the notice exists to prevent.
+ */
+export async function requireUserPageBeforeConsent(next?: string): Promise<SignedInPerson> {
   const person = await currentPerson();
   if (person) return person;
   redirect(next ? `/signin?next=${encodeURIComponent(next)}` : '/signin');

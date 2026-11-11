@@ -4,9 +4,13 @@
  * Who has been asked to attend what. This is the gate: a trainee can open a session
  * only for a deck they have a row here for, checked in the session page and again in
  * `/api/chat`, because the chat route narrates whatever deck id its body names.
+ *
+ * Only a deck that is approved as it stands can be assigned (AI-39). Removing an
+ * assignment needs no approval: taking training away from somebody is always allowed.
  */
 
 import { requireAdmin, unauthorisedResponse } from '@/lib/auth/guard';
+import { approvalStateOf, assignmentRefusalFor, deckApprovalFor } from '@/lib/decks/approval';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
@@ -41,9 +45,10 @@ export async function POST(request: Request) {
     }
 
     const store = rosterStore(admin.orgId);
-    const [person, stored] = await Promise.all([
+    const [person, stored, approval] = await Promise.all([
       store.getPerson(personId),
       loadStoredDeck(admin.orgId, deckId).catch(() => undefined),
+      deckApprovalFor(admin.orgId, deckId).catch(() => undefined),
     ]);
 
     if (!person) return Response.json({ error: 'No such person.' }, { status: 404 });
@@ -58,6 +63,11 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+
+    // Approved, and approved as it is now. A deck that changed after its approval, or was
+    // withdrawn and put back, has not been signed off in the form a trainee would meet.
+    const refusal = assignmentRefusalFor(approvalStateOf(approval, stored.record, stored.status));
+    if (refusal) return Response.json({ error: refusal }, { status: 409 });
 
     const dueAt = typeof body.dueAt === 'string' && body.dueAt.trim() ? body.dueAt : null;
 
