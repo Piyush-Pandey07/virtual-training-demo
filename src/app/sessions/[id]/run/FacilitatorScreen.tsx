@@ -8,10 +8,16 @@
  * question they relay, or ask an engagement question), and stops the moment they take
  * back control. The microphone is open only while the facilitator is asking the trainer
  * something, so nothing anybody else says in the room can set it off.
+ *
+ * This is the only device in a trainer-led session that uses a microphone (AI-45).
+ * Participants never come here, and nothing on their own pages asks for one. While it is
+ * open the screen says so, and it is closed, track and all, as soon as the question has
+ * been heard or the facilitator takes back control.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { MicIndicator } from '@/components/MicIndicator';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
 import { useSpeechInput } from '@/hooks/useSpeechInput';
@@ -168,7 +174,12 @@ export function FacilitatorScreen({ sessionId, attendees }: Props) {
     stt.setLanguage('en');
     stt.setKeyterms(deck.listenFor ?? []);
     setFloor('listening');
-    await stt.start();
+    // A microphone that did not open, because it was refused or missing, gives the floor
+    // straight back rather than leaving the screen saying it is listening. Only if nothing
+    // has taken the floor meanwhile: a hand-over started while this waited keeps it.
+    if (!(await stt.start())) {
+      setFloor((current) => (current === 'listening' ? 'facilitator' : current));
+    }
   };
 
   useEffect(() => () => takeBack(), [takeBack]);
@@ -240,6 +251,7 @@ export function FacilitatorScreen({ sessionId, attendees }: Props) {
           <p role="status" aria-live="polite" className="text-teal mt-1 text-sm">
             {FLOOR_LABEL[floor]}
           </p>
+          <MicIndicator state={stt.state} className="mt-2" />
 
           {busy ? (
             <button type="button" onClick={takeBack} className={`${PRIMARY} mt-4 w-full`}>

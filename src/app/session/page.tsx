@@ -21,6 +21,7 @@ import { coverageOf, percentComplete } from '@/lib/roster/completion';
 import { rosterStore } from '@/lib/roster/registry';
 import { keytermsFor } from '@/lib/glossary';
 import { liveGlossary } from '@/lib/glossary/store';
+import { sessionsListing } from '@/lib/training/access';
 import { SessionScreen } from './SessionScreen';
 
 // The deck comes from storage now, so prerendering this would pin whichever deck
@@ -68,6 +69,19 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
    * draft banner below is what tells them which they are looking at.
    */
   const person = await requireAssignedDeckPage(deckId, `/session?deck=${deckId}`);
+
+  // Somebody listed for a trainer-led session on this deck takes it in the room, on the
+  // facilitator's screen, and their own device never records (AI-45). Being listed is what
+  // assigned them the deck, so the check above lets them through, and the home page hides
+  // this session from them for the same reason; a typed or bookmarked address must not
+  // open the microphone either. Home is where their own steps are. Read as the home page
+  // reads it, so the two agree, including that a listing that cannot be read hides nothing.
+  if (person.role !== 'admin') {
+    const inTheRoom = await sessionsListing(person)
+      .then((sessions) => sessions.some((session) => session.deckId === deckId))
+      .catch(() => false);
+    if (inTheRoom) redirect('/');
+  }
 
   // A deck id out of a URL is untrusted, and the store rejects an unusable one by
   // throwing. A bad link should be a 404, not a 500.
