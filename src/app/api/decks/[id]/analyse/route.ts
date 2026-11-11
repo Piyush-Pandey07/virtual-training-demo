@@ -14,6 +14,9 @@
  * Step 0 is the whole-deck pass. Every step after it is a batch of pages, and each
  * batch is given step 0's answer, so a page in the middle is described as part of
  * this deck rather than in isolation.
+ *
+ * Technavious only (`checkAdministrator`): reviewing decks is the Benchmark
+ * administrator's, and a company administrator gets a 404.
  */
 
 import {
@@ -30,7 +33,8 @@ import { deckStore } from '@/lib/decks/registry';
 import { checkReadyToPublish } from '@/lib/decks/serialise';
 import { DeckInvalidError, DeckStoreError } from '@/lib/decks/store';
 
-import { checkAdmin } from '@/lib/auth/guard';
+import { recordAudit } from '@/lib/audit/log';
+import { checkAdministrator } from '@/lib/auth/guard';
 import { classifyThrown } from '@/lib/failures/classify';
 import { failurePayload } from '@/lib/failures/respond';
 import { rateLimited } from '@/lib/limits/rate';
@@ -53,7 +57,7 @@ interface RouteContext {
 }
 
 export async function POST(request: Request, { params }: RouteContext) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const limited = await rateLimited(gate.person, 'analyse');
@@ -178,6 +182,13 @@ export async function POST(request: Request, { params }: RouteContext) {
       const analysis = await analyseDeckMeta(deck);
       const meta = mergeDeckMeta(deck.meta, analysis, new Date().toISOString());
       await save({ ...deck, meta });
+      // Once per run, at its first step, rather than once per batch (AI-40).
+      await recordAudit(gate.person, {
+        action: 'analysed',
+        subjectType: 'deck',
+        subjectId: id,
+        detail: `Started analysing "${meta.title}", ${totalSteps} steps`,
+      });
 
       return Response.json({
         step,

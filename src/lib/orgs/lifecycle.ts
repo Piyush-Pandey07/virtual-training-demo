@@ -34,6 +34,9 @@ const OWNED_COLLECTIONS = [
   'people',
   'assignments',
   'attempts',
+  // The names and addresses of people who have left, kept with their training record for
+  // five years (AI-42). The customer's record, so it goes with the customer.
+  'leavers',
   'usage',
   // How fast each person has been calling the paid routes. Firestore expires these by
   // itself once its TTL policy is on, but a purge should not depend on a console setting.
@@ -268,10 +271,12 @@ function documentIdOf(
       ? `${row.personId}__${row.kind}`
       : undefined;
   }
-  // people, decks, the seed marker, consent records, batches, trainer-led sessions, the
-  // assessment records, deck approvals and audit entries all carry their own id.
+  // people, leavers, decks, the seed marker, consent records, batches, trainer-led
+  // sessions, the assessment records, deck approvals and audit entries all carry their
+  // own id.
   if (
     collection === 'people' ||
+    collection === 'leavers' ||
     collection === 'decks' ||
     collection === 'deck-seed' ||
     collection === 'batches' ||

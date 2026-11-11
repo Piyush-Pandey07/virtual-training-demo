@@ -42,6 +42,7 @@ import {
   type AssignmentInput,
   type PersonInput,
   type ProgressInput,
+  type RemovePersonOptions,
   type RosterStore,
 } from './store';
 import type { Assignment, Attempt, Person, Role } from './types';
@@ -216,7 +217,7 @@ export class BlobRosterStore implements RosterStore {
     });
   }
 
-  async removePerson(id: string): Promise<void> {
+  async removePerson(id: string, options: RemovePersonOptions = {}): Promise<void> {
     const assignments = await this.readList<Assignment>(ASSIGNMENTS);
     const theirs = assignments.filter((row) => row.personId === id);
 
@@ -228,11 +229,12 @@ export class BlobRosterStore implements RosterStore {
       ASSIGNMENTS,
       assignments.filter((row) => row.personId !== id),
     );
+    void theirs;
 
-    // Their attempts go too, one object each.
+    // Their attempts go too, one object each, unless they are being kept as the record.
+    if (options.keepAttempts) return;
     const urls = await this.client.list(this.within(`attempts/${id}/`));
     if (urls.length > 0) await this.client.remove(urls.map((entry) => entry.url));
-    void theirs;
   }
 
   // -------------------------------------------------------------- assignments
@@ -329,6 +331,26 @@ export class BlobRosterStore implements RosterStore {
       assignments.map((row) => this.readAttempt(row.personId, deckId)),
     );
     return found.filter((attempt): attempt is Attempt => attempt !== undefined);
+  }
+
+  /**
+   * Every attempt, found by listing the prefix. The slow listing the header warns about,
+   * which is acceptable here because only the daily retention job asks, never a page.
+   */
+  async listAttempts(): Promise<Attempt[]> {
+    const entries = await this.client.list(this.within('attempts/'));
+    const found = await Promise.all(
+      entries.map(async (entry) => {
+        const match = /attempts\/([^/]+)\/([^/]+)\.json$/.exec(entry.pathname);
+        return match ? this.readAttempt(match[1]!, match[2]!).catch(() => undefined) : undefined;
+      }),
+    );
+    return found.filter((attempt): attempt is Attempt => attempt !== undefined);
+  }
+
+  async removeAttempt(personId: string, deckId: string): Promise<void> {
+    const entries = await this.client.list(this.within(attemptKey(personId, deckId)));
+    if (entries.length > 0) await this.client.remove(entries.map((entry) => entry.url));
   }
 
   async touchAttempt(input: Omit<ProgressInput, 'slideId' | 'targetSeconds'>): Promise<Attempt> {

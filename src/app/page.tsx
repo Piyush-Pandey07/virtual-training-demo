@@ -54,14 +54,22 @@ export default async function HomePage() {
   //
   // Keyed on origin rather than readOnly, because seeding the built-in deck into a
   // writable store makes it editable without making it the trainer's.
-  const uploaded = decks.filter((deck) => deck.origin !== 'authored');
+  //
+  // A company administrator sees only what is published, since uploading and reviewing
+  // are Technavious's and a draft is not theirs to see.
+  const manages = isAdministrator(person);
+  const uploaded = decks.filter(
+    (deck) => deck.origin !== 'authored' && (manages || deck.status === 'published'),
+  );
+  const demo = decks.find((deck) => deck.id === DEFAULT_DECK_ID);
 
   return (
     <HomeForAdmin
       person={person}
       uploaded={uploaded}
-      demo={decks.find((deck) => deck.id === DEFAULT_DECK_ID)}
-      canUpload={store.writable}
+      demo={manages || demo?.status === 'published' ? demo : undefined}
+      mayManageDecks={manages}
+      canUpload={manages && store.writable}
       peopleCount={people.length}
       outstanding={people.reduce((total, row) => total + row.assigned - row.completed, 0)}
       rosterReady={rosterStore(person.orgId).writable}

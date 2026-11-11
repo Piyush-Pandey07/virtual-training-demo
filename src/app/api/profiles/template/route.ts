@@ -8,6 +8,7 @@
  * anybody else, as for anybody PROFILES_ENABLED leaves out.
  */
 
+import { recordAudit } from '@/lib/audit/log';
 import { checkUser } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
 import { mayUploadParticipants } from '@/lib/profiles/access';
@@ -29,6 +30,15 @@ export async function GET() {
   ) {
     return notFound();
   }
+
+  // Every download is in the history (AI-40), this one included although the template
+  // holds only column headings: the rule is about who took what out, not what it held.
+  await recordAudit(person, {
+    action: 'downloaded',
+    subjectType: 'profile',
+    subjectId: 'participants-template.csv',
+    detail: 'Downloaded the participant upload template',
+  });
 
   return new Response(templateCsv(), {
     headers: {

@@ -17,8 +17,10 @@ import 'server-only';
 
 import { notFound, redirect } from 'next/navigation';
 
+import { loadStoredDeck } from '../decks/registry';
 import { consentAddress, needsConsent } from '../profiles/gate';
 import { rosterStore } from '../roster/registry';
+import { isAdministrator, isCompanyAdmin } from './permissions';
 import { facilitatesDeck } from '../training/access';
 import type { SignedInPerson } from '../roster/types';
 import { currentPerson } from './session';
@@ -57,6 +59,46 @@ export async function requireAdmin(): Promise<SignedInPerson> {
 }
 
 /**
+ * Technavious only: platform staff, including when looking inside a customer, and the
+ * administrators of Technavious's own organisation (`isAdministrator`).
+ *
+ * For the deck tools: uploading, editing, analysing, publishing, approving and deleting
+ * decks, and their question banks, are the Benchmark administrator's alone. A company
+ * administrator gets the same 404 as anybody else, as for the other Technavious tools.
+ */
+export async function requireAdministrator(): Promise<SignedInPerson> {
+  const person = await requireUser();
+  if (!isAdministrator(person)) throw new NotAuthorised(404, 'Not found.');
+  return person;
+}
+
+/**
+ * Whether somebody may open a deck they have not been assigned.
+ *
+ * Technavious may open anything in the customer they are in. A company administrator
+ * may open a published deck, to see what they are assigning, but not a draft: drafts are
+ * Technavious's work in progress, and the company sees the library read-only. Everybody
+ * else needs an assignment.
+ */
+async function opensUnassigned(person: SignedInPerson, deckId: string): Promise<boolean> {
+  if (isAdministrator(person)) return true;
+  if (!isCompanyAdmin(person)) return false;
+  const stored = await loadStoredDeck(person.orgId, deckId).catch(() => undefined);
+  return stored?.status === 'published';
+}
+
+/**
+ * Whether this person may open this deck's session, as a value, for a page's metadata,
+ * which runs outside the page's guard and must not name a deck the page would refuse.
+ */
+export async function mayOpenDeck(person: SignedInPerson, deckId: string): Promise<boolean> {
+  if (await opensUnassigned(person, deckId)) return true;
+  return rosterStore(person.orgId)
+    .isAssigned(person.id, deckId)
+    .catch(() => false);
+}
+
+/**
  * The check that stops a signed-in trainee attending a deck nobody gave them.
  *
  * This has to live in the route and not only on the page. `/api/chat` narrates
@@ -66,11 +108,11 @@ export async function requireAdmin(): Promise<SignedInPerson> {
  */
 export async function requireAssignedDeck(deckId: string): Promise<SignedInPerson> {
   const person = await requireUser();
-  // An administrator may attend anything in their own customer without being assigned
-  // it, and nothing outside it: every route that loads a deck now does so through a
-  // store built for this person's organisation, so a deck id from elsewhere resolves
-  // to nothing whatever this returns.
-  if (person.role !== 'admin') {
+  // Technavious may attend anything in the customer it is in, and a company
+  // administrator any published deck there, without being assigned it; nothing outside
+  // it: every route that loads a deck does so through a store built for this person's
+  // organisation, so a deck id from elsewhere resolves to nothing whatever this returns.
+  if (!(await opensUnassigned(person, deckId))) {
     const assigned = await rosterStore(person.orgId).isAssigned(person.id, deckId);
     if (!assigned) throw new NotAuthorised(404, 'Not found.');
   }
@@ -125,6 +167,10 @@ export function checkAdmin(): Promise<Gate> {
   return gate(requireAdmin);
 }
 
+export function checkAdministrator(): Promise<Gate> {
+  return gate(requireAdministrator);
+}
+
 export function checkAssignedDeck(deckId: string): Promise<Gate> {
   return gate(() => requireAssignedDeck(deckId));
 }
@@ -137,7 +183,7 @@ export function checkAssignedDeck(deckId: string): Promise<Gate> {
  */
 export async function requireDeckViewer(deckId: string): Promise<SignedInPerson> {
   const person = await requireUser();
-  if (person.role !== 'admin') {
+  if (!(await opensUnassigned(person, deckId))) {
     const allowed =
       (await rosterStore(person.orgId).isAssigned(person.id, deckId)) ||
       (await facilitatesDeck(person, deckId));
@@ -185,12 +231,19 @@ export async function requireAdminPage(next?: string): Promise<SignedInPerson> {
   return person;
 }
 
+/** Technavious only, as `requireAdministrator`, for pages. A 404 for anybody else. */
+export async function requireAdministratorPage(next?: string): Promise<SignedInPerson> {
+  const person = await requireUserPage(next);
+  if (!isAdministrator(person)) notFound();
+  return person;
+}
+
 export async function requireAssignedDeckPage(
   deckId: string,
   next?: string,
 ): Promise<SignedInPerson> {
   const person = await requireUserPage(next);
-  if (person.role === 'admin') return person;
+  if (await opensUnassigned(person, deckId)) return person;
   if (!(await rosterStore(person.orgId).isAssigned(person.id, deckId))) notFound();
   return person;
 }

@@ -1,8 +1,10 @@
 /**
  * The privacy notice everybody is shown at sign-in, and beside every profile form.
  *
- * DRAFT, AWAITING APPROVAL. Prashant approves the final wording, and until he does the
- * switch may be "staff" for UAT but must not be "true". It was written to be easy to
+ * DRAFT, AWAITING APPROVAL. Prashant approves the final wording. The product owner has
+ * switched profiles on for everybody for UAT, because every login is a test account; until
+ * the wording is approved, a deployment real customers use should set PROFILES_ENABLED to
+ * "staff" or "off". It was written to be easy to
  * replace rather than to be final: when the approved text arrives, change
  * `PROFILE_NOTICE`, change `PROFILE_NOTICE_VERSION`, and set `PROFILE_NOTICE_IS_DRAFT` to
  * false.
@@ -18,8 +20,15 @@
 /** True until the text is approved. Every page that shows it says so while it is. */
 export const PROFILE_NOTICE_IS_DRAFT = true;
 
-/** Stored with each consent record as the notice its owner agreed to. */
-export const PROFILE_NOTICE_VERSION = 'draft-2026-11-08';
+/**
+ * Stored with each consent record as the notice its owner agreed to.
+ *
+ * Moved on 12 November 2026, when the retention rule changed: a year now deletes the
+ * profile and the answers but keeps the score, and the rest goes at five years. Everybody
+ * who agreed to the 8 November draft is asked again, which costs nothing while every login
+ * is a test account, and keeps each consent record true to the words its owner saw.
+ */
+export const PROFILE_NOTICE_VERSION = 'draft-2026-11-12';
 
 export const PROFILE_NOTICE_TITLE = 'Privacy notice: your training data';
 
@@ -65,7 +74,7 @@ export const PROFILE_NOTICE: readonly NoticeSection[] = [
   },
   {
     heading: 'How long it is kept',
-    text: "Your profile, assessment and feedback data are used for 90 days after your last session. After that they are restricted to Technavious's administrators, and they are deleted one year after they were last used. Your training progress, attendance and consent records are kept for at least five years, because your company may need to show that the training took place.",
+    text: "Your profile, assessment and feedback data are used for 90 days after your last session. After that they are restricted to Technavious's administrators. Your profile and your assessment answers, including anything you wrote in feedback, are deleted one year after they were last used. Your name, email address, training progress, attendance, assessment scores, pass or fail and feedback ratings are kept for five years after they were last used, because your company may need to show that the training took place, and are then deleted. Consent records are kept for at least five years. Deleted data drops out of our backups when those backups expire.",
   },
   {
     heading: 'If your organisation filled it in',
@@ -77,7 +86,7 @@ export const PROFILE_NOTICE: readonly NoticeSection[] = [
   },
   {
     heading: 'Withdrawing your consent',
-    text: 'You can withdraw your consent to your profile at any time: open My profile and choose Withdraw consent and delete my profile. Your profile is deleted at once and we record that you withdrew. Your training carries on without the personalisation. Your profile is also deleted if you are removed from your organisation or its account is closed.',
+    text: 'You can withdraw your consent to your profile at any time: open My profile and choose Withdraw consent and delete my profile. Your profile is deleted at once and we record that you withdrew. Your training carries on without the personalisation. Your profile and your assessment answers are also deleted if you are removed from your organisation, and everything is deleted if its account is closed.',
   },
   {
     heading: 'Questions and grievances',

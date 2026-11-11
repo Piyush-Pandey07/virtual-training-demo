@@ -10,6 +10,10 @@
  * a 60-page PDF cannot be relied on to finish inside a function timeout. Doing the
  * reading in the browser removes both problems, and keeps the client's deck off
  * this server except as the renders they chose to send.
+ *
+ * Technavious only (`checkAdministrator`): only the Benchmark administrator uploads and
+ * reviews decks. A company administrator sees the published library and assigns from it,
+ * and gets a 404 here. Every upload is in the audit history (AI-40).
  */
 
 import { deckIdFrom, draftDeckFrom, titleFromFileName, type DraftPage } from '@/lib/decks/draft';
@@ -17,7 +21,8 @@ import { deckStore } from '@/lib/decks/registry';
 import { DeckStoreError } from '@/lib/decks/store';
 import { readable } from '@/lib/decks/readable';
 
-import { checkAdmin } from '@/lib/auth/guard';
+import { recordAudit } from '@/lib/audit/log';
+import { checkAdministrator } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,7 +99,7 @@ function parsePages(raw: unknown): DraftPage[] | string {
 }
 
 export async function POST(request: Request) {
-  const gate = await checkAdmin();
+  const gate = await checkAdministrator();
   if (!gate.ok) return gate.response;
 
   const store = deckStore(gate.person.orgId);
@@ -136,6 +141,12 @@ export async function POST(request: Request) {
     // Draft, always. This deck has no expertise behind it until it is analysed, and
     // the publish check is what keeps it out of a trainee's way until then.
     const summary = await store.save(record, 'draft');
+    await recordAudit(gate.person, {
+      action: 'uploaded',
+      subjectType: 'deck',
+      subjectId: deckId,
+      detail: `Uploaded "${title}" from ${fileName}, ${pages.length} pages, as a draft`,
+    });
     return Response.json({ deck: summary }, { status: 201 });
   } catch (error) {
     if (error instanceof DeckStoreError) return badRequest(error.message);

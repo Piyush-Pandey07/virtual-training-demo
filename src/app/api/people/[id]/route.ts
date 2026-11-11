@@ -3,6 +3,11 @@
  *
  * Changing somebody's role (company administrator, facilitator or employee), or removing them.
  *
+ * Removing somebody deletes their login, their learner profile and their assessment
+ * answers at once, and keeps their name, email, completion, attendance, scores and pass or
+ * fail for five years after their last use, when the daily retention job deletes them
+ * (AI-42). Both changes are in the audit history (AI-40).
+ *
  * An administrator cannot demote themselves. That is not politeness: with one admin
  * role and no seat above it, the last administrator demoting themselves would leave
  * a deployment nobody could administer, recoverable only by an environment variable
@@ -15,6 +20,8 @@ import { isPlatformAdmin } from '@/lib/auth/roles';
 import { deleteAccount, revokeSessions } from '@/lib/firebase/admin';
 import { removeFromTraining } from '@/lib/training/service';
 import { deleteProfile } from '@/lib/profiles/store';
+import { eraseLeaverAnswers } from '@/lib/retention/leaving';
+import { recordLeaver } from '@/lib/roster/leavers';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 import { ROLES, type Role } from '@/lib/roster/types';
@@ -68,7 +75,17 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       );
     }
 
-    return Response.json(await store.setRole(id, body.role));
+    const updated = await store.setRole(id, body.role);
+    // A role decides what somebody may see, so every change is in the history (AI-40).
+    if (person.role !== body.role) {
+      await recordAudit(admin, {
+        action: 'role-changed',
+        subjectType: 'person',
+        subjectId: id,
+        detail: `Changed ${person.email} from ${person.role} to ${body.role}`,
+      });
+    }
+    return Response.json(updated);
   } catch (error) {
     const refused = unauthorisedResponse(error);
     if (refused) return refused;
@@ -105,7 +122,12 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
         { status: 409 },
       );
     }
-    await roster.removePerson(id);
+    // Their name and address first, kept with their training record for five years
+    // (AI-42), so a failure after this still leaves the record readable. Then the row and
+    // their assignments, keeping their attempts: completion is part of the same record,
+    // and the daily retention job deletes it with the rest five years after last use.
+    await recordLeaver(admin.orgId, leaving, admin.id);
+    await roster.removePerson(id, { keepAttempts: true });
 
     // Their login goes too (AI-42, RUL-8), not only their sessions. Losing the roster
     // row is already enough to refuse them on the next request, since every request
@@ -124,6 +146,11 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     await deleteProfile({ id, orgId: admin.orgId, emailKey: leaving.emailKey }).catch(
       () => undefined,
     );
+    // And their assessment answers and feedback comments, which the retention rule deletes
+    // with the profile. Their scores, pass or fail, ratings and attendance stay for the
+    // five-year record. Best effort: the daily job deletes anything this misses within a
+    // year of their last use regardless.
+    const erased = await eraseLeaverAnswers(admin.orgId, id).catch(() => null);
     // Recorded whether or not they had one, since the deletion is the decision and the
     // administrator was deliberately not shown what it removed (AI-40).
     await recordAudit(admin, {
@@ -131,6 +158,14 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
       subjectType: 'profile',
       subjectId: id,
       detail: `Removed ${leaving.email} and any profile they had`,
+    });
+    await recordAudit(admin, {
+      action: 'deleted',
+      subjectType: 'person',
+      subjectId: id,
+      detail: erased
+        ? `Removed ${leaving.email} (${leaving.role}): login and profile deleted, answers deleted from ${erased.results} results and ${erased.feedback} feedback; scores, completion and attendance kept for five years`
+        : `Removed ${leaving.email} (${leaving.role}): login and profile deleted; their answers could not be deleted now and will be by the daily retention job`,
     });
 
     return Response.json({ ok: true });

@@ -16,7 +16,7 @@
  * The agreement, and any profile given with it, are recorded in the audit history (AI-40).
  */
 
-import { recordAudit } from '@/lib/audit/log';
+import { recordAudit, recordConsentAudit } from '@/lib/audit/log';
 import { checkUser } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
 import { recordConsent } from '@/lib/profiles/consent';
@@ -54,5 +54,6 @@ export async function POST(request: Request) {
       ? `Agreed to notice ${consent.noticeVersion} and ${before ? 'confirmed' : 'gave'} their profile`
       : `Agreed to notice ${consent.noticeVersion}, without a profile`,
   });
+  await recordConsentAudit(person, consent);
   return reply({ ok: true });
 }
