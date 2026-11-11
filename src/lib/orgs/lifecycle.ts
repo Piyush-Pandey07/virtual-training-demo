@@ -4,6 +4,7 @@ import { assetStore, deckStore, forgetDeckStores } from '../decks/registry';
 import { DECK_COLLECTIONS } from '../decks/store-documents';
 import { firestoreDocuments } from '../firebase/firestore';
 import { revokeSessions } from '../firebase/admin';
+import { forgetNotificationsOf } from '../notifications/outbox';
 import { deleteProfile } from '../profiles/store';
 import { forgetRosterStore, rosterStore } from '../roster/registry';
 import { orgStore, orgsConfigured } from './registry';
@@ -233,6 +234,9 @@ export async function purge(orgId: string): Promise<PurgeReport> {
     }
     report.documents[collection] = removed;
   }
+  // The email outbox is the platform's, outside every prefix, but a digest in it names
+  // the customer's participants, so their records go with them (AI-35).
+  report.documents.notifications = await forgetNotificationsOf(orgId).catch(() => 0);
 
   // 5. The customer itself, last.
   await firestoreDocuments().remove('organisations', orgId);

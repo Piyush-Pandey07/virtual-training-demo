@@ -245,6 +245,30 @@ export const deckApprovers = (): ReadonlySet<string> =>
 export const cronSecret = (): string | null => process.env.CRON_SECRET?.trim() || null;
 
 /**
+ * Email notifications to Technavious's training team (AI-35), sent through Resend.
+ *
+ * Without RESEND_API_KEY nothing is sent: each notification is kept as held, the
+ * administrator sees it on the notifications page, and the next run after a key is set
+ * sends it. NOTIFY_FROM must be on a domain verified in Resend; until one is, Resend only
+ * delivers to the address that owns the account. NOTIFY_TO is comma separated.
+ * APP_URL is where links in an email point, and falls back to the production address
+ * Vercel gives the project. All of them live in src/lib/notifications/.
+ */
+export const resendApiKey = (): string | null => process.env.RESEND_API_KEY?.trim() || null;
+export const notifyFrom = () => envOr('NOTIFY_FROM', 'Nova <notifications@technavious.com>');
+export const notifyTo = (): string[] =>
+  envOr('NOTIFY_TO', 'training@technavious.com')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+export const appUrl = (): string | null => {
+  const explicit = process.env.APP_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  return vercel ? `https://${vercel}` : null;
+};
+
+/**
  * Lifetime of the browser transcription token. Deepgram allows up to 3600
  * seconds; the token only has to be valid for the initial handshake, so keeping
  * it short limits the damage if one leaks.

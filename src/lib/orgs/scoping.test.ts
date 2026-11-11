@@ -91,6 +91,10 @@ const STORES = [
   'recordLeaver',
   // What removing somebody deletes at once: their assessment answers and comments.
   'eraseLeaverAnswers',
+  // Email notifications (AI-35): who in a customer's upcoming sessions has an incomplete
+  // profile, and deleting a customer's notifications along with the customer.
+  'incompleteInUpcomingSessions',
+  'forgetNotificationsOf',
 ] as const;
 
 /**

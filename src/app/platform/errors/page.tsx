@@ -78,8 +78,12 @@ export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
               Next day
             </Link>
           )}
+          {/* The emails to the training team, whose failed sends are logged here (AI-35). */}
+          <Link href="/platform/notifications" className="text-muted hover:text-teal ml-auto">
+            Email notifications
+          </Link>
           {person.platform && (
-            <Link href="/platform" className="text-muted hover:text-teal ml-auto">
+            <Link href="/platform" className="text-muted hover:text-teal">
               Back to customers
             </Link>
           )}

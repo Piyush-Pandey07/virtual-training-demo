@@ -486,6 +486,46 @@ filesystem store) for this: the legacy blob roster finds attempts through assign
 curl -H "Authorization: Bearer $CRON_SECRET"   "https://your-deployment.vercel.app/api/cron/retention?dryRun=1&asOf=2027-03-01"
 ```
 
+### Email notifications
+
+The training team (`training@technavious.com`, or `NOTIFY_TO`) is emailed when a trainer-led
+session is set up and when participants' profiles are missing required fields (AI-35). The code is in
+`src/lib/notifications/`.
+
+- **What is sent.** A session set up: deck, facilitator, time in IST, number of participants and a
+  link to the session record. Incomplete profiles: one digest per bulk upload that leaves anybody
+  incomplete, and one digest a day per customer of participants in the next seven days' sessions
+  whose profiles are incomplete. Names, addresses and which required fields are missing only, never
+  what a profile says.
+- **The outbox.** Every notification is written to the `notifications` Firestore collection first,
+  outside every customer's data like the developer log, keyed on a hash of the event so one event
+  never emails twice. A send is tried right after the response; one that fails with a network error,
+  a 429 or a 5xx is retried after 1 minute, 5, 30, 2 hours and 12 hours, then marked failed. Any
+  other 4xx (a bad key, an unverified sender) fails at once. Every failed send goes to the developer
+  log as provider `resend`, and a refused key, an unverified domain or a spent quota raise the
+  banner on the administrator's home page. Deleting a customer deletes their notifications; the
+  rest are kept 30 days, so **enable a TTL policy on `notifications` / `expireAt`** as well (the
+  daily run also deletes old ones itself).
+- **Without a key nothing is sent.** Until `RESEND_API_KEY` is set, notifications are kept as
+  **held**, `/platform/notifications` says no email is going out, and the daily run puts a "not set
+  up" entry in the developer log. The first run after the key is set sends what is held.
+- **The page.** `/platform/notifications`, linked from the developer log, lists this month's and
+  last month's notifications with their status, tries and last error, and retries a held or failed
+  one at once. Technavious administrators only; a 404 for anybody else.
+- **The route.** `GET /api/cron/notifications`, scheduled in `vercel.json` once a day at 02:30 UTC
+  (08:00 in India, within the hour on Hobby), secured with `CRON_SECRET` exactly as the retention
+  job is. Hobby allows a cron once a day at most, so the backoff is the earliest a retry may happen:
+  in practice the next event's send carries due retries with it, "retry now" sends at once, and
+  otherwise the next morning's run does. On Pro, set the schedule to `*/5 * * * *`.
+
+**Setting up Resend.** Create the account, add and verify a sending domain (for example
+`technavious.com`, or a subdomain such as `mail.technavious.com`) by adding the DNS records Resend
+lists, create an API key with sending access, and set in Vercel: `RESEND_API_KEY`, `NOTIFY_FROM`
+(an address on the verified domain, such as `Nova <notifications@technavious.com>`), and optionally
+`NOTIFY_TO` and `APP_URL`. Without a verified domain Resend's free plan delivers only to the address
+that owns the account, so `training@technavious.com` needs the domain. Then open
+`/platform/notifications` and "Retry now" one held notification to check.
+
 ### Audit history
 
 `/audit` (AI-40) is the Benchmark administrator's alone; anybody else gets a 404. It records views

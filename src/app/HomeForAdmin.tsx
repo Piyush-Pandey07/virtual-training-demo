@@ -58,12 +58,14 @@ const PROVIDER_NAMES: Record<string, string> = {
   deepgram: 'Deepgram',
   sarvam: 'Sarvam',
   openai: 'OpenAI',
+  resend: 'Resend, for email notifications',
 };
 
 const ALERT_WORDS: Record<string, string> = {
   out_of_credit: 'Out of credit',
   bad_key: 'The key was refused',
-  not_configured: 'No key is set',
+  // A missing key, or for Resend a sender domain not yet verified (AI-35).
+  not_configured: 'Not set up',
 };
 
 export function HomeForAdmin({

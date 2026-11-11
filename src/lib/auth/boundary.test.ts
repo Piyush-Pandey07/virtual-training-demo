@@ -30,6 +30,8 @@ const PUBLIC_ROUTES: Record<string, string> = {
     'The development sign-in. Refuses to run on Vercel, in a production build, or wherever Firebase is configured.',
   'api/cron/retention/route.ts':
     'Called by Vercel Cron, not by a person, so there is nobody to sign in. It answers 404 unless the request carries CRON_SECRET as a bearer token, and to everybody when CRON_SECRET is unset.',
+  'api/cron/notifications/route.ts':
+    'The email notifications run (AI-35), called by Vercel Cron and secured exactly as the retention job: 404 unless the request carries CRON_SECRET as a bearer token, and to everybody when it is unset.',
 };
 
 const PUBLIC_PAGES: Record<string, string> = {
