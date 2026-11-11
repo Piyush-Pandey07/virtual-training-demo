@@ -26,8 +26,12 @@ export async function facilitatesPerson(
     store.sessionsFacilitatedBy(viewer.id),
     store.listBatches(),
   ]);
+  // A cancelled session never brought them together, so it shows the facilitator nobody,
+  // as the deleted session it replaces did.
   return (
-    sessions.some((session) => session.participantIds.includes(personId)) ||
+    sessions.some(
+      (session) => session.status !== 'cancelled' && session.participantIds.includes(personId),
+    ) ||
     batches.some(
       (batch) => batch.facilitatorId === viewer.id && batch.participantIds.includes(personId),
     )
@@ -48,7 +52,7 @@ export async function facilitatesDeck(
   const sessions = await trainingStore(viewer.orgId, options.store).sessionsFacilitatedBy(
     viewer.id,
   );
-  return sessions.some((session) => session.deckId === deckId);
+  return sessions.some((session) => session.status !== 'cancelled' && session.deckId === deckId);
 }
 
 /** Whether this viewer may see and run this session. */

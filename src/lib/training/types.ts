@@ -23,7 +23,12 @@ export interface Batch {
   updatedAt: string;
 }
 
-export type TrainingSessionStatus = 'scheduled' | 'open' | 'closed';
+/**
+ * A session moves from scheduled to open to closed, or from scheduled to cancelled, and
+ * never back: a closed or cancelled session is a record, and running it again means
+ * setting up a new one.
+ */
+export type TrainingSessionStatus = 'scheduled' | 'open' | 'closed' | 'cancelled';
 
 export type AttendanceMark = 'present' | 'absent';
 
@@ -48,6 +53,12 @@ export interface TrainingSession {
    * not yet marked, and the facilitator is asked to mark them before closing.
    */
   attendance: Record<string, AttendanceMark>;
+  /**
+   * When each participant's mark was last changed, written with the mark. Somebody marked
+   * present after the session opened joined late (AI-26). Absent from sessions marked
+   * before it was kept, whose marks are then read as on time.
+   */
+  attendanceAt?: Record<string, string>;
   createdBy: string;
   createdAt: string;
   openedAt: string | null;
@@ -55,10 +66,12 @@ export interface TrainingSession {
   closedAt: string | null;
   closedBy: string | null;
   /**
-   * Set, in a transaction, just before a scheduled session is deleted, so a hand-over
-   * arriving in between cannot open it. Nothing else ever sees a session with it set.
+   * When and by whom a session was cancelled before it started. The record is kept, shown
+   * as cancelled. Set in the same transaction as the status, so a hand-over arriving at
+   * the same moment cannot open it.
    */
   cancelledAt?: string;
+  cancelledBy?: string;
 }
 
 /** One participant's line in a session's closure summary (AI-33). */
@@ -67,7 +80,13 @@ export interface SummaryRow {
   name: string;
   email: string;
   attendance: AttendanceMark | 'not marked';
+  /** Marked present after the session opened. */
+  joinedLate: boolean;
+  /** When their mark was made, if that was recorded. */
+  markedAt: string | null;
   preLevel: string | null;
+  /** The pre-session bank's version, as people number it, when the result records one. */
+  preVersion: string | null;
   postPercent: number | null;
   passed: boolean | null;
   /**
@@ -75,5 +94,12 @@ export interface SummaryRow {
    * kept once per person and deck, so it is theirs, but not this session's.
    */
   postElsewhere: boolean;
+  /**
+   * Post-session answers wrong and left unanswered, and the bank's version, when the
+   * result records them. Null for a result scored before it did.
+   */
+  postWrong: number | null;
+  postNotAttempted: number | null;
+  postVersion: string | null;
   feedback: 'submitted' | 'pending' | null;
 }

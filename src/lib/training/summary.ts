@@ -1,21 +1,26 @@
 /**
  * The closure summary of a trainer-led session (BRD v2.3, AI-33).
  *
- * One row per listed participant: whether they attended, their pre-session level, their
- * post-session score with pass or fail, and whether they have given feedback. Shown to
- * the facilitator, administrators and the company administrator, each of whom only ever
- * reaches their own company's sessions, and downloadable as a spreadsheet.
+ * One row per listed participant: whether they attended, and whether they joined late,
+ * their pre-session level, their post-session score with pass or fail, and whether they
+ * have given feedback. Shown to the facilitator, administrators and the company
+ * administrator, each of whom only ever reaches their own company's sessions, and
+ * downloadable as an Excel workbook.
  */
 
 import 'server-only';
 
-import { resultsForDeck } from '../assessments/service';
-import { LEVEL_LABELS } from '../assessments/types';
+import writeExcelFile, { type SheetData } from 'write-excel-file/node';
+
+import { resultsForDeck, type ServiceOptions } from '../assessments/service';
+import { assessmentStore } from '../assessments/store';
+import { LEVEL_LABELS, type AssessmentResult } from '../assessments/types';
+import { visibleTo } from '../retention/restricted';
 import type { SignedInPerson } from '../roster/types';
 import { sessionFor } from './service';
-import { dayInTrainingZone } from '../time';
+import { dayInTrainingZone, formatMoment } from '../time';
 import type { SummaryRow, TrainingSession } from './types';
-import { attendanceWord, feedbackWord, resultWord } from './words';
+import { attendanceWord, feedbackWord, joinedLate, resultWord, STATUS_WORDS } from './words';
 
 export type { SummaryRow } from './types';
 
@@ -25,33 +30,83 @@ export interface ClosureSummary {
   totals: {
     listed: number;
     present: number;
+    /** Of those present, how many were marked after the session opened. */
+    joinedLate: number;
     absent: number;
     passed: number;
     feedbackGiven: number;
   };
 }
 
+/**
+ * A participant's pre-session level, from their stored result. The one place the summary
+ * works it out, so a session's own level bands can be applied here alone.
+ */
+export function preLevelOf(result: AssessmentResult, session: TrainingSession): string | null {
+  void session;
+  return result.level ? LEVEL_LABELS[result.level] : null;
+}
+
+/**
+ * A count a result carries only once it records each answer's outcome, or null when it
+ * was scored before it did, so the cell is left blank rather than showing a guessed 0.
+ */
+function countOf(
+  result: AssessmentResult | undefined,
+  field: 'wrongCount' | 'notAttemptedCount',
+): number | null {
+  const value = (result as Partial<Record<typeof field, unknown>> | undefined)?.[field];
+  return typeof value === 'number' ? value : null;
+}
+
+/** The bank's version as people number it, when the result carries one. */
+function versionOf(result: AssessmentResult | undefined): string | null {
+  const value = (result as { versionNumber?: unknown } | undefined)?.versionNumber;
+  return typeof value === 'number' || (typeof value === 'string' && value) ? String(value) : null;
+}
+
 export async function closureSummary(
   viewer: SignedInPerson,
   sessionId: string,
+  options: ServiceOptions = {},
 ): Promise<ClosureSummary> {
-  const session = await sessionFor(viewer, sessionId);
+  const session = await sessionFor(viewer, sessionId, { store: options.store });
   // Not caught: a summary that could not read the results would list everybody as
   // unknown and not taken, which reads as a fact. Better that it fails and says so.
-  const results = await resultsForDeck(viewer, session.deckId, session.id);
+  const [results, stored] = await Promise.all([
+    resultsForDeck(viewer, session.deckId, session.id, options),
+    assessmentStore(viewer.orgId, options.store).resultsForDeck(session.deckId),
+  ]);
   const byPerson = new Map(results.rows.map((row) => [row.personId, row]));
+  // The stored results themselves, for what the results screen does not carry. Only
+  // those the screen showed this viewer, restricted ones left out as it leaves them out.
+  const record = (personId: string, kind: 'pre' | 'post', shown: unknown) =>
+    shown
+      ? visibleTo(
+          viewer,
+          stored.find((entry) => entry.personId === personId && entry.kind === kind),
+        )
+      : undefined;
 
   const rows: SummaryRow[] = session.participantIds.map((personId) => {
     const result = byPerson.get(personId);
+    const pre = record(personId, 'pre', result?.pre);
+    const post = record(personId, 'post', result?.post);
     return {
       personId,
       name: result?.name ?? 'Unknown',
       email: result?.email ?? '',
       attendance: session.attendance[personId] ?? 'not marked',
-      preLevel: result?.pre?.level ? LEVEL_LABELS[result.pre.level] : null,
+      joinedLate: joinedLate(session, personId),
+      markedAt: session.attendanceAt?.[personId] ?? null,
+      preLevel: pre ? preLevelOf(pre, session) : null,
+      preVersion: versionOf(pre),
       postPercent: result?.post ? result.post.percent : null,
       passed: result?.post ? result.post.passed : null,
       postElsewhere: Boolean(result?.post && result.post.sessionId !== session.id),
+      postWrong: countOf(post, 'wrongCount'),
+      postNotAttempted: countOf(post, 'notAttemptedCount'),
+      postVersion: versionOf(post),
       feedback: result?.feedback ?? null,
     };
   });
@@ -62,6 +117,7 @@ export async function closureSummary(
     totals: {
       listed: rows.length,
       present: rows.filter((row) => row.attendance === 'present').length,
+      joinedLate: rows.filter((row) => row.joinedLate).length,
       absent: rows.filter((row) => row.attendance === 'absent').length,
       // Only passes earned after this session.
       passed: rows.filter((row) => row.passed === true && !row.postElsewhere).length,
@@ -70,47 +126,124 @@ export async function closureSummary(
   };
 }
 
-/** A cell, quoted when it needs to be, and never read as a formula by a spreadsheet. */
-function cell(value: string | number | null): string {
-  if (value === null) return '';
-  let text = String(value);
-  // A tab or carriage return can start a formula too, once a spreadsheet trims it.
-  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+/**
+ * Text that a spreadsheet will never run as a formula.
+ *
+ * A workbook stores text as text, so Excel does not evaluate it as it opens the file,
+ * but the cell is one edit away from it: somebody clicking into a name such as
+ * `=HYPERLINK(...)` and pressing Enter turns it into a live formula, and the same text
+ * copied out to a CSV runs as soon as that is opened. So a value starting with anything
+ * a formula can start with is given a leading apostrophe, as the CSV download did. A tab
+ * or carriage return counts, since a spreadsheet trims it and finds the formula behind.
+ */
+export function safeText(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
-/** Lets Excel open the file as UTF-8, so names in any script survive. */
-const BOM = String.fromCharCode(0xfeff);
+/** A text cell, held as text even when it looks like a number or a date. */
+function text(value: string, bold = false) {
+  return {
+    value: safeText(value),
+    type: String,
+    format: '@',
+    ...(bold ? { fontWeight: 'bold' as const } : {}),
+  };
+}
 
-/** The summary as CSV, with a byte-order mark so Excel opens it as UTF-8. */
-export function summaryCsv(summary: ClosureSummary, deckTitle: string): string {
-  const header = [
-    'Deck',
-    'Session date',
-    'Participant',
-    'Email',
-    'Attendance',
-    'Pre-session level',
-    'Post-session score (%)',
-    'Result',
-    'Feedback',
+function moment(iso: string | null | undefined, otherwise: string): string {
+  return iso ? formatMoment(iso) : otherwise;
+}
+
+const COLUMNS = [
+  'Participant',
+  'Email',
+  'Attendance',
+  'Marked at (IST)',
+  'Pre-session level',
+  'Post-session score (%)',
+  'Result',
+  'Feedback',
+  'Post-session wrong',
+  'Post-session not attempted',
+  'Pre-session bank version',
+  'Post-session bank version',
+];
+
+/** A number, or a blank cell where the result does not record it. */
+const count = (value: number | null) => (value === null ? null : { value, type: Number });
+
+/** The cells of the workbook: the session first, then one row per participant. */
+export function summarySheet(
+  summary: ClosureSummary,
+  deckTitle: string,
+  facilitatorName: string,
+): SheetData {
+  const { session, totals } = summary;
+  const when = session.scheduledFor ?? session.openedAt ?? session.createdAt;
+  const field = (label: string, value: string | number) => [
+    text(label, true),
+    typeof value === 'number' ? { value, type: Number } : text(value),
   ];
-  const when =
-    summary.session.scheduledFor ?? summary.session.openedAt ?? summary.session.createdAt;
-  const lines = summary.rows.map((row) =>
-    [
-      deckTitle,
-      dayInTrainingZone(when),
-      row.name,
-      row.email,
-      attendanceWord(row.attendance),
-      row.preLevel ?? 'Not taken',
-      row.postPercent ?? '',
-      resultWord(row),
-      feedbackWord(row.feedback),
-    ]
-      .map(cell)
-      .join(','),
-  );
-  return `${BOM}${[header.map(cell).join(','), ...lines].join('\r\n')}\r\n`;
+
+  return [
+    [text('Closure summary', true)],
+    field('Deck', deckTitle),
+    field('Facilitator', facilitatorName),
+    field('Status', STATUS_WORDS[session.status]),
+    field('Session date (IST)', dayInTrainingZone(when)),
+    field('Scheduled for', moment(session.scheduledFor, 'No time set')),
+    field('Opened', moment(session.openedAt, 'Not opened')),
+    field('Closed', moment(session.closedAt, 'Not closed')),
+    ...(session.status === 'cancelled'
+      ? [field('Cancelled', moment(session.cancelledAt, ''))]
+      : []),
+    field('Listed', totals.listed),
+    field('Present', totals.present),
+    field('Of whom joined late', totals.joinedLate),
+    field('Absent', totals.absent),
+    field('Passed the post-session assessment', totals.passed),
+    field('Gave feedback', totals.feedbackGiven),
+    [text('All times are India Standard Time (IST, UTC+05:30).')],
+    [],
+    COLUMNS.map((heading) => text(heading, true)),
+    ...summary.rows.map((row) => [
+      text(row.name),
+      text(row.email),
+      text(attendanceWord(row.attendance, row.joinedLate)),
+      text(row.attendance === 'not marked' ? '' : moment(row.markedAt, 'Not recorded')),
+      text(row.preLevel ?? 'Not taken'),
+      count(row.postPercent),
+      text(resultWord(row)),
+      text(feedbackWord(row.feedback)),
+      count(row.postWrong),
+      count(row.postNotAttempted),
+      row.preVersion === null ? null : text(row.preVersion),
+      row.postVersion === null ? null : text(row.postVersion),
+    ]),
+  ];
+}
+
+/** The summary as an Excel workbook (.xlsx), for the download. */
+export async function summaryWorkbook(
+  summary: ClosureSummary,
+  deckTitle: string,
+  facilitatorName: string,
+): Promise<Buffer> {
+  return writeExcelFile(summarySheet(summary, deckTitle, facilitatorName), {
+    sheet: 'Summary',
+    columns: [
+      { width: 34 },
+      { width: 32 },
+      { width: 14 },
+      { width: 28 },
+      { width: 18 },
+      { width: 22 },
+      { width: 22 },
+      { width: 12 },
+      { width: 18 },
+      { width: 26 },
+      { width: 24 },
+      { width: 24 },
+    ],
+  }).toBuffer();
 }

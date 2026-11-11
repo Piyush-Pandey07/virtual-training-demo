@@ -14,6 +14,7 @@ import {
   feedbackDone,
   hasQuestions,
   postAssessmentDone,
+  preAssessmentClosed,
   preAssessmentDone,
 } from '../assessments/service';
 import { assessmentHref, feedbackHref } from '../assessments/paths';
@@ -23,6 +24,7 @@ import { formatSessionTime } from '../time';
 import type { SignedInPerson } from '../roster/types';
 import { sessionsListing } from './access';
 import type { TrainingSession } from './types';
+import { joinedLate } from './words';
 
 export type StepState = 'done' | 'open' | 'locked' | 'not needed' | 'missed';
 
@@ -40,6 +42,13 @@ export interface SessionJourney {
   deckId: string;
   deckTitle: string;
   when: string | null;
+  /**
+   * Cancelled before it started. Shown, rather than hidden, so a participant who was told
+   * about it is not left wondering where it went; it has no steps.
+   */
+  cancelled: boolean;
+  /** Marked present after the session opened. */
+  joinedLate: boolean;
   steps: JourneyStep[];
 }
 
@@ -54,6 +63,18 @@ export async function journeyFor(
   session: TrainingSession,
   deckTitle: string,
 ): Promise<SessionJourney> {
+  const base = {
+    sessionId: session.id,
+    deckId: session.deckId,
+    deckTitle,
+    when: formatWhen(session.scheduledFor),
+    cancelled: session.status === 'cancelled',
+    joinedLate: joinedLate(session, person.id),
+  };
+  // Nothing to do for a session that will not happen. A pre-session result already
+  // given stands: it is kept once per deck, and counts for the next session of it.
+  if (session.status === 'cancelled') return { ...base, steps: [] };
+
   const org = person.orgId;
   const banks = assessmentStore(org);
   const [storedPre, storedPost, preDone, postDone, gaveFeedback] = await Promise.all([
@@ -68,42 +89,51 @@ export async function journeyFor(
   const postBank = hasQuestions(storedPost) ? storedPost : undefined;
 
   const absent = session.attendance[person.id] === 'absent';
+  const late = base.joinedLate;
   const started = session.status !== 'scheduled';
   const steps: JourneyStep[] = [];
 
   // 1. Before the session.
-  // Once the session has started the pre-session assessment has closed (see
-  // preAssessmentClosed), and missing it holds nothing after it back.
-  const preReady = !preBank || preDone || started;
+  // Open until the facilitator marks them, even once the session has started, so
+  // somebody arriving late does it on their own device before joining. Once they are
+  // marked it has closed for them (see preAssessmentClosed), and missing it holds
+  // nothing after it back.
+  const preClosed = preAssessmentClosed(session, person.id);
+  const preReady = !preBank || preDone || preClosed;
   steps.push(
     !preBank
       ? { label: 'Pre-session assessment', state: 'not needed' }
       : preDone
         ? { label: 'Pre-session assessment', state: 'done' }
-        : started
+        : preClosed
           ? {
               label: 'Pre-session assessment',
               state: 'missed',
-              note: 'Closed when the session started.',
+              note: absent
+                ? 'Closed when you were marked absent.'
+                : 'Closed when you were marked present.',
             }
           : {
               label: 'Pre-session assessment',
               state: 'open',
               href: assessmentHref('pre', session.deckId, session.id),
-              note: 'Do this before the session starts.',
+              note: started
+                ? 'The session has started. Do this now, before you join.'
+                : 'Do this before the session starts.',
             },
   );
 
   // 2. The session, in the room.
+  const lateNote = late ? ' You joined late.' : '';
   steps.push({
     label: 'The session',
     state: session.status === 'closed' ? 'done' : started ? 'open' : 'locked',
     note: absent
       ? 'You were marked absent.'
       : session.status === 'closed'
-        ? 'Finished.'
+        ? `Finished.${lateNote}`
         : started
-          ? "Under way, on the facilitator's screen."
+          ? `Under way, on the facilitator's screen.${lateNote}`
           : `In the room${formatWhen(session.scheduledFor) ? `, ${formatWhen(session.scheduledFor)}` : ''}.`,
   });
 
@@ -126,7 +156,9 @@ export async function journeyFor(
               state: 'locked',
               note: absent
                 ? 'Not open to you: you were marked absent.'
-                : 'Opens after the session.',
+                : attended
+                  ? 'Opens after the pre-session assessment.'
+                  : 'Opens after the session.',
             },
   );
   steps.push(
@@ -145,13 +177,7 @@ export async function journeyFor(
           },
   );
 
-  return {
-    sessionId: session.id,
-    deckId: session.deckId,
-    deckTitle,
-    when: formatWhen(session.scheduledFor),
-    steps,
-  };
+  return { ...base, steps };
 }
 
 /** Every trainer-led session this person is listed for, newest first. */

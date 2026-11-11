@@ -1,8 +1,9 @@
 /**
  * GET, PATCH, DELETE /api/training-sessions/{id}
  *
- * One trainer-led session: read it, mark attendance, open or close it, or delete one
- * that has not started. Only its facilitator, or an administrator, may do any of it.
+ * One trainer-led session: read it, mark attendance, open, close or cancel it. Only its
+ * facilitator, or an administrator, may do any of it. DELETE removes one that never
+ * started, for an administrator only; the screens cancel instead, which keeps the record.
  */
 
 import { changeSession, removeSession, sessionFor } from '@/lib/training/service';

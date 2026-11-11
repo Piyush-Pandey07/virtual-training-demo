@@ -4,8 +4,8 @@
  * Nothing in an uploaded file is trusted. It was filled in by hand, probably in Excel,
  * and anything in it may end up in a prompt, so it gets the same cleaning, caps and
  * refusals as the profile form, through the same `readField`, plus the checks only a
- * file needs: a size and row cap, a header that names the columns, addresses that are
- * addresses, and an address appearing once.
+ * file needs: a size cap, a header that names the columns, addresses that are addresses,
+ * and an address appearing once. There is no cap on how many rows (AI-28).
  *
  * Pure, with no imports beyond the profile's own, so the tests drive it directly.
  */
@@ -15,20 +15,16 @@ import type { LearnerDetails, ProfileFieldSpec } from './types';
 import { cleanText, readDetails } from './validate';
 
 /**
- * The most bytes accepted.
+ * The most bytes accepted: 4 MB.
  *
- * A row of the template filled to every cap is a little over a kilobyte, so this is
- * room for a thousand full rows with margin, and small enough to read whole in memory.
+ * Not a limit on how many people. AI-28 asks for none, so the file is not counted in
+ * rows; this is just under the 4.5 MB the hosting platform accepts in one request
+ * anyway, so somebody with a larger file is told to split it in words they can act on
+ * rather than given the platform's own error. A row of the template filled to every cap
+ * is a little over a kilobyte, and a typical one a tenth of that, so this is thousands
+ * of people at the least.
  */
-export const MAX_UPLOAD_BYTES = 1_048_576;
-
-/**
- * The most participants one file may hold.
- *
- * Not a business limit: a batch is tens of people and the brief tests fifty. It bounds
- * how long one request takes, since every row is a few database writes.
- */
-export const MAX_UPLOAD_ROWS = 1000;
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 /** The column every row must fill. */
 export const EMAIL_COLUMN = 'email';
@@ -57,10 +53,10 @@ export type CsvRead = { ok: true; rows: string[][] } | { ok: false; error: strin
  * cells, double quotes around a cell that holds a comma, a quote or a line break, and a
  * doubled quote for a quote inside one. Either line ending.
  *
- * Stops as soon as it has read more rows than the cap allows, rather than reading the
- * rest of a file it is going to refuse.
+ * Given a cap, stops as soon as it has read more rows than that, rather than reading
+ * the rest of a file it is going to refuse. An upload is given none (AI-28).
  */
-export function parseCsv(text: string, maxRows = MAX_UPLOAD_ROWS + 1): CsvRead {
+export function parseCsv(text: string, maxRows = Number.POSITIVE_INFINITY): CsvRead {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -158,7 +154,14 @@ export type UploadRow =
       /** Required fields the file left empty, which the participant will be asked for. */
       missing: ProfileFieldSpec[];
     }
-  | { ok: false; line: number; email: string; error: string };
+  | {
+      ok: false;
+      line: number;
+      email: string;
+      error: string;
+      /** The line this address was first on, when that is what is wrong with it. */
+      duplicateOf?: number;
+    };
 
 export type UploadRead = { ok: true; rows: UploadRow[] } | { ok: false; error: string };
 
@@ -166,8 +169,9 @@ export type UploadRead = { ok: true; rows: UploadRow[] } | { ok: false; error: s
  * Reads a whole upload into checked rows, or refuses the file.
  *
  * The file is refused only for what makes every row unreadable: no header, no email
- * column, a column named twice, too many rows. Anything wrong with one row refuses that
- * row and keeps the others, so one typo does not cost the uploader the whole batch.
+ * column, a column named twice. Anything wrong with one row refuses that row and keeps
+ * the others, so one typo does not cost the uploader the whole batch. An address given
+ * twice keeps its first row and reports the later one as a duplicate of it (AI-28).
  *
  * Columns it does not know are ignored, so a spreadsheet with a "Notes" column added
  * still works and the notes go nowhere. Required profile fields left empty are not a
@@ -236,7 +240,8 @@ export function readUpload(text: string): UploadRead {
         ok: false,
         line,
         email,
-        error: `This address is already on line ${earlier}. Each person once.`,
+        error: `Duplicate of row ${earlier}, which is the one kept.`,
+        duplicateOf: earlier,
       });
       return;
     }

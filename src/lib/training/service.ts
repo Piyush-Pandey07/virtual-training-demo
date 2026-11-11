@@ -9,6 +9,7 @@
 
 import 'server-only';
 
+import { recordAudit } from '../audit/log';
 import { assignmentRefusal } from '../decks/approval';
 import { listDecks } from '../decks/registry';
 import type { DocumentStore } from '../roster/documents';
@@ -17,6 +18,7 @@ import type { SignedInPerson } from '../roster/types';
 import { mayManageSession } from './access';
 import { newTrainingId, trainingStore } from './store';
 import type { AttendanceMark, Batch, TrainingSession } from './types';
+import { joinedLate } from './words';
 
 export class TrainingRuleError extends Error {
   constructor(
@@ -227,14 +229,7 @@ export async function createSession(
 
   // A participant needs the deck assigned to see it at all, and to do its
   // assessments and feedback on their own device.
-  const roster = rosterStore(person.orgId);
-  await Promise.all(
-    participantIds.map(async (participantId) => {
-      if (!(await roster.isAssigned(participantId, deck.id))) {
-        await roster.assign({ personId: participantId, deckId: deck.id, assignedBy: person.id });
-      }
-    }),
-  );
+  await assignDeck(person, deck.id, participantIds);
   return session;
 }
 
@@ -251,12 +246,17 @@ export async function sessionFor(
 }
 
 /**
- * Marks attendance, opens or closes a session.
+ * Marks attendance, opens, closes or cancels a session.
  *
  * Only the facilitator, or an administrator, may close it, and a closed session stays
  * closed: its record is what reports and retention rely on. Closing asks for every
  * listed participant to be marked first, so an absence is a decision rather than an
- * omission.
+ * omission. A session that has not started may be cancelled instead, by the same
+ * people; it is kept, shown as cancelled, and can never be opened.
+ *
+ * Each mark is timed when it changes, in the same write, so somebody marked present
+ * after the session opened shows as having joined late (AI-26), and their pre-session
+ * assessment closes at that moment and no earlier.
  */
 export async function changeSession(
   person: SignedInPerson,
@@ -266,19 +266,48 @@ export async function changeSession(
 ): Promise<TrainingSession> {
   await sessionFor(person, id, options);
   const now = (options.now ?? nowIso)();
-  return trainingStore(person.orgId, options.store).updateSession(id, (current) => {
+  // What this request changed, for the audit history. Worked out inside the write, so it
+  // describes the session as it stood when the change was made.
+  let marked: [string, AttendanceMark][] = [];
+  let cancelled = false;
+  const saved = await trainingStore(person.orgId, options.store).updateSession(id, (current) => {
+    marked = [];
+    cancelled = false;
     if (!current) throw new TrainingRuleError(404, 'No such session.');
     if (current.status === 'closed') {
-      throw new TrainingRuleError(409, 'This session is closed and can no longer be changed.');
+      throw new TrainingRuleError(
+        409,
+        'This session is closed and can no longer be changed. A closed session cannot be reopened: set up a new one instead.',
+      );
+    }
+    if (current.status === 'cancelled') {
+      throw new TrainingRuleError(
+        409,
+        'This session was cancelled and can no longer be changed. To run it after all, set up a new one.',
+      );
+    }
+    if (input.status === 'cancelled') {
+      if (current.status !== 'scheduled') {
+        throw new TrainingRuleError(409, 'Only a session that has not started can be cancelled.');
+      }
+      cancelled = true;
+      return { ...current, status: 'cancelled', cancelledAt: now, cancelledBy: person.id };
     }
     const attendance = { ...current.attendance };
+    const attendanceAt = { ...current.attendanceAt };
     if (input.attendance && typeof input.attendance === 'object') {
       for (const [personId, mark] of Object.entries(input.attendance as Record<string, unknown>)) {
         if (!current.participantIds.includes(personId)) continue;
-        if (mark === 'present' || mark === 'absent') attendance[personId] = mark as AttendanceMark;
+        if (mark !== 'present' && mark !== 'absent') continue;
+        // Marking somebody as they already are keeps the time they were first marked so,
+        // or a second click on Present would make an on-time arrival late.
+        if (attendance[personId] === mark) continue;
+        attendance[personId] = mark;
+        attendanceAt[personId] = now;
+        marked.push([personId, mark]);
       }
     }
-    let next: TrainingSession = { ...current, attendance };
+    let next: TrainingSession = { ...current, attendance, attendanceAt };
     if (input.status === 'open' && current.status === 'scheduled') {
       next = { ...next, status: 'open', openedAt: now };
     }
@@ -303,11 +332,129 @@ export async function changeSession(
     }
     return next;
   });
+
+  if (cancelled) {
+    await recordAudit(
+      person,
+      {
+        action: 'cancelled',
+        subjectType: 'training-session',
+        subjectId: id,
+        detail: `Cancelled the session on ${saved.deckId} before it started`,
+      },
+      { store: options.store },
+    );
+  }
+  if (marked.length > 0) {
+    await recordAudit(
+      person,
+      {
+        action: 'updated',
+        subjectType: 'training-session',
+        subjectId: id,
+        detail: attendanceDetail(saved, marked),
+      },
+      { store: options.store },
+    );
+  }
+  return saved;
+}
+
+/** The audit line for some attendance marks: names a few, and counts a whole room. */
+function attendanceDetail(session: TrainingSession, marked: [string, AttendanceMark][]): string {
+  const word = (personId: string, mark: AttendanceMark) =>
+    mark === 'present' && joinedLate(session, personId) ? 'present, joined late' : mark;
+  if (marked.length <= 5) {
+    return `Marked ${marked.map(([personId, mark]) => `${personId} ${word(personId, mark)}`).join('; ')}`;
+  }
+  const present = marked.filter(([, mark]) => mark === 'present').length;
+  return `Marked ${marked.length} participants: ${present} present, ${marked.length - present} absent`;
 }
 
 /**
- * Takes a removed person out of every batch and every session that has not happened.
- * A session that ran keeps them listed, because its attendance is a record (RUL-7).
+ * Adds participants to a session that has not finished (AI-26).
+ *
+ * Somebody who turns up on the day without being listed can still be let in: an
+ * administrator lists them, which assigns them the deck exactly as setting the session
+ * up does, approval check included, and they then do their profile and pre-session
+ * assessment on their own device before being marked present. Nobody is taken off a
+ * session this way: a listed participant is part of its record.
+ */
+export async function addParticipants(
+  person: SignedInPerson,
+  id: string,
+  input: { participantIds?: unknown },
+  options: Options = {},
+): Promise<TrainingSession> {
+  refuseUnlessOrganiser(person);
+  const session = await sessionFor(person, id, options);
+  if (session.status === 'closed' || session.status === 'cancelled') {
+    throw new TrainingRuleError(
+      409,
+      session.status === 'closed'
+        ? 'This session is closed, so nobody can be added. Set up a new one instead.'
+        : 'This session was cancelled, so nobody can be added. Set up a new one instead.',
+    );
+  }
+  const wanted = await knownPeople(person, input.participantIds);
+  if (wanted.length === 0) throw new TrainingRuleError(400, 'Choose somebody to add.');
+  const refusal = await assignmentRefusal(person.orgId, session.deckId, { store: options.store });
+  if (refusal) throw new TrainingRuleError(409, refusal);
+
+  let added: string[] = [];
+  const saved = await trainingStore(person.orgId, options.store).updateSession(id, (current) => {
+    if (!current) throw new TrainingRuleError(404, 'No such session.');
+    if (current.status === 'closed' || current.status === 'cancelled') {
+      throw new TrainingRuleError(409, 'This session has finished, so nobody can be added.');
+    }
+    added = wanted.filter((personId) => !current.participantIds.includes(personId));
+    return { ...current, participantIds: [...current.participantIds, ...added] };
+  });
+
+  await assignDeck(person, saved.deckId, added);
+  if (added.length > 0) {
+    await recordAudit(
+      person,
+      {
+        action: 'updated',
+        subjectType: 'training-session',
+        subjectId: id,
+        detail: `Added ${added.length <= 5 ? added.join(', ') : `${added.length} participants`} to the session${saved.status === 'open' ? ' after it started' : ''}`,
+      },
+      { store: options.store },
+    );
+  }
+  return saved;
+}
+
+/**
+ * Assigns a deck to everybody listed who does not have it yet, so each can see it and
+ * do its assessments and feedback on their own device. A few at a time, so a group of
+ * any size is not a burst of hundreds of writes at once.
+ */
+async function assignDeck(person: SignedInPerson, deckId: string, participantIds: string[]) {
+  const roster = rosterStore(person.orgId);
+  for (let at = 0; at < participantIds.length; at += ASSIGN_AT_ONCE) {
+    await Promise.all(
+      participantIds.slice(at, at + ASSIGN_AT_ONCE).map(async (participantId) => {
+        if (!(await roster.isAssigned(participantId, deckId))) {
+          await roster.assign({ personId: participantId, deckId, assignedBy: person.id });
+        }
+      }),
+    );
+  }
+}
+
+const ASSIGN_AT_ONCE = 10;
+
+/** A session that has not happened, and never will have once it is cancelled. */
+const notHeld = (status: TrainingSession['status']) =>
+  status === 'scheduled' || status === 'cancelled';
+
+/**
+ * Takes a removed person out of every batch and every session that has not happened,
+ * cancelled ones included, which nobody attended. A session that ran keeps them listed,
+ * because its attendance is a record (RUL-7).
  */
 export async function removeFromTraining(
   person: SignedInPerson,
@@ -338,14 +485,12 @@ export async function removeFromTraining(
         ),
       ),
     ...sessions
-      .filter(
-        (session) => session.status === 'scheduled' && session.participantIds.includes(personId),
-      )
+      .filter((session) => notHeld(session.status) && session.participantIds.includes(personId))
       .map((session) =>
         quietly(
           store.updateSession(session.id, (current) => {
             if (!current) throw gone;
-            if (current.status !== 'scheduled') return current;
+            if (!notHeld(current.status)) return current;
             return { ...current, participantIds: without(current.participantIds) };
           }),
         ),
@@ -353,6 +498,12 @@ export async function removeFromTraining(
   ]);
 }
 
+/**
+ * Deletes a session that never happened, for an administrator clearing up a mistake.
+ *
+ * Not offered on the screens, which cancel instead and so keep the record. A session
+ * that started is never deleted: its attendance is a record (RUL-7).
+ */
 export async function removeSession(
   person: SignedInPerson,
   id: string,
@@ -361,14 +512,27 @@ export async function removeSession(
   refuseUnlessOrganiser(person);
   await sessionFor(person, id, options);
   const store = trainingStore(person.orgId, options.store);
-  // Checked and marked in one transaction, so a first hand-over cannot open it between
-  // the check and the delete: the chat route will not open a session marked cancelled.
-  await store.updateSession(id, (current) => {
+  const now = (options.now ?? nowIso)();
+  // Checked and cancelled in one transaction, so a first hand-over cannot open it
+  // between the check and the delete: the chat route opens only a scheduled session.
+  const doomed = await store.updateSession(id, (current) => {
     if (!current) throw new TrainingRuleError(404, 'No such session.');
-    if (current.status !== 'scheduled') {
+    if (!notHeld(current.status)) {
       throw new TrainingRuleError(409, 'Only a session that has not started can be deleted.');
     }
-    return { ...current, cancelledAt: (options.now ?? nowIso)() };
+    return current.status === 'cancelled'
+      ? current
+      : { ...current, status: 'cancelled', cancelledAt: now, cancelledBy: person.id };
   });
   await store.removeSession(id);
+  await recordAudit(
+    person,
+    {
+      action: 'deleted',
+      subjectType: 'training-session',
+      subjectId: id,
+      detail: `Deleted the session on ${doomed.deckId}, which never started`,
+    },
+    { store: options.store },
+  );
 }

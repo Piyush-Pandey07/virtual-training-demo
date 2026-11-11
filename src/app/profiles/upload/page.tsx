@@ -15,7 +15,7 @@ import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
 import { mayUploadParticipants } from '@/lib/profiles/access';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_ROWS, TEMPLATE_COLUMNS } from '@/lib/profiles/csv';
+import { MAX_UPLOAD_BYTES, TEMPLATE_COLUMNS } from '@/lib/profiles/csv';
 import { PROFILE_FIELDS } from '@/lib/profiles/types';
 import { UploadParticipants } from './UploadParticipants';
 
@@ -64,7 +64,8 @@ export default async function UploadParticipantsPage() {
             <li>One participant per row. Keep the first row as it is.</li>
             <li>
               <span className="text-mist font-semibold">email</span> is needed on every row, and
-              each address once.
+              each address once. If an address is given twice, the first row is kept and the other
+              is reported as a duplicate.
             </li>
             <li>
               Fill in {required.join(', ')} where you know them. Anything left empty, the
@@ -76,8 +77,8 @@ export default async function UploadParticipantsPage() {
               number, such as 6 or 6.5.
             </li>
             <li>
-              Save as &ldquo;CSV UTF-8 (comma delimited)&rdquo;. Up to {MAX_UPLOAD_ROWS} rows and{' '}
-              {Math.round(MAX_UPLOAD_BYTES / 1024)} KB per file.
+              Save as &ldquo;CSV UTF-8 (comma delimited)&rdquo;. Any number of rows, in a file of up
+              to {MAX_UPLOAD_BYTES / 1_048_576} MB.
             </li>
           </ul>
           <p className="text-muted mt-3 text-xs">Columns: {TEMPLATE_COLUMNS.join(', ')}</p>

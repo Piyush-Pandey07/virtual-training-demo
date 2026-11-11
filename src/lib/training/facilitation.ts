@@ -3,7 +3,7 @@
  *
  * A one-to-one turn is allowed because the deck is assigned to the person asking. A
  * facilitated turn is allowed because the person asking runs the session it names, the
- * session is for that deck, and it has not been closed. Everything it says about the
+ * session is for that deck, and it has not been closed or cancelled. Everything it says about the
  * room, which names may be used and who asked, comes from the session record on the
  * server, never from the browser.
  */
@@ -48,7 +48,10 @@ export function addressName(person: { name?: string; email: string }): string {
 
 export interface Room {
   session: TrainingSession;
-  /** First names of everybody listed and not marked absent. */
+  /**
+   * First names of everybody listed and not marked absent, each once. However many there
+   * are: a group has no set size, so nobody listed is left out of who may be named.
+   */
   attendees: string[];
   /** Who asked, only if it is one of `attendees`. */
   askedBy?: string;
@@ -75,7 +78,7 @@ export async function checkFacilitated(
   const session = await trainingStore(person.orgId)
     .getSession(request.sessionId)
     .catch(() => undefined);
-  if (!session || session.cancelledAt || !mayManageSession(person, session)) {
+  if (!session || !mayManageSession(person, session)) {
     return { ok: false, response: notFound() };
   }
   // The deck named must be the session's: a body that leaves it out would otherwise be
@@ -95,22 +98,32 @@ export async function checkFacilitated(
       ),
     };
   }
-  if (session.status === 'closed') {
+  if (session.status === 'closed' || session.status === 'cancelled') {
     return {
       ok: false,
       response: Response.json(
-        { error: 'This session is closed.', code: 'unavailable', retry: false },
+        {
+          error:
+            session.status === 'closed'
+              ? 'This session is closed.'
+              : 'This session was cancelled, so it cannot be run.',
+          code: 'unavailable',
+          retry: false,
+        },
         { status: 409 },
       ),
     };
   }
 
   const roster = await rosterStore(person.orgId).listPeople();
-  const attendees = session.participantIds
+  const named = session.participantIds
     .filter((id) => session.attendance[id] !== 'absent')
     .map((id) => roster.find((entry) => entry.id === id))
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
     .map(addressName);
+  // Each name once: two Rahuls in a group of fifty are one name to the trainer, and the
+  // facilitator says which of them asked by looking at them, not by reading a list.
+  const attendees = [...new Set(named)];
 
   // Only names from the participant list (AI-08). Anything else is dropped rather than
   // spoken, so the trainer cannot be made to address somebody who is not there.

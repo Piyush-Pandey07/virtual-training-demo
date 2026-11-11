@@ -4,7 +4,8 @@
  * The bulk participant upload (BRD v2.3, AI-28). The body is the CSV file itself, as the
  * template lays it out. Each row creates or finds the person in the uploader's own
  * organisation, as a participant, and stores their profile prefilled and unconfirmed.
- * The answer is a result for every row: created, updated, or rejected with the reason.
+ * The answer is a result for every row: created, updated, a duplicate of an earlier row
+ * (the first is kept), or rejected with the reason. There is no cap on how many rows.
  *
  * For the administrator, a company administrator and a facilitator; a 404 for anybody
  * else, and for anybody PROFILES_ENABLED leaves out, or whose organisation it does.
@@ -24,7 +25,7 @@ import { rosterStore } from '@/lib/roster/registry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/** A thousand rows, eight at a time, is well inside this. */
+/** A thousand rows, eight at a time, is well inside this, and fifty takes seconds. */
 export const maxDuration = 60;
 
 /**
@@ -79,7 +80,7 @@ export async function POST(request: Request) {
   const bytes = await readCapped(request, MAX_UPLOAD_BYTES);
   if (!bytes) {
     return reply(
-      { error: `The file is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024)} KB. Split it.` },
+      { error: `The file is larger than ${MAX_UPLOAD_BYTES / 1_048_576} MB. Split it in two.` },
       413,
     );
   }

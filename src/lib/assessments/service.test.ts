@@ -321,6 +321,41 @@ describe('trainer-led sessions', () => {
     );
   });
 
+  it('keep the pre-session assessment open to a late arrival until they are marked (AI-26)', async () => {
+    await bank('pre');
+    const session = await trainerLed({ attendance: { ben: 'present' } });
+    // Under way, and Asha not marked yet: she takes it on her own device, then joins.
+    const result = await take(asha, 'pre', 8, session.id);
+    assert.equal(result.sessionId, session.id);
+    // Ben was marked present before taking it, so it closed for him.
+    await assert.rejects(
+      take(ben, 'pre', 8, session.id),
+      (e: unknown) => e instanceof Refused && e.status === 409,
+    );
+  });
+
+  it('take nothing for a cancelled session', async () => {
+    await bank('pre');
+    await bank('post');
+    const session = await trainerLed({
+      status: 'cancelled',
+      openedAt: null,
+      cancelledAt: '2026-11-12T09:00:00.000Z',
+      cancelledBy: companyAdmin.id,
+    });
+    for (const kind of ['pre', 'post'] as const) {
+      await assert.rejects(
+        take(asha, kind, 8, session.id),
+        (e: unknown) => e instanceof Refused && e.status === 409,
+        kind,
+      );
+    }
+    await assert.rejects(
+      feedback(asha, session.id),
+      (e: unknown) => e instanceof Refused && e.status === 409,
+    );
+  });
+
   it('ask for feedback once per session', async () => {
     await trainerLed();
     await trainerLed({ id: 's-room2' });

@@ -56,8 +56,15 @@ async function nextAfter(
   if (kind === 'pre') {
     // A trainer-led session is started by its facilitator, in the room, so there is
     // nothing to link to: the participant waits for them.
+    // Somebody arriving late has done it on their own device and now joins the room.
     return session
-      ? { next: null, waiting: 'You are ready. Your facilitator will start the session.' }
+      ? {
+          next: null,
+          waiting:
+            session.status === 'open'
+              ? 'You are ready. Join the session in the room, and your facilitator will mark you present.'
+              : 'You are ready. Your facilitator will start the session.',
+        }
       : { next: { href: sessionHref(deckId), label: 'Start the session' }, waiting: null };
   }
   // Feedback comes straight after the post-session assessment (AI-31), whether or not it
@@ -143,11 +150,12 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
                 waiting && <p className="mt-4 text-sm">{waiting}</p>
               )}
             </section>
-          ) : kind === 'pre' && preAssessmentClosed(session) ? (
+          ) : kind === 'pre' && preAssessmentClosed(session, person.id) ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
               <p className="leading-relaxed">
-                The pre-session assessment closed when the session started, so there is nothing to
-                do here. Once you have attended, the post-session assessment opens as usual.
+                {session?.status === 'cancelled'
+                  ? 'This session was cancelled, so there is nothing to do here.'
+                  : 'The pre-session assessment closed when your facilitator marked you in the session, so there is nothing to do here. Once you have attended, the post-session assessment opens as usual.'}
               </p>
               <Link
                 href="/"

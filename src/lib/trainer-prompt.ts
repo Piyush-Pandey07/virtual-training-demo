@@ -1094,6 +1094,14 @@ export function levelInstruction(level: AssessedLevel, group: boolean): string {
 ${who} placed at ${level} level by the pre-session assessment. ${pitch[level]} Teach the same content whatever the level: only the way you explain it changes.`;
 }
 
+/**
+ * The most people the trainer greets one by one. A room has no set size, and fifty names
+ * read out would take minutes and fit no three sentences, so a larger group is welcomed
+ * as a group. Only what is spoken is capped: every name stays in the instruction, so
+ * anybody who asks a question is still addressed by name.
+ */
+export const GREET_BY_NAME = 12;
+
 /** What the facilitator handed over for. */
 export type FacilitatedTurn = 'explain' | 'answer' | 'greet' | 'engage';
 
@@ -1180,7 +1188,11 @@ YOUR TASK
 Answer it for the whole group${askedBy ? `, addressing ${askedBy} by name as you begin` : ''}. Answer the question that was asked, plainly, in no more than about 120 words, then hand back to the facilitator.`,
     greet: `YOUR TASK
 The facilitator has handed over to you to greet the group. In three or four sentences: welcome everybody warmly, say you are ${TRAINER_NAME}, the co-facilitator for "${deck.meta.title}", and welcome ${
-      attendees.length ? `each participant by name: ${attendees.join(', ')}` : 'the group'
+      attendees.length === 0
+        ? 'the group'
+        : attendees.length <= GREET_BY_NAME
+          ? `each participant by name: ${attendees.join(', ')}`
+          : `all ${attendees.length} of them as a group, without reading out their names`
     }. Then hand back to the facilitator. Do not start teaching.`,
     engage: `YOUR TASK
 The facilitator has handed over to you for an engagement question. Ask the group one short, friendly question about this slide that gets people thinking or sharing their own experience, in one or two sentences. Then stop: the facilitator will take the answers.`,
