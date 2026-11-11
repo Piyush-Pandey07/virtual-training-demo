@@ -272,7 +272,13 @@ export interface ResultsRow {
   name: string;
   email: string;
   pre: { percent: number; level: Level | null; submittedAt: string } | null;
-  post: { percent: number; passed: boolean; submittedAt: string } | null;
+  post: {
+    percent: number;
+    passed: boolean;
+    submittedAt: string;
+    /** The trainer-led session it was taken after, or null for a one-to-one session. */
+    sessionId: string | null;
+  } | null;
   /** Null when the viewer may not see feedback; otherwise whether it has been given. */
   feedback: 'submitted' | 'pending' | null;
   /**

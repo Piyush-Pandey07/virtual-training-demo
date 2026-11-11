@@ -301,6 +301,20 @@ export async function hasAttended(
   return attempt !== undefined;
 }
 
+/**
+ * Whether the pre-session assessment has closed: in a trainer-led session, once the
+ * facilitator has opened it. Taken afterwards it would measure what the session taught,
+ * not what they knew coming in, and skew both the pre and post comparison and the level
+ * the trainer pitches to. Somebody who missed it goes on to the post-session assessment
+ * without it.
+ *
+ * Never for a one-to-one session, whose pre-session assessment is what lets it start:
+ * closing it there would lock out somebody whose deck gained one part-way through.
+ */
+export function preAssessmentClosed(session: TrainingSession | null): boolean {
+  return session !== null && (session.openedAt !== null || session.status !== 'scheduled');
+}
+
 export interface SubmittedAnswers {
   deckId: string;
   kind: BankKind;
@@ -341,6 +355,9 @@ export async function submitAssessment(
     );
   }
 
+  if (input.kind === 'pre' && preAssessmentClosed(session)) {
+    throw new Refused(409, 'The pre-session assessment closed when the session started.');
+  }
   if (input.kind === 'post' && !(await hasAttended(person, input.deckId, session, options))) {
     throw new Refused(409, 'The post-session assessment opens once you have attended the session.');
   }
@@ -702,7 +719,12 @@ export async function resultsForDeck(
         ? { percent: pre.percent, level: pre.level ?? null, submittedAt: pre.submittedAt }
         : null,
       post: post
-        ? { percent: post.percent, passed: post.passed === true, submittedAt: post.submittedAt }
+        ? {
+            percent: post.percent,
+            passed: post.passed === true,
+            submittedAt: post.submittedAt,
+            sessionId: post.sessionId ?? null,
+          }
         : null,
       feedback: showFeedback ? (gaveFeedback.has(personId) ? 'submitted' : 'pending') : null,
       restricted: restrictedFor.has(personId),

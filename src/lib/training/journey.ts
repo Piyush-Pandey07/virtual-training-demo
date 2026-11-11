@@ -19,7 +19,7 @@ import type { SignedInPerson } from '../roster/types';
 import { sessionsListing } from './access';
 import type { TrainingSession } from './types';
 
-export type StepState = 'done' | 'open' | 'locked' | 'not needed';
+export type StepState = 'done' | 'open' | 'locked' | 'not needed' | 'missed';
 
 export interface JourneyStep {
   label: string;
@@ -64,18 +64,26 @@ export async function journeyFor(
   const steps: JourneyStep[] = [];
 
   // 1. Before the session.
-  const preReady = !preBank || preDone;
+  // Once the session has started the pre-session assessment has closed (see
+  // preAssessmentClosed), and missing it holds nothing after it back.
+  const preReady = !preBank || preDone || started;
   steps.push(
     !preBank
       ? { label: 'Pre-session assessment', state: 'not needed' }
       : preDone
         ? { label: 'Pre-session assessment', state: 'done' }
-        : {
-            label: 'Pre-session assessment',
-            state: 'open',
-            href: assessmentHref('pre', session.deckId, session.id),
-            note: 'Do this before the session starts.',
-          },
+        : started
+          ? {
+              label: 'Pre-session assessment',
+              state: 'missed',
+              note: 'Closed when the session started.',
+            }
+          : {
+              label: 'Pre-session assessment',
+              state: 'open',
+              href: assessmentHref('pre', session.deckId, session.id),
+              note: 'Do this before the session starts.',
+            },
   );
 
   // 2. The session, in the room.

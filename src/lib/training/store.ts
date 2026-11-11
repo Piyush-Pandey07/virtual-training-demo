@@ -42,6 +42,10 @@ export class TrainingStore {
   saveBatch(batch: Batch): Promise<void> {
     return this.docs.set(BATCHES, batch.id, batch);
   }
+  /** Read, change and write one batch without another writer getting in between. */
+  updateBatch(id: string, change: (current: Batch | undefined) => Batch): Promise<Batch> {
+    return this.docs.update<Batch>(BATCHES, id, change);
+  }
   removeBatch(id: string): Promise<void> {
     return this.docs.remove(BATCHES, id);
   }

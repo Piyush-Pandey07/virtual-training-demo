@@ -122,6 +122,7 @@ const STEP_TONE: Record<JourneyStep['state'], string> = {
   open: 'text-mist',
   locked: 'text-muted',
   'not needed': 'text-muted',
+  missed: 'text-muted',
 };
 
 const STEP_MARK: Record<JourneyStep['state'], string> = {
@@ -129,6 +130,7 @@ const STEP_MARK: Record<JourneyStep['state'], string> = {
   open: 'To do',
   locked: 'Not yet',
   'not needed': 'Not needed',
+  missed: 'Missed',
 };
 
 /** One trainer-led session's steps, in the order they have to be done (AI-26). */
