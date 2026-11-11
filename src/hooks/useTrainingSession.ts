@@ -353,16 +353,30 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   } | null>(null);
 
   const prefetchNarration = useCallback(
-    (slideId: number) => {
+    /**
+     * `pending` is the narration still playing, asked for as soon as its text is whole:
+     * the slide then plays for half a minute or more, which is when the next one can be
+     * written, rather than after it, which left the model no time before Next (measured
+     * locally, every Next still waited on a fresh request). It is sent as though already
+     * recorded and taught, which it will be by the time the prefetch is used.
+     */
+    (slideId: number, pending?: { text: string; slideId: number }) => {
       prefetchRef.current?.controller.abort();
       const controller = new AbortController();
+      const history = buildHistory();
+      const covered = coveredRef.current;
       const body = JSON.stringify({
         deckId: deck.meta.id,
         kind: 'narrate',
         slideId,
-        history: buildHistory(),
+        history: pending
+          ? [...history, { speaker: 'trainer', text: pending.text, slideId: pending.slideId }]
+          : history,
         traineeName: traineeNameRef.current,
-        coveredSlideIds: coveredRef.current,
+        coveredSlideIds:
+          pending && !covered.includes(pending.slideId)
+            ? [...covered, pending.slideId].sort((a, b) => a - b)
+            : covered,
         learner: learnerRef.current,
         language: languageRef.current,
         voice: chosenVoiceRef.current,
@@ -404,7 +418,9 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       const limit = setTimeout(() => controller.abort(), PREFETCH_LIMIT_MS);
       const entry: NonNullable<typeof prefetchRef.current> = {
         slideId,
-        transcriptLength: transcriptRef.current.length,
+        // Pending, the narration is recorded before this is used, so the transcript is one
+        // longer by then; anything else said in between makes it stale.
+        transcriptLength: transcriptRef.current.length + (pending ? 1 : 0),
         controller,
         text,
       };
@@ -629,6 +645,18 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           }
         }
 
+        // The narration's text is whole: the next slide's is asked for now, while this one
+        // plays, so it is ready by the time the trainee presses Next (AI-44). Not where the
+        // server moved the deck, since the next slide is then a different one.
+        const written = sanitiseForSpeech(spoken);
+        if (kind === 'narrate' && navigatedTo === null && written && isCurrent()) {
+          const index = deck.slides.findIndex((entry) => entry.id === targetSlide);
+          const upcoming = deck.slides[index + 1];
+          if (upcoming && !coveredRef.current.includes(upcoming.id)) {
+            prefetchNarration(upcoming.id, { text: written, slideId: targetSlide });
+          }
+        }
+
         // A turn superseded meanwhile leaves the player to the turn that replaced it,
         // whose half-buffered sentence would otherwise be spoken as a fragment.
         if (isCurrent()) {
@@ -662,10 +690,10 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
 
         setPhase(kind === 'recap' ? 'ended' : 'listening');
 
-        // While the trainee takes in this slide, ask for the next one's narration, so
-        // pressing Next does not wait on the model. Only after a narration, and only for
-        // a slide not yet taught; a question in between makes it stale and it is dropped.
-        if (kind === 'narrate') {
+        // Where the server moved the deck mid-turn, the next slide is only known now, so
+        // that one is asked for here instead. Only for a slide not yet taught; a question in
+        // between makes it stale and it is dropped.
+        if (kind === 'narrate' && navigatedTo !== null && !prefetchRef.current) {
           const index = deck.slides.findIndex((entry) => entry.id === taughtSlide);
           const next = deck.slides[index + 1];
           if (next && !coveredRef.current.includes(next.id)) prefetchNarration(next.id);
