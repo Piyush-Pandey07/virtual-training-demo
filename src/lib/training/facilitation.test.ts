@@ -369,6 +369,49 @@ if (process.env[CHILD] !== '1') {
       }
     });
 
+    it('refuses a cancelled session, so it can never be opened', async () => {
+      await saved({
+        status: 'cancelled',
+        openedAt: null,
+        cancelledAt: '2026-11-12T11:00:00.000Z',
+        cancelledBy: fran.id,
+      });
+      for (const who of [fran, technavious]) {
+        signedIn = who;
+        const { status, body } = await refusal(
+          await facilitation.checkFacilitated(request({ turn: 'greet' }), DECK_ID),
+        );
+        assert.equal(status, 409);
+        assert.deepEqual(body, {
+          error: 'This session was cancelled, so it cannot be run.',
+          code: 'unavailable',
+          retry: false,
+        });
+      }
+    });
+
+    it('names everybody in a room of fifty, each name once (AI-01, AI-28)', async () => {
+      const roster = new DocumentRosterStore(scopedDocuments(new InMemoryDocumentStore(), ORG));
+      resetRosterStore(roster, ORG);
+      await roster.upsertPerson({
+        id: fran.id,
+        email: fran.email,
+        role: 'facilitator',
+        orgId: ORG,
+      });
+      const ids = Array.from({ length: 50 }, (_, index) => `p${index}`);
+      for (const [index, id] of ids.entries()) {
+        // Two of them share a first name, as people in a group of fifty do.
+        const name = index === 49 ? 'Person0 Again' : `Person${index} Surname`;
+        await roster.upsertPerson({ id, email: `${id}@acme.example`, name, orgId: ORG });
+      }
+      await saved({ participantIds: ids });
+      const gate = room(await facilitation.checkFacilitated(request(), DECK_ID));
+      assert.equal(gate.room.attendees.length, 49);
+      assert.equal(new Set(gate.room.attendees).size, 49);
+      assert.ok(gate.room.attendees.includes('Person48'));
+    });
+
     it('leaves out of the room anybody marked absent, and keeps the unmarked', async () => {
       await saved({ attendance: { [asha.id]: 'present', [ben.id]: 'absent' } });
       const gate = room(await facilitation.checkFacilitated(request(), DECK_ID));

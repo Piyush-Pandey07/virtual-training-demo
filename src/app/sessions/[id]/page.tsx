@@ -19,6 +19,8 @@ import { mayManageSession } from '@/lib/training/access';
 import { trainingStore } from '@/lib/training/store';
 import { closureSummary } from '@/lib/training/summary';
 import { resultsHref } from '@/lib/assessments/paths';
+import { STATUS_WORDS } from '@/lib/training/words';
+import { AddParticipants } from './AddParticipants';
 import { SessionRecord } from './SessionRecord';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +46,8 @@ export default async function SessionPage({ params }: Props) {
     rosterStore(me.orgId).listPeople(),
     closureSummary(me, session.id).catch(() => null),
   ]);
+  // Only an administrator decides who is in a session; a facilitator runs it.
+  const organiser = me.platform || me.role === 'admin';
   const nameOf = (personId: string) => {
     const person = people.find((entry) => entry.id === personId);
     return person ? person.name || person.email : 'Removed';
@@ -67,7 +71,9 @@ export default async function SessionPage({ params }: Props) {
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">
           {deck?.meta.title ?? 'Deck removed'}
         </h1>
-        <p className="text-muted mt-2 text-sm">Facilitated by {nameOf(session.facilitatorId)}</p>
+        <p className="text-muted mt-2 text-sm">
+          Facilitated by {nameOf(session.facilitatorId)} &middot; {STATUS_WORDS[session.status]}
+        </p>
         <div className="mt-8">
           <SessionRecord
             session={session}
@@ -80,6 +86,24 @@ export default async function SessionPage({ params }: Props) {
             resultsLink={resultsHref(session.deckId, session.id)}
           />
         </div>
+        {organiser && (session.status === 'scheduled' || session.status === 'open') && (
+          <div className="mt-10">
+            <AddParticipants
+              sessionId={session.id}
+              started={session.status === 'open'}
+              candidates={people
+                .filter(
+                  (person) =>
+                    person.role === 'trainee' && !session.participantIds.includes(person.id),
+                )
+                .map((person) => ({
+                  id: person.id,
+                  name: person.name || person.email,
+                  email: person.email,
+                }))}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

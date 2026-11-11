@@ -338,6 +338,8 @@ export async function hasAttended(
 ): Promise<boolean> {
   if (session) {
     if (session.attendance[person.id] === 'absent') return false;
+    // A cancelled session never took place, so there is nothing to have attended.
+    if (session.status === 'cancelled') return false;
     return session.openedAt !== null || session.status !== 'scheduled';
   }
   const attempt = await rosterFor(person.orgId, options)
@@ -347,17 +349,24 @@ export async function hasAttended(
 }
 
 /**
- * Whether the pre-session assessment has closed: in a trainer-led session, once the
- * facilitator has opened it. Taken afterwards it would measure what the session taught,
- * not what they knew coming in, and skew both the pre and post comparison and the level
- * the trainer pitches to. Somebody who missed it goes on to the post-session assessment
- * without it.
+ * Whether the pre-session assessment has closed for this participant: in a trainer-led
+ * session, once the facilitator has marked them present or absent. Until then it stays
+ * open, even after the session has started, so somebody arriving late can take it on
+ * their own device before they join (AI-26, AI-32). Taken once they are in the room it
+ * would measure what the session taught, not what they knew coming in, and skew both
+ * the pre and post comparison and the level the trainer pitches to. Somebody who missed
+ * it goes on to the post-session assessment without it.
+ *
+ * Closed for everybody once the session is closed, when everybody has been marked
+ * anyway, or cancelled, when there is no session to prepare for.
  *
  * Never for a one-to-one session, whose pre-session assessment is what lets it start:
  * closing it there would lock out somebody whose deck gained one part-way through.
  */
-export function preAssessmentClosed(session: TrainingSession | null): boolean {
-  return session !== null && (session.openedAt !== null || session.status !== 'scheduled');
+export function preAssessmentClosed(session: TrainingSession | null, personId: string): boolean {
+  if (session === null) return false;
+  if (session.status === 'closed' || session.status === 'cancelled') return true;
+  return session.attendance[personId] !== undefined;
 }
 
 export interface SubmittedAnswers {
@@ -413,8 +422,13 @@ export async function submitAssessment(
     );
   }
 
-  if (input.kind === 'pre' && preAssessmentClosed(session)) {
-    throw new Refused(409, 'The pre-session assessment closed when the session started.');
+  if (input.kind === 'pre' && preAssessmentClosed(session, person.id)) {
+    throw new Refused(
+      409,
+      session?.status === 'cancelled'
+        ? 'This session was cancelled.'
+        : 'The pre-session assessment closed when you were marked in the session.',
+    );
   }
   if (input.kind === 'post' && !(await hasAttended(person, input.deckId, session, options))) {
     throw new Refused(409, 'The post-session assessment opens once you have attended the session.');

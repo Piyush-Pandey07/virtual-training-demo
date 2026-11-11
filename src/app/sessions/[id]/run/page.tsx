@@ -1,8 +1,8 @@
 /**
  * Running a trainer-led session on the facilitator's screen (AI-01).
  *
- * Only the session's facilitator, or an administrator, may open it, and a closed session
- * cannot be run again. Participants never come here: they do their own steps on their
+ * Only the session's facilitator, or an administrator, may open it, and a closed or
+ * cancelled session cannot be run. Participants never come here: they do their own steps on their
  * own devices.
  */
 
@@ -40,7 +40,14 @@ export default async function RunSessionPage({ params }: Props) {
   const session = await trainingStore(me.orgId)
     .getSession(id)
     .catch(() => undefined);
-  if (!session || !mayManageSession(me, session) || session.status === 'closed') notFound();
+  if (
+    !session ||
+    !mayManageSession(me, session) ||
+    session.status === 'closed' ||
+    session.status === 'cancelled'
+  ) {
+    notFound();
+  }
 
   const [deck, people, glossary] = await Promise.all([
     loadDeck(me.orgId, session.deckId).catch(() => undefined),
@@ -53,7 +60,9 @@ export default async function RunSessionPage({ params }: Props) {
     .filter((personId) => session.attendance[personId] !== 'absent')
     .map((personId) => people.find((person) => person.id === personId))
     .filter((person): person is NonNullable<typeof person> => Boolean(person))
-    .map(addressName);
+    .map(addressName)
+    // Each name once, as the trainer is given them: two Rahuls are one choice here.
+    .filter((name, index, names) => names.indexOf(name) === index);
 
   return (
     <div className="flex min-h-screen flex-col">

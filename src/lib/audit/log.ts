@@ -1,6 +1,7 @@
 /**
  * The audit history: who viewed or changed a learner profile, an assessment result, a
- * question bank, the glossary or a deck's approval (BRD v2.3, AI-40).
+ * question bank, the glossary or a deck's approval (BRD v2.3, AI-40), and who cancelled a
+ * trainer-led session, changed its attendance or list, or downloaded its summary.
  *
  * Append only. An entry is written once and never changed, and nothing in the app
  * removes one: they go when their retention runs out, or with the customer they belong
@@ -53,6 +54,8 @@ export const AUDIT_ACTIONS = [
   'approved',
   'withdrawn',
   'uploaded',
+  'cancelled',
+  'downloaded',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -62,6 +65,7 @@ export const AUDIT_SUBJECTS = [
   'question-bank',
   'glossary-term',
   'deck-approval',
+  'training-session',
 ] as const;
 export type AuditSubject = (typeof AUDIT_SUBJECTS)[number];
 
@@ -72,6 +76,7 @@ export const AUDIT_SUBJECT_LABELS: Record<AuditSubject, string> = {
   'question-bank': 'Question banks',
   'glossary-term': 'Glossary',
   'deck-approval': 'Deck approvals',
+  'training-session': 'Trainer-led sessions',
 };
 
 export function isAuditSubject(value: unknown): value is AuditSubject {

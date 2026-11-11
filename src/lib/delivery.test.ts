@@ -139,4 +139,30 @@ describe('a trainer-led session (AI-01, AI-02)', () => {
     assert.match(answer, /addressing Ravi by name/);
     assert.match(answer, /hand back to the facilitator/);
   });
+
+  it('knows all fifty in a room of fifty, but greets that many as a group (AI-28)', () => {
+    const fifty = Array.from({ length: 50 }, (_, index) => `Person${index}`);
+    const instruction = buildFacilitatedSystemInstruction(deck, { attendees: fifty });
+    for (const name of fifty) assert.ok(instruction.includes(name), name);
+    const slide = deck.slides[0]!;
+    const greet = buildFacilitatedTurnPrompt({
+      deck,
+      slide,
+      history: [],
+      turn: 'greet',
+      attendees: fifty,
+    });
+    assert.match(greet, /all 50 of them as a group, without reading out their names/);
+    assert.doesNotMatch(greet, /Person49/);
+    const answer = buildFacilitatedTurnPrompt({
+      deck,
+      slide,
+      history: [],
+      turn: 'answer',
+      question: 'Why?',
+      askedBy: 'Person49',
+      attendees: fifty,
+    });
+    assert.match(answer, /addressing Person49 by name/);
+  });
 });
