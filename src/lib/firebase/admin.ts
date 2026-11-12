@@ -53,6 +53,47 @@ export function adminApp(): App {
 }
 
 /** Exchanges a freshly minted ID token for a session cookie. */
+/** How one read of the database and of the sign-in service went, for /api/health. */
+export interface FirebaseProbe {
+  firestore: { ok: boolean; ms: number; error?: string };
+  auth: { ok: boolean; ms: number; error?: string };
+}
+
+/** The kind of failure only: a name and a code, never a message that could carry data. */
+export function describeFailure(error: unknown): string {
+  const failure = error as { name?: unknown; code?: unknown };
+  const name = typeof failure?.name === 'string' ? failure.name : 'Error';
+  const code =
+    typeof failure?.code === 'string' || typeof failure?.code === 'number'
+      ? String(failure.code)
+      : 'none';
+  return `${name} code ${code}`;
+}
+
+/**
+ * Reads one document that does not exist and looks up one user that does not exist.
+ * Both are answered "not there" by a healthy project, so anything else is the failure.
+ */
+export async function probeFirebase(): Promise<FirebaseProbe> {
+  const timed = async (work: () => Promise<unknown>, expected?: string) => {
+    const started = Date.now();
+    try {
+      await work();
+      return { ok: true, ms: Date.now() - started };
+    } catch (error) {
+      const code = (error as { code?: unknown })?.code;
+      if (expected && code === expected) return { ok: true, ms: Date.now() - started };
+      return { ok: false, ms: Date.now() - started, error: describeFailure(error) };
+    }
+  };
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const [firestore, auth] = await Promise.all([
+    timed(() => getFirestore(adminApp()).collection('directory').doc('health-check').get()),
+    timed(() => getAuth(adminApp()).getUser('__health__'), 'auth/user-not-found'),
+  ]);
+  return { firestore, auth };
+}
+
 export async function createSessionCookie(idToken: string): Promise<string> {
   return getAuth(adminApp()).createSessionCookie(idToken, { expiresIn: SESSION_TTL_MS });
 }
@@ -69,9 +110,18 @@ export async function createSessionCookie(idToken: string): Promise<string> {
 export async function verifySessionCookie(cookie: string): Promise<DecodedIdToken | null> {
   try {
     return await getAuth(adminApp()).verifySessionCookie(cookie, true);
-  } catch {
+  } catch (error) {
     // Expired, revoked, tampered with, or minted by another project. All of them
-    // mean the same thing here: nobody is signed in.
+    // mean the same thing here: nobody is signed in. Anything else, such as the
+    // service not answering, is logged, since it signs everybody out at once.
+    const code = String((error as { code?: unknown })?.code ?? '');
+    if (
+      !/^auth\/(session-cookie-expired|session-cookie-revoked|argument-error|invalid-session-cookie|user-disabled|user-not-found)/.test(
+        code,
+      )
+    ) {
+      console.error(`[auth] could not verify a session cookie: ${describeFailure(error)}`);
+    }
     return null;
   }
 }

@@ -15,7 +15,7 @@
 import 'server-only';
 
 import { getSlide } from '../deck';
-import type { DeckRecord } from '../deck-types';
+import type { DeckRecord, DeckSlide } from '../deck-types';
 import type { KnowledgeTopic, SelectedTopic } from './types';
 
 export type { KnowledgeTopic, SelectedTopic } from './types';
@@ -370,6 +370,16 @@ export interface SlideMatch {
  * Returns null when the question belongs on the slide already showing, or when no
  * other slide is a clearly better fit.
  */
+/** A slide that goes back over the deck rather than teaching something of its own. */
+export function isRecapSlide(
+  slide: Pick<DeckSlide, 'title'> & { role?: DeckSlide['role'] },
+): boolean {
+  if (slide.role === 'closing') return true;
+  return /\b(review|summary|summari[sz]e|recap|quiz|questions?\s*(and|&)\s*answers?|q\s*&\s*a|key takeaways|wrap[- ]?up|conclusion|thank you)\b/i.test(
+    slide.title,
+  );
+}
+
 export function bestSlideForQuestion(
   deck: DeckRecord,
   question: string,
@@ -397,7 +407,14 @@ export function bestSlideForQuestion(
     if (slideId === currentSlideId) continue;
     // A title card or section divider teaches nothing, so a question must never
     // land the trainee on one, even when a topic legitimately lists it.
-    if (getSlide(deck, slideId)?.teaches === false) continue;
+    const candidate = getSlide(deck, slideId);
+    if (candidate?.teaches === false) continue;
+    // Nor on a recap: a review or summary slide repeats the questions and points of the
+    // whole deck, so it matches almost any question, and it is usually the last slide,
+    // where Next means wrap up. Found in a browser run: "What exactly does a data centre
+    // do?" on slide 2 moved the deck to "Review Questions", slide 19 of 19, and the next
+    // press of Next ended the session.
+    if (candidate && isRecapSlide(candidate)) continue;
     if (score < NAV_MIN_SCORE) continue;
     if (score < currentScore + NAV_SCORE_MARGIN) continue;
     // On a tie, the earlier slide wins. Where a topic spans consecutive slides,

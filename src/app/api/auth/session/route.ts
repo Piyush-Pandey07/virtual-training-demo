@@ -28,6 +28,7 @@ import {
   SESSION_TTL_MS,
   setRoleClaim,
   verifySessionCookie,
+  describeFailure,
 } from '@/lib/firebase/admin';
 import { orgStore } from '@/lib/orgs/registry';
 import { rosterStore } from '@/lib/roster/registry';
@@ -85,9 +86,15 @@ export async function POST(request: Request) {
     //
     // The directory comes first so that moving somebody between customers sticks: if
     // the domain won, an administrator's move would be undone by the next sign-in.
+    // A failed read is logged, not only treated as "not found": read as nothing, it
+    // refuses everybody with "no training account", which hid an outage on the live site.
+    const logged = (what: string) => (error: unknown) => {
+      console.error(`[auth] sign-in ${what} failed: ${describeFailure(error)}`);
+      return undefined;
+    };
     const orgId =
-      (await orgs.orgIdForUid(decoded.uid).catch(() => undefined)) ??
-      (await orgs.orgIdForEmail(email).catch(() => undefined));
+      (await orgs.orgIdForUid(decoded.uid).catch(logged('directory lookup'))) ??
+      (await orgs.orgIdForEmail(email).catch(logged('domain lookup')));
 
     if (!orgId) {
       // No customer holds this address's domain and nobody has placed them. Said the

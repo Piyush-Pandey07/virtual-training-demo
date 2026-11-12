@@ -36,7 +36,7 @@ function dueLabel(
   return { text: `${late ? 'Was due' : 'Due'} ${formatDate(dueAt)}`, late };
 }
 
-function TrainingCard({ row }: { row: ProgressRow }) {
+function TrainingCard({ row, completeAt }: { row: ProgressRow; completeAt?: number }) {
   const complete = row.completedAt !== null;
   const started = row.startedAt !== null && row.percent > 0;
   const due = dueLabel(row.dueAt, complete);
@@ -76,6 +76,9 @@ function TrainingCard({ row }: { row: ProgressRow }) {
           complete={complete}
           label={`${row.deckTitle ?? row.deckId} progress`}
         />
+        {completeAt !== undefined && !complete && (
+          <p className="text-muted mt-2 text-xs">Counts as complete at {completeAt}%.</p>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -192,11 +195,21 @@ export function HomeForTrainee({
   person,
   rows: allRows,
   journeys = [],
+  completionPercents = {},
 }: {
   person: SignedInPerson;
   rows: ProgressRow[];
   journeys?: SessionJourney[];
+  /** Each deck's completion point (AI-34), by deck id. */
+  completionPercents?: Record<string, number>;
 }) {
+  // Each deck may set its own completion point (AI-34). One figure in the note when they
+  // agree; otherwise each card says its own.
+  const completeAtOf = (deckId: string) => completionPercents[deckId] ?? COMPLETION_THRESHOLD;
+  const points = new Set(allRows.map((row) => completeAtOf(row.deckId)));
+  const mixed = points.size > 1;
+  const uniform = points.size === 1 ? [...points][0]! : COMPLETION_THRESHOLD;
+
   // A deck taught in a trainer-led session is assigned so its steps can be done here,
   // but it is attended in the room, so it is not offered as a session to start alone.
   // Nor once its session is cancelled: the deck was given to them for the room, and the
@@ -254,7 +267,11 @@ export function HomeForTrainee({
                 <h2 className="text-xl font-semibold">To attend</h2>
                 <ul className="mt-4 grid gap-4">
                   {outstanding.map((row) => (
-                    <TrainingCard key={row.deckId} row={row} />
+                    <TrainingCard
+                      key={row.deckId}
+                      row={row}
+                      {...(mixed ? { completeAt: completeAtOf(row.deckId) } : {})}
+                    />
                   ))}
                 </ul>
               </section>
@@ -265,7 +282,11 @@ export function HomeForTrainee({
                 <h2 className="text-xl font-semibold">Completed</h2>
                 <ul className="mt-4 grid gap-4">
                   {done.map((row) => (
-                    <TrainingCard key={row.deckId} row={row} />
+                    <TrainingCard
+                      key={row.deckId}
+                      row={row}
+                      {...(mixed ? { completeAt: completeAtOf(row.deckId) } : {})}
+                    />
                   ))}
                 </ul>
               </section>
@@ -275,8 +296,9 @@ export function HomeForTrainee({
 
         <p className="text-muted mt-12 text-sm leading-relaxed">
           A session counts as complete once {TRAINER_NAME} has finished teaching{' '}
-          {COMPLETION_THRESHOLD}% of it, measured by how long each slide takes to present rather
-          than by how many slides you have clicked past. Skipping ahead does not count as attending.
+          {mixed ? 'the share of it shown on its card' : `${uniform}% of it`}, measured by how long
+          each slide takes to present rather than by how many slides you have clicked past. Skipping
+          ahead does not count as attending.
         </p>
       </main>
     </div>

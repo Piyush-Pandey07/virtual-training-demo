@@ -18,7 +18,7 @@ import 'server-only';
 import { cache } from 'react';
 import { cookies } from 'next/headers';
 
-import { firebaseAdminConfigured, verifySessionCookie } from '../firebase/admin';
+import { firebaseAdminConfigured, verifySessionCookie, describeFailure } from '../firebase/admin';
 import { orgStore } from '../orgs/registry';
 import { actingOrgId } from './acting-org';
 import { rosterStore } from '../roster/registry';
@@ -76,7 +76,10 @@ async function resolveCurrentPerson(): Promise<SignedInPerson | null> {
       claimed ??
       (await orgStore()
         .orgIdForUid(decoded.uid)
-        .catch(() => undefined));
+        .catch((error: unknown) => {
+          console.error(`[auth] directory lookup failed: ${describeFailure(error)}`);
+          return undefined;
+        }));
 
     // Signed in with Firebase and in no customer at all. That is a row written before
     // organisations existed and never migrated, or a customer that has been deleted
@@ -92,7 +95,11 @@ async function resolveCurrentPerson(): Promise<SignedInPerson | null> {
 
     const person = await rosterStore(acting)
       .getPerson(decoded.uid)
-      .catch(() => undefined);
+      .catch((error: unknown) => {
+        // Read as nobody, it signs this person out; logged, since it is an outage.
+        console.error(`[auth] roster read failed: ${describeFailure(error)}`);
+        return undefined;
+      });
 
     // Signed in with Firebase but absent from the roster: the sign-in route creates
     // that row, so this is a deployment whose roster storage went away underneath a

@@ -1,0 +1,11 @@
+question,option_1,option_2,option_3,option_4,option_5,option_6,correct
+What does ISMS stand for?,Integrated Server Monitoring Service,Information Security Management System,Internal Staff Messaging System,Information Storage and Media Standard,,,B
+Which international standard sets the requirements for an ISMS?,ISO 9001,ISO 14001,ISO 27001,ISO 45001,,,C
+What is spear phishing?,"A targeted message crafted for one person, using real names or projects to look genuine",Bulk spam sent to thousands of addresses at once,A virus that spreads only through USB sticks,A pop-up advert on a news website,,,A
+Which three properties of information does information security protect?,"Cost, speed and size","Control, inspection and audit","Coverage, identity and access","Confidentiality, integrity and availability",,,D
+What is the best defence against the risks of password reuse?,Using the same strong password everywhere,"A long, unique password for each account, a password manager and multi-factor authentication",Writing passwords on a note stuck to the screen,Changing one letter of the password every month,,,B
+How can you check where a link in an email really goes before you click it?,Hover over the link to see the real address,Reply to the sender and ask,Forward the email to colleagues to try it first,Click it quickly and close the page if it looks wrong,,,A
+What is a risk of working on public Wi-Fi in a cafe or airport?,The laptop battery charges more slowly,Emails are always deleted,"People nearby can see your screen, and traffic on an open network can be intercepted",Your password expires sooner,,,C
+What should you do when you leave your desk for a few minutes?,"Nothing, if you will be back soon",Turn the monitor brightness down,Ask a colleague to watch your laptop,Lock your screen,,,D
+What is malware?,Software that gets onto a device and does harm,A broken keyboard or mouse,A slow internet connection,An email that arrives late,,,A
+"If you are not sure whether something is a security incident, what should you do?",Wait to see if it happens again,Report it anyway,Decide for yourself whether it matters,Mention it at your next appraisal,,,B

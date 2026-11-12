@@ -13,7 +13,8 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { LessonPlanGaps } from '@/components/LessonPlanGaps';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
-import { mayRunSessions } from '@/lib/auth/permissions';
+import { isAdministrator, mayRunSessions } from '@/lib/auth/permissions';
+import { profilesEnabledInOrg } from '@/lib/config';
 import { loadDeck } from '@/lib/decks/registry';
 import { lessonPlanGaps } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
@@ -94,6 +95,14 @@ export default async function SessionPage({ params }: Props) {
             deckAvailable={Boolean(deck)}
             summary={summary ? { rows: summary.rows, totals: summary.totals } : null}
             resultsLink={resultsHref(session.deckId, session.id)}
+            // AI-06: the profile is for the AI, the participant, the facilitator of their
+            // session and the Technavious administrator, never the company administrator,
+            // so the link is offered only to the first two of those who can be here.
+            profileLinks={
+              profilesEnabledInOrg(me.orgId) &&
+              (isAdministrator(me) ||
+                (me.role === 'facilitator' && session.facilitatorId === me.id))
+            }
           />
         </div>
         {organiser && (session.status === 'scheduled' || session.status === 'open') && (

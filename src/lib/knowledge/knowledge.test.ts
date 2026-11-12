@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { totalSlides } from '../deck';
 import { ISMS_DECK } from '../decks/isms';
-import { bestSlideForQuestion, renderKnowledge, selectKnowledge } from './index';
+import { bestSlideForQuestion, isRecapSlide, renderKnowledge, selectKnowledge } from './index';
 
 /**
  * The ISMS deck is the fixture now rather than the subject.
@@ -231,6 +231,48 @@ describe('bestSlideForQuestion', () => {
       assert.equal(bestSlideForQuestion(deck, question, current)?.slideId ?? null, expected);
     });
   }
+
+  it('never sends a question to a review or summary slide, which matches almost anything', () => {
+    // As found in a browser run on the CDFA deck: its last slide, "Review Questions",
+    // repeats the deck's questions, and moving there made the next Next end the session.
+    const last = deck.slides[deck.slides.length - 1]!;
+    const review = {
+      ...deck,
+      slides: deck.slides.map((slide) =>
+        slide.id === last.id
+          ? { ...slide, title: 'Review Questions', role: 'content' as const }
+          : slide,
+      ),
+      topics: deck.topics.map((topic) => ({ ...topic, slideIds: [...topic.slideIds, last.id] })),
+    };
+    for (const topic of review.topics) {
+      for (const trigger of topic.triggers) {
+        assert.notEqual(bestSlideForQuestion(review, trigger, 2)?.slideId, last.id, trigger);
+      }
+    }
+  });
+
+  it('knows a recap slide by its role or its title', () => {
+    for (const title of [
+      'Review Questions',
+      'Session Summary',
+      'Key takeaways',
+      'Q&A',
+      'Thank you',
+      'Wrap-up',
+    ]) {
+      assert.equal(isRecapSlide({ title }), true, title);
+    }
+    assert.equal(isRecapSlide({ title: 'Anything', role: 'closing' }), true);
+    for (const title of [
+      'Why Data Centers',
+      'Basic Components',
+      'India DC Market',
+      'Reviewing access rights',
+    ]) {
+      assert.equal(isRecapSlide({ title }), false, title);
+    }
+  });
 
   it('never sends a question to a slide that teaches nothing', () => {
     // Slide 1 of this deck is a title card. The rule is not about slide 1

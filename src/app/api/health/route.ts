@@ -25,6 +25,7 @@ import {
 import { platformAdminEmails } from '@/lib/auth/roles';
 import { assetStorage, deckStorage } from '@/lib/decks/registry';
 import { rosterStorage } from '@/lib/roster/registry';
+import { firebaseAdminConfigured, probeFirebase, type FirebaseProbe } from '@/lib/firebase/admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -101,6 +102,16 @@ export interface HealthResponse {
     writable: boolean;
   };
   /**
+   * Whether this server can reach the database and the sign-in service right now.
+   *
+   * Added after sign-in failed on the live site for minutes at a time while every
+   * variable was present and the same database answered from anywhere else. The paths
+   * that sign people in read through failures as "nobody is signed in", so from the
+   * outside the only symptom was being refused. This makes one read of each and says
+   * how it went: a code and a duration, never data.
+   */
+  firebase: FirebaseProbe | null;
+  /**
    * Where the rendered slide images go, and whether that agrees with the deck store.
    *
    * These are two different tiers holding two halves of the same deck, and they can
@@ -150,6 +161,8 @@ export async function GET() {
       ? 'AUTH_ADMIN_EMAILS'
       : 'none';
 
+  const firebase = firebaseAdminConfigured() ? await probeFirebase() : null;
+
   const body: HealthResponse = {
     ready: missing.length === 0,
     missing,
@@ -170,6 +183,7 @@ export async function GET() {
       store: roster.kind,
       writable: roster.writable,
     },
+    firebase,
   };
 
   return Response.json(body, {
