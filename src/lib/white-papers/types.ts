@@ -74,3 +74,19 @@ export const MIN_WHITE_PAPER_CHARACTERS = 200;
  * body over 4.5 MB, so a larger file keeps its text and not its original.
  */
 export const MAX_WHITE_PAPER_ORIGINAL_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The title a PDF carries in its properties, or null when it is one of the placeholders
+ * the tools that make PDFs write by default: "untitled", "Microsoft Word - Report1.docx",
+ * "Document1", "Presentation1" and the like. Taken at face value, those named a paper
+ * "untitled" in the library, so the upload falls back to the file's own name instead.
+ */
+export function usableDocumentTitle(raw: string | null | undefined): string | null {
+  const title = raw?.trim() ?? '';
+  if (!title) return null;
+  if (/^(untitled|no title|title)$/i.test(title)) return null;
+  if (/^microsoft (word|powerpoint|excel)\s*-/i.test(title)) return null;
+  if (/^(document|presentation|book|slide|untitled)\s*\d*$/i.test(title)) return null;
+  if (/\.(docx?|pptx?|xlsx?|pdf|txt)$/i.test(title)) return null;
+  return title;
+}

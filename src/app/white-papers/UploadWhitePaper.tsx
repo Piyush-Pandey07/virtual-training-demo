@@ -4,7 +4,11 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { readPaperPdf, sendPaper } from '@/lib/white-papers/send';
-import { MAX_WHITE_PAPER_SUMMARY, MAX_WHITE_PAPER_TITLE } from '@/lib/white-papers/types';
+import {
+  MAX_WHITE_PAPER_SUMMARY,
+  MAX_WHITE_PAPER_TITLE,
+  usableDocumentTitle,
+} from '@/lib/white-papers/types';
 
 /**
  * Adding a white paper to the library (AI-46): a PDF, a title and an optional summary.
@@ -34,7 +38,7 @@ export function UploadWhitePaper() {
       setBusy('Reading the PDF');
       const read = await readPaperPdf(file);
       const chosenTitle =
-        title.trim() || read.documentTitle?.trim() || file.name.replace(/\.pdf$/i, '');
+        title.trim() || usableDocumentTitle(read.documentTitle) || file.name.replace(/\.pdf$/i, '');
       setBusy('Saving the text');
       // Whether the original was kept is shown on the paper's own page, from the record,
       // so the note about it is not needed here.

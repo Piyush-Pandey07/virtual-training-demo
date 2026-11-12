@@ -674,3 +674,24 @@ describe('the routes, pages and purge', () => {
     assert.match(lifecycle, /await removeWhitePaperFiles\(orgId\)/);
   });
 });
+
+describe('the title a PDF carries', () => {
+  it('is used when it is a real title, and ignored when it is a placeholder', async () => {
+    const { usableDocumentTitle } = await import('./types');
+    assert.equal(
+      usableDocumentTitle('Cooling in Small Data Centres'),
+      'Cooling in Small Data Centres',
+    );
+    for (const placeholder of [
+      'untitled',
+      'Microsoft Word - Report1.docx',
+      'Document1',
+      'Presentation 2',
+      'draft.pdf',
+      '  ',
+      undefined,
+    ]) {
+      assert.equal(usableDocumentTitle(placeholder), null, String(placeholder));
+    }
+  });
+});
