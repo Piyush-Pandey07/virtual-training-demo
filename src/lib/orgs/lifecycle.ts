@@ -4,6 +4,8 @@ import { assetStore, deckStore, forgetDeckStores } from '../decks/registry';
 import { DECK_COLLECTIONS } from '../decks/store-documents';
 import { firestoreDocuments } from '../firebase/firestore';
 import { revokeSessions } from '../firebase/admin';
+import { forgetNotificationsOf } from '../notifications/outbox';
+import { removeWhitePaperFiles } from '../white-papers/files';
 import { deleteProfile } from '../profiles/store';
 import { forgetRosterStore, rosterStore } from '../roster/registry';
 import { orgStore, orgsConfigured } from './registry';
@@ -61,6 +63,11 @@ const OWNED_COLLECTIONS = [
   // customer's record, so it goes with them rather than outliving them.
   'deckApprovals',
   'audit',
+  // Approved white papers (AI-46): each paper's record, its text, and which decks draw
+  // on it. The original PDFs are files, and go in step 3 below.
+  'whitePapers',
+  'whitePaperText',
+  'deckWhitePapers',
   // The deck store's own, taken from it rather than copied here. Slides and topics are
   // not listed: they hang off a deck and go when the deck store removes it, above.
   ...DECK_COLLECTIONS,
@@ -218,6 +225,8 @@ export async function purge(orgId: string): Promise<PurgeReport> {
     await decks.remove(deck.id).catch(() => undefined);
     report.decks += 1;
   }
+  // And the white papers' original PDFs, which sit beside the decks in file storage.
+  await removeWhitePaperFiles(orgId).catch(() => undefined);
 
   // 4. Every document under their prefix. Firestore keeps a subcollection when its
   //    parent goes, so each one is named and emptied rather than assumed to follow.
@@ -233,6 +242,9 @@ export async function purge(orgId: string): Promise<PurgeReport> {
     }
     report.documents[collection] = removed;
   }
+  // The email outbox is the platform's, outside every prefix, but a digest in it names
+  // the customer's participants, so their records go with them (AI-35).
+  report.documents.notifications = await forgetNotificationsOf(orgId).catch(() => 0);
 
   // 5. The customer itself, last.
   await firestoreDocuments().remove('organisations', orgId);
@@ -272,8 +284,8 @@ function documentIdOf(
       : undefined;
   }
   // people, leavers, decks, the seed marker, consent records, batches, trainer-led
-  // sessions, the assessment records, deck approvals and audit entries all carry their
-  // own id.
+  // sessions, the assessment records, deck approvals, audit entries and white papers,
+  // with their text and their decks, all carry their own id.
   if (
     collection === 'people' ||
     collection === 'leavers' ||
@@ -287,6 +299,9 @@ function documentIdOf(
     collection === 'feedback' ||
     collection === 'deckApprovals' ||
     collection === 'audit' ||
+    collection === 'whitePapers' ||
+    collection === 'whitePaperText' ||
+    collection === 'deckWhitePapers' ||
     collection === 'consents'
   ) {
     return typeof row.id === 'string' ? row.id : undefined;

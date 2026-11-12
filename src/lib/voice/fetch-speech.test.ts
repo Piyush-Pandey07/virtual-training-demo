@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { FAILURE_MESSAGES } from '../failures/codes';
-import { fetchSpeech, stallRetryDelayMs, type FetchDeps } from './fetch-speech';
+import { fetchSpeech, stallRetryDelayMs, streamSpeech, type FetchDeps } from './fetch-speech';
 
 /**
  * Fetching a sentence on a connection that may not hold (AI-10).
@@ -155,5 +156,64 @@ describe('trying again once held', () => {
 
   it('waits for the trainee when waiting will not help', () => {
     assert.equal(stallRetryDelayMs(0, { code: 'unavailable', message: '', retry: false }), null);
+  });
+});
+
+describe('streaming the opening sentence (AI-44)', () => {
+  const streamed = (pieces: number[][]) => async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const piece of pieces) controller.enqueue(new Uint8Array(piece));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/octet-stream' } },
+    );
+
+  it('hands over each piece as it arrives, asking for PCM rather than MP3', async () => {
+    const fake = deps([streamed([[1, 2, 3], [4, 5], [6]])]);
+    const got: number[][] = [];
+    const result = await streamSpeech(
+      { text: 'Hello there.' },
+      new AbortController().signal,
+      (piece) => got.push([...piece]),
+      fake,
+    );
+    assert.deepEqual(got, [[1, 2, 3], [4, 5], [6]]);
+    assert.deepEqual(result, { ok: true, received: 6 });
+    assert.doesNotMatch(fake.calls[0]!, /mp3/);
+  });
+
+  it('gives back the failure when nothing arrived, so the player can fetch it as usual', async () => {
+    const result = await streamSpeech(
+      { text: 'Hello there.' },
+      new AbortController().signal,
+      () => assert.fail('nothing should arrive'),
+      deps([refused(503, { error: 'busy', retry: true })]),
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.received, 0);
+  });
+
+  it('refuses MP3, which cannot be played piece by piece', async () => {
+    const result = await streamSpeech(
+      { text: 'Hello there.' },
+      new AbortController().signal,
+      () => assert.fail('nothing should be handed over'),
+      deps([audio('audio/mpeg')]),
+    );
+    assert.equal(result.ok, false);
+  });
+
+  it('is used by the player for the opening sentence only, with a fallback', () => {
+    const player = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8').replaceAll(
+      String.fromCharCode(13),
+      '',
+    );
+    assert.match(player, /enqueue\(buffer\.slice\(0, cut\), opening\);/);
+    assert.match(player, /if \(item\.stream && !pacedToPlayback\(languageRef\.current\)\)/);
+    assert.match(player, /if \(await playStreamed\(item\)\) return;/);
+    assert.match(player, /!item\.audio && !item\.stream/);
   });
 });

@@ -162,3 +162,70 @@ export function stallRetryDelayMs(stalls: number, failure: Failure): number | nu
   const steps = [3000, 6000, 10_000, 15_000];
   return steps[Math.min(stalls, steps.length - 1)]!;
 }
+
+/**
+ * One sentence as raw PCM, handed over piece by piece as it arrives (AI-44).
+ *
+ * The opening sentence of a turn is the one the trainee waits for in silence, and
+ * measured on the live site its audio began arriving after about 0.85 s but took 1.5 to
+ * 3 s to arrive whole. MP3 has to be whole before it can be decoded; PCM does not, so
+ * this asks for PCM and gives the player each piece to schedule straight away.
+ *
+ * One attempt only, no retry: a failure before anything arrived returns the failure, and
+ * the player falls back to fetching the sentence the ordinary way, with its retries and
+ * holds. `received` says how many bytes were handed over before it ended.
+ */
+export async function streamSpeech(
+  body: Omit<SpeechBody, 'format'>,
+  signal: AbortSignal,
+  onPiece: (pcm: Uint8Array) => void,
+  deps: Pick<FetchDeps, 'fetch'> = DEFAULT_DEPS,
+): Promise<
+  | { ok: true; received: number }
+  | { ok: false; aborted: true; received: number }
+  | { ok: false; aborted: false; failure: Failure; kind: string; received: number }
+> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), SPEECH_TIMEOUT_MS);
+  const cancel = () => deadline.abort();
+  signal.addEventListener('abort', cancel, { once: true });
+  let received = 0;
+  try {
+    const response = await deps.fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: deadline.signal,
+    });
+    if (!response.ok || !response.body) {
+      return {
+        ok: false,
+        aborted: false,
+        failure: await readFailure(response),
+        kind: `http-${response.status}`,
+        received,
+      };
+    }
+    if (response.headers.get('Content-Type')?.includes('audio/mpeg')) {
+      // Not PCM after all: nothing here can play it piece by piece.
+      return { ok: false, aborted: false, failure: connectionFailure(), kind: 'not-pcm', received };
+    }
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength > 0) {
+        received += value.byteLength;
+        onPiece(value);
+      }
+    }
+    return { ok: true, received };
+  } catch {
+    if (signal.aborted) return { ok: false, aborted: true, received };
+    const kind = deadline.signal.aborted ? 'timeout' : 'network';
+    return { ok: false, aborted: false, failure: connectionFailure(), kind, received };
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', cancel);
+  }
+}

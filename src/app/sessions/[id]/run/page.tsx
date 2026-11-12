@@ -18,6 +18,7 @@ import { DeckProvider } from '@/lib/deck-context';
 import { loadDeck } from '@/lib/decks/registry';
 import { keytermsFor } from '@/lib/glossary';
 import { liveGlossary } from '@/lib/glossary/store';
+import { lessonPlanGaps } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
 import { addressName } from '@/lib/training/facilitation';
@@ -76,7 +77,11 @@ export default async function RunSessionPage({ params }: Props) {
       </BrandHeader>
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-5 py-5 sm:px-8">
         <DeckProvider deck={{ ...toClientView(deck), listenFor: keytermsFor(deck, glossary) }}>
-          <FacilitatorScreen sessionId={session.id} attendees={attendees} />
+          <FacilitatorScreen
+            sessionId={session.id}
+            attendees={attendees}
+            planGaps={lessonPlanGaps(deck)}
+          />
         </DeckProvider>
       </main>
     </div>

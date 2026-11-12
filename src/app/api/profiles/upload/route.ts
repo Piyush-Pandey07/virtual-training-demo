@@ -17,6 +17,7 @@
 
 import { checkUser } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor, profilesEnabledInOrg } from '@/lib/config';
+import { notifyIncompleteUpload } from '@/lib/notifications/events';
 import { mayUploadParticipants } from '@/lib/profiles/access';
 import { MAX_UPLOAD_BYTES, readUpload } from '@/lib/profiles/csv';
 import { notFound, reply, signedOut } from '@/lib/profiles/responses';
@@ -99,5 +100,7 @@ export async function POST(request: Request) {
   if (!read.ok) return reply({ error: read.error }, 400);
 
   const results = await importParticipants(uploader, read.rows, { roster });
+  // One email to Technavious's training team listing anybody left incomplete (AI-35).
+  await notifyIncompleteUpload(uploader, results);
   return reply({ results, summary: summarise(results) });
 }

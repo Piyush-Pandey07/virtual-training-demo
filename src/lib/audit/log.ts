@@ -67,6 +67,9 @@ export const AUDIT_ACTIONS = [
   'assigned',
   'unassigned',
   'role-changed',
+  // A white paper put on a deck for the trainer to draw on, and taken off it (AI-46).
+  'attached',
+  'detached',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -84,6 +87,8 @@ export const AUDIT_SUBJECTS = [
   'assignment',
   'batch',
   'training-session',
+  // Approved white papers: uploaded, approved, withdrawn, attached to decks, deleted.
+  'white-paper',
 ] as const;
 export type AuditSubject = (typeof AUDIT_SUBJECTS)[number];
 
@@ -100,6 +105,7 @@ export const AUDIT_SUBJECT_LABELS: Record<AuditSubject, string> = {
   assignment: 'Assignments',
   batch: 'Batches',
   'training-session': 'Trainer-led sessions',
+  'white-paper': 'White papers',
 };
 
 export function isAuditSubject(value: unknown): value is AuditSubject {

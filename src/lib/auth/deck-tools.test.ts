@@ -39,6 +39,7 @@ describe('the deck routes', () => {
     'src/app/api/decks/[id]/route.ts',
     'src/app/api/decks/[id]/analyse/route.ts',
     'src/app/api/decks/[id]/approval/route.ts',
+    'src/app/api/decks/[id]/lesson-plan/route.ts',
   ];
 
   for (const path of ADMINISTRATOR_ONLY) {

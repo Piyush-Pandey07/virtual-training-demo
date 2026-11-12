@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { LessonPlanGaps } from '@/components/LessonPlanGaps';
 import { MicIndicator } from '@/components/MicIndicator';
 import { SlideRail } from '@/components/SlideRail';
 import { SlideStage } from '@/components/SlideStage';
@@ -34,6 +35,11 @@ type Floor = 'facilitator' | 'listening' | 'thinking' | 'speaking';
 interface Props {
   sessionId: string;
   attendees: string[];
+  /**
+   * Where the deck differs from its lesson plan, in words (AI-43). Shown for the whole
+   * session, so the facilitator knows what Nova will skip or reorder before it happens.
+   */
+  planGaps?: string[];
 }
 
 const PRIMARY =
@@ -48,7 +54,7 @@ const FLOOR_LABEL: Record<Floor, string> = {
   speaking: `${TRAINER_NAME} is speaking`,
 };
 
-export function FacilitatorScreen({ sessionId, attendees }: Props) {
+export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props) {
   const deck = useDeck();
   const [slideId, setSlideId] = useState(deck.slides[0]?.id ?? 1);
   const [floor, setFloor] = useState<Floor>('facilitator');
@@ -210,6 +216,8 @@ export function FacilitatorScreen({ sessionId, attendees }: Props) {
           </button>
         </div>
       )}
+
+      <LessonPlanGaps gaps={planGaps} audience="facilitator" compact />
 
       {slide && <SlideStage slide={slide} dimmed={false} />}
 

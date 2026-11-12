@@ -44,6 +44,8 @@ import { liveGlossary } from '@/lib/glossary/store';
 import { profileForTrainer } from '@/lib/profiles/for-trainer';
 import { mayStartSession } from '@/lib/usage/limits';
 import { recordQuietly } from '@/lib/usage/store';
+import { selectReferences } from '@/lib/white-papers/passages';
+import { deckReferenceLibrary } from '@/lib/white-papers/store';
 
 export const runtime = 'nodejs';
 /** Streaming only makes sense uncached. */
@@ -140,6 +142,10 @@ export async function POST(request: Request) {
   // copy, read from Firestore at most once every five minutes, and it never fails: see
   // src/lib/glossary/store.ts.
   const glossaryLoad = liveGlossary();
+  // The approved white papers attached to this deck (AI-46), alongside the rest for the
+  // same reason. One read for a deck with none, which is nearly every deck, and it never
+  // fails: a paper that cannot be read is one the trainer does without.
+  const referenceLoad = deckReferenceLibrary(gate.person.orgId, body.deckId ?? DEFAULT_DECK_ID);
   const [limited, deck, profile] = await Promise.all([
     rateLimited(gate.person, 'chat'),
     loadDeck(gate.person.orgId, body.deckId),
@@ -342,14 +348,35 @@ export async function POST(request: Request) {
     ? await groupLevel(gate.person.orgId, room.session).catch(() => null)
     : await assessedLevel(gate.person.orgId, gate.person.id, deck.meta.id).catch(() => null);
 
-  // Built before the stream, so nothing inside it handles the profile.
+  // The few passages of the attached, approved white papers that bear on this slide and
+  // this question, capped at about fifteen hundred characters (AI-46). None when nothing
+  // matches or nothing is attached, which leaves the instruction exactly as it was.
+  const selected = selectReferences(await referenceLoad, {
+    slide: effectiveSlide,
+    question: question || undefined,
+  });
+  const references = selected.length > 0 ? selected : undefined;
+
+  // Built before the stream, so nothing inside it handles the profile. Without passages
+  // the one-to-one call is written exactly as it was before there were white papers, so
+  // the prompt it builds, which the profile tests pin, plainly cannot have moved.
   const systemInstruction = room
     ? buildFacilitatedSystemInstruction(
         deck,
         { attendees: room.attendees, ...(level ? { level } : {}) },
         { language, speaksAs },
+        references,
       )
-    : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile, level);
+    : references
+      ? buildSystemInstruction(
+          deck,
+          traineeName,
+          { language, speaksAs },
+          profile,
+          level,
+          references,
+        )
+      : buildSystemInstruction(deck, traineeName, { language, speaksAs }, profile, level);
 
   const encoder = new TextEncoder();
 

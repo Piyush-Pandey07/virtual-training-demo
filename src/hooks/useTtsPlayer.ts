@@ -31,10 +31,20 @@ import { pacedToPlayback } from '@/lib/languages';
 import { pcmToFloat } from '@/lib/pcm';
 import { nextOpeningCut, nextSpeechCut, sanitiseForSpeech } from '@/lib/speech';
 import type { SessionLanguage } from '@/lib/types';
-import { fetchSpeech, stallRetryDelayMs } from '@/lib/voice/fetch-speech';
+import { fetchSpeech, stallRetryDelayMs, streamSpeech } from '@/lib/voice/fetch-speech';
 
 /** Small lead time so the first buffer is queued before the clock reaches it. */
 const SCHEDULE_LEAD_SECONDS = 0.08;
+
+/**
+ * How much of a streamed opening sentence is gathered before it starts playing, and then
+ * how much each further piece holds, in bytes of 16-bit PCM. A third of a second up front
+ * covers the stream's slower start: measured locally, with a fifth of a second first and
+ * half-second pieces after it, the second piece came 40 ms late. Quarter-second pieces
+ * after that are each ready well before the one ahead of them ends.
+ */
+const STREAM_FIRST_BYTES = Math.round(AUDIO_SAMPLE_RATE * 2 * 0.3);
+const STREAM_PIECE_BYTES = Math.round(AUDIO_SAMPLE_RATE * 2 * 0.25);
 
 /**
  * How far ahead of the listener Hindi, and every other language Sarvam speaks, is
@@ -76,6 +86,11 @@ interface QueuedSpeech {
   audio: Promise<LoadedSpeech> | null;
   /** Started while another sentence was playing, rather than when its own turn came. */
   ahead: boolean;
+  /**
+   * The opening sentence of a turn, played as its audio streams in rather than once it
+   * has all arrived (AI-44). Never fetched ahead, since it is the first in line anyway.
+   */
+  stream: boolean;
 }
 
 type LoadedSpeech =
@@ -456,7 +471,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     if (releaseStallRef.current || !navigator.onLine) return;
     for (const item of queueRef.current) {
       if (inFlightRef.current >= SPEECH_AHEAD) return;
-      if (item.generation === generationRef.current && !item.audio) {
+      if (item.generation === generationRef.current && !item.audio && !item.stream) {
         item.ahead = true;
         void startLoading(item);
       }
@@ -501,6 +516,80 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   }, []);
 
   /**
+   * Plays the opening sentence of a turn as its audio arrives (AI-44). Resolves true once
+   * it has all been scheduled, or false if nothing arrived, so the caller can fetch it the
+   * ordinary way, with its retries and holds.
+   */
+  const playStreamed = useCallback(
+    async (item: QueuedSpeech): Promise<boolean> => {
+      const { generation } = item;
+      const voice = voiceRef.current;
+      const context = getContext();
+      await ensureAudible();
+      if (generation !== generationRef.current) return true;
+
+      let pending = new Uint8Array(0);
+      let pieces = 0;
+      const schedule = (bytes: Uint8Array) => {
+        const samples = pcmToFloat(bytes.slice().buffer);
+        if (samples.length === 0) return;
+        const buffer = context.createBuffer(1, samples.length, AUDIO_SAMPLE_RATE);
+        buffer.copyToChannel(samples, 0);
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        const startAt = Math.max(playheadRef.current, context.currentTime + SCHEDULE_LEAD_SECONDS);
+        source.start(startAt);
+        playheadRef.current = startAt + buffer.duration;
+        sourcesRef.current.add(source);
+        setSpeaking(true);
+        source.onended = () => {
+          sourcesRef.current.delete(source);
+          source.disconnect();
+          settleIfIdle();
+        };
+        pieces += 1;
+      };
+      const take = (wanted: number) => {
+        // Whole samples only: a piece never ends half way through one.
+        const usable = pending.length - (pending.length % 2);
+        if (usable < wanted || usable === 0) return;
+        schedule(pending.subarray(0, usable));
+        pending = pending.slice(usable);
+      };
+
+      const result = await streamSpeech(
+        { text: item.text, ...(voice ? { voice } : {}) },
+        downloadSignal(),
+        (piece) => {
+          if (generation !== generationRef.current) return;
+          const joined = new Uint8Array(pending.length + piece.length);
+          joined.set(pending);
+          joined.set(piece, pending.length);
+          pending = joined;
+          take(pieces === 0 ? STREAM_FIRST_BYTES : STREAM_PIECE_BYTES);
+        },
+      );
+      if (generation !== generationRef.current) return true;
+      take(1);
+      if (!result.ok && !result.aborted && pieces > 0) {
+        // Cut off part way: what arrived has played, and the rest of this one sentence is
+        // lost rather than repeated from its start.
+        reportFailure({
+          area: 'speech',
+          kind: `stream-${result.kind}`,
+          code: result.failure.code,
+          detail: `The opening sentence stopped after ${result.received} bytes.`,
+          deckId: optionsRef.current.deckId,
+          language: languageRef.current,
+        });
+      }
+      return pieces > 0 || result.ok;
+    },
+    [downloadSignal, ensureAudible, getContext, settleIfIdle],
+  );
+
+  /**
    * Gets one sentence's audio, holding on it until it arrives, and schedules it.
    *
    * Sentences reach here one at a time and in order, through the chain in enqueue, so
@@ -518,6 +607,18 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         await waitForRoom(generation);
         if (generation !== generationRef.current) return;
       }
+
+      if (item.stream && !pacedToPlayback(languageRef.current)) {
+        // The rest of the turn starts downloading while this one streams in.
+        item.stream = false;
+        queueRef.current = queueRef.current.filter((queued) => queued !== item);
+        fetchAhead();
+        if (await playStreamed(item)) return;
+        if (generation !== generationRef.current) return;
+        // Nothing arrived: fetched the ordinary way instead, with retries and holds.
+        queueRef.current.unshift(item);
+      }
+      item.stream = false;
 
       let loaded: LoadedSpeech;
       let stalls = 0;
@@ -597,11 +698,20 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
         settleIfIdle();
       };
     },
-    [ensureAudible, fetchAhead, getContext, holdOn, settleIfIdle, startLoading, waitForRoom],
+    [
+      ensureAudible,
+      fetchAhead,
+      getContext,
+      holdOn,
+      playStreamed,
+      settleIfIdle,
+      startLoading,
+      waitForRoom,
+    ],
   );
 
   const enqueue = useCallback(
-    (text: string) => {
+    (text: string, opening = false) => {
       /**
        * The last gate before text becomes audio.
        *
@@ -615,7 +725,13 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (!trimmed) return;
 
       const generation = generationRef.current;
-      const item: QueuedSpeech = { text: trimmed, generation, audio: null, ahead: false };
+      const item: QueuedSpeech = {
+        text: trimmed,
+        generation,
+        audio: null,
+        ahead: false,
+        stream: opening,
+      };
       queueRef.current.push(item);
       pendingCountRef.current += 1;
       setSpeaking(true);
@@ -647,7 +763,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (cut === -1) return;
       openingRef.current = false;
 
-      enqueue(buffer.slice(0, cut));
+      enqueue(buffer.slice(0, cut), opening);
       bufferRef.current = buffer.slice(cut).trimStart();
     }
   }, [enqueue]);
@@ -664,7 +780,11 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
   const flush = useCallback(() => {
     const remaining = bufferRef.current.trim();
     bufferRef.current = '';
-    if (remaining) enqueue(remaining);
+    if (!remaining) return;
+    // A reply too short to have been cut is the opening sentence too, and streams.
+    const opening = openingRef.current;
+    openingRef.current = false;
+    enqueue(remaining, opening);
   }, [enqueue]);
 
   const waitUntilDone = useCallback(
