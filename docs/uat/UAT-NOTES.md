@@ -1137,24 +1137,43 @@ a key on the live site. Testers can use any failure that happens, and match its 
 
 ## AI-44 Response times
 
-**What was built.** The first sentence of each turn is streamed and spoken as soon as it is
-ready, so speech starts before the whole answer is written.
+**What was built.**
+
+- The first sentence of each turn is streamed and spoken as soon as its audio starts
+  arriving.
+- While a slide plays, the next slide's narration is written ahead, along with the audio of
+  its first sentence, so pressing **Next** starts speech at once.
+- After a question, the next slide is prepared again.
+- A question never moves the deck to a review or summary slide.
 
 **Unit tests.** `src/lib/speech.test.ts` ("the first chunk of a turn (AI-44)"),
-`src/lib/voice/fetch-speech.test.ts` ("streaming the opening sentence (AI-44)").
+`src/lib/voice/fetch-speech.test.ts` ("streaming the opening sentence" and "the opening
+sentence fetched ahead").
 
-### Measured figures: PLACEHOLDER, TO BE ADDED SEPARATELY
+### Measured figures
 
-> **To be filled in.** Live-site measurements of slide starts and answers will be added here
-> separately. Target: Nova starts speaking within 3 seconds of a slide's start and within 5
-> seconds after a question, in at least 9 of 10 turns.
->
-> | Measure | Turns | Within target | Median | Slowest |
-> | --- | --- | --- | --- | --- |
-> | Slide start (3 s target) | | | | |
-> | Answer after a question (5 s target) | | | | |
->
-> Date, network and deck used: to be added.
+Measured on the live site on 12 November 2026 at about 14:30 IST, in Chromium, on the
+"Introduction to Data Centers" deck, as a Technavious test account. In each of ten rounds,
+**Next** was pressed, the slide was heard out, then a question was typed and **Ask** pressed.
+The times run from the press to the moment the first audio was scheduled to sound.
+
+| Measure | Turns | Within target | Median | Slowest |
+| --- | --- | --- | --- | --- |
+| Slide start (3 s target) | 10 | 10 of 10 | 0.10 s | 0.11 s |
+| Answer after a question (5 s target) | 10 | 10 of 10 | 3.24 s | 4.52 s |
+
+**Session start.** The first slide of a session, which includes the welcome, took 8.9 s on
+the live site. It cannot be prepared ahead, because nothing has been said before it, and it
+is not one of the slide changes the target counts. Worth checking in UAT.
+
+**Earlier the same day, before the last two changes.** Slide starts were 8 of 10 within
+3 s (median 1.5 s), and 0 of 10 that morning (median 4.0 s). Answers were already 10 of 10.
+
+**How to check in UAT.**
+
+1. Start a session.
+2. Let a slide finish, then press **Next** and time how long until Nova speaks.
+3. Type a question and press **Ask**, and time the same.
 
 ## AI-25 Dependencies
 
