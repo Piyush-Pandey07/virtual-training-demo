@@ -88,13 +88,22 @@ export async function POST(request: Request) {
     // the domain won, an administrator's move would be undone by the next sign-in.
     // A failed read is logged, not only treated as "not found": read as nothing, it
     // refuses everybody with "no training account", which hid an outage on the live site.
+    let lookupFailed = false;
     const logged = (what: string) => (error: unknown) => {
+      lookupFailed = true;
       console.error(`[auth] sign-in ${what} failed: ${describeFailure(error)}`);
       return undefined;
     };
     const orgId =
       (await orgs.orgIdForUid(decoded.uid).catch(logged('directory lookup'))) ??
       (await orgs.orgIdForEmail(email).catch(logged('domain lookup')));
+
+    if (!orgId && lookupFailed) {
+      // The lookup failed rather than finding nothing: the database is unavailable, or
+      // on the free plan over its daily allowance. Telling somebody they have no account
+      // when they have one sent people to their administrator for nothing.
+      return refuse('Sign-in is unavailable for a moment. Please try again in a few minutes.', 503);
+    }
 
     if (!orgId) {
       // No customer holds this address's domain and nobody has placed them. Said the

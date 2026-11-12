@@ -66,7 +66,10 @@ describe('the browser reporting what it sent', () => {
   });
 
   it('reports every minute while open, and stops when it closes', () => {
-    assert.match(SPEECH, /reportTimerRef\.current = setInterval\(reportStreamedAudio, STREAM_REPORT_MS\);/);
+    assert.match(
+      SPEECH,
+      /reportTimerRef\.current = setInterval\(reportStreamedAudio, STREAM_REPORT_MS\);/,
+    );
     assert.match(bodyOf(SPEECH, 'teardownSocket'), /clearInterval\(reportTimerRef\.current\)/);
   });
 
@@ -90,8 +93,10 @@ describe('the server recording it', () => {
     assert.match(ROUTE, /streamedSeconds\(body\?\.seconds\)/);
   });
 
-  it('awaiting the write, so Vercel cannot freeze it half done', () => {
-    assert.match(ROUTE, /await record\(gate\.person\.orgId, \{ sttSeconds: seconds \}\)/);
-    assert.doesNotMatch(ROUTE, /recordQuietly\(/);
+  it('added to the counts written every few seconds, as every other meter is', () => {
+    // Written on every report it cost a read and a write per utterance, which on the
+    // free plan helped use up the project's daily allowance. A server frozen between
+    // writes loses at most that long's counting: an under-count, never a failed session.
+    assert.match(ROUTE, /recordQuietly\(gate\.person\.orgId, \{ sttSeconds: seconds \}\)/);
   });
 });

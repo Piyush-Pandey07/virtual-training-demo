@@ -24,6 +24,7 @@ import { actingOrgId } from './acting-org';
 import { rosterStore } from '../roster/registry';
 import { effectiveRole, isPlatformAdmin } from './roles';
 import type { SignedInPerson } from '../roster/types';
+import { heldPerson, holdPerson } from './person-cache';
 
 /** The cookie the real sign-in will set. Read here so the swap is one function. */
 export const SESSION_COOKIE = 'session';
@@ -93,13 +94,19 @@ async function resolveCurrentPerson(): Promise<SignedInPerson | null> {
     const email = typeof decoded.email === 'string' ? decoded.email : '';
     const acting = await actingOrgId(email, orgId).catch(() => orgId);
 
-    const person = await rosterStore(acting)
-      .getPerson(decoded.uid)
-      .catch((error: unknown) => {
-        // Read as nobody, it signs this person out; logged, since it is an outage.
-        console.error(`[auth] roster read failed: ${describeFailure(error)}`);
-        return undefined;
-      });
+    const person =
+      heldPerson(acting, decoded.uid) ??
+      (await rosterStore(acting)
+        .getPerson(decoded.uid)
+        .then((found) => {
+          if (found) holdPerson(acting, found);
+          return found;
+        })
+        .catch((error: unknown) => {
+          // Read as nobody, it signs this person out; logged, since it is an outage.
+          console.error(`[auth] roster read failed: ${describeFailure(error)}`);
+          return undefined;
+        }));
 
     // Signed in with Firebase but absent from the roster: the sign-in route creates
     // that row, so this is a deployment whose roster storage went away underneath a

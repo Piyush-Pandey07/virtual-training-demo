@@ -19,6 +19,7 @@ import { orgStore } from '@/lib/orgs/registry';
 import { OrgStoreError } from '@/lib/orgs/store';
 import { rosterStore } from '@/lib/roster/registry';
 import { emailKeyOf } from '@/lib/roster/store';
+import { forgetPerson } from '@/lib/auth/person-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,7 @@ export async function POST(request: Request) {
     }
 
     await movePerson(person.id, fromOrgId, toOrgId);
+    forgetPerson(person.id);
 
     console.warn(`[platform] ${staff.email} moved ${email} from "${fromOrgId}" to "${toOrgId}"`);
     // Moving deletes any profile they had in the customer they left, so it is recorded

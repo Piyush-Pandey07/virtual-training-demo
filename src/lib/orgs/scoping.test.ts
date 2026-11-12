@@ -65,6 +65,10 @@ const STORES = [
   // The level most of a group are at, read from their assessment results.
   'groupLevel',
   'trainingDocuments',
+  // The signed-in person's roster row held for a minute per server, keyed by the
+  // organisation the session cookie names: only ever their own row.
+  'heldPerson',
+  'holdPerson',
   // Question banks, assessment results and feedback, and what the participant journey and
   // the trainer prompt read from them.
   'assessmentStore',
