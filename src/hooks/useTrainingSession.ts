@@ -427,6 +427,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       void text.then((result) => {
         clearTimeout(limit);
         entry.settled = result;
+        // Its first sentence's audio too, so the slide starts the moment Next is pressed.
+        if (result && prefetchRef.current === entry) ttsRef.current.preloadOpening(result);
       });
       prefetchRef.current = entry;
     },

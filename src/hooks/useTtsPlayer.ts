@@ -105,6 +105,8 @@ export interface UseTtsPlayerResult {
   push: (text: string) => void;
   /** Speak whatever is left in the buffer, then stop. */
   flush: () => void;
+  /** Fetch the audio of a coming turn's opening sentence now, so that turn starts at once. */
+  preloadOpening: (fullText: string) => void;
   /** Cut playback off immediately and discard everything pending. */
   interrupt: () => void;
   /** Resolves once everything queued has finished playing. */
@@ -388,7 +390,11 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
   /** Fetches one sentence and turns it into a buffer the timeline can play. */
   const loadSpeech = useCallback(
-    async (text: string, generation: number): Promise<LoadedSpeech> => {
+    async (
+      text: string,
+      generation: number | null,
+      signal?: AbortSignal,
+    ): Promise<LoadedSpeech> => {
       const voice = voiceRef.current;
       const compressed = compressedRef.current;
       const fetched = await fetchSpeech(
@@ -399,10 +405,13 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
           ...(voice ? { voice } : {}),
           ...(compressed ? { format: 'mp3' as const } : {}),
         },
-        downloadSignal(),
+        signal ?? downloadSignal(),
       );
       if (!fetched.ok) return fetched;
-      if (generation !== generationRef.current) return { ok: false, aborted: true };
+      // Null for a sentence fetched ahead for a turn that has not started yet.
+      if (generation !== null && generation !== generationRef.current) {
+        return { ok: false, aborted: true };
+      }
 
       const context = getContext();
       if (fetched.format === 'pcm') {
@@ -426,10 +435,41 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
           deckId: optionsRef.current.deckId,
           language: languageRef.current,
         });
-        return loadSpeech(text, generation);
+        return loadSpeech(text, generation, signal);
       }
     },
     [downloadSignal, getContext],
+  );
+
+  /**
+   * The opening sentence of a turn not yet started, fetched ahead (AI-44).
+   *
+   * The next slide's narration is already written while this slide plays; measured on
+   * the live site, two slide starts in ten still took about 3.5 s, because the voice
+   * service is slow some moments to send its first audio. So the audio of that turn's
+   * first sentence is fetched now as well, keyed by the exact text and voice it will be
+   * asked for, and the turn starts with it at once. Not for the Sarvam languages, whose
+   * prepaid credit is spent only on what is about to be heard.
+   */
+  const preloadedRef = useRef(new Map<string, Promise<LoadedSpeech>>());
+  const preloadAbortRef = useRef<AbortController | null>(null);
+
+  const preloadOpening = useCallback(
+    (fullText: string) => {
+      if (pacedToPlayback(languageRef.current)) return;
+      const cut = nextOpeningCut(fullText);
+      const opening = sanitiseForSpeech(cut === -1 ? fullText.trim() : fullText.slice(0, cut));
+      if (!opening) return;
+      const key = `${voiceRef.current ?? ''}|${opening}`;
+      if (preloadedRef.current.has(key)) return;
+      // One upcoming turn at a time: anything fetched for an earlier guess is stale.
+      preloadAbortRef.current?.abort();
+      preloadedRef.current.clear();
+      const controller = new AbortController();
+      preloadAbortRef.current = controller;
+      preloadedRef.current.set(key, loadSpeech(opening, null, controller.signal));
+    },
+    [loadSpeech],
   );
 
   /** Fetching ahead runs from a finished download, so it is reached through a ref. */
@@ -606,6 +646,21 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
       if (pacedToPlayback(languageRef.current)) {
         await waitForRoom(generation);
         if (generation !== generationRef.current) return;
+      }
+
+      if (item.stream) {
+        // Fetched ahead while the last turn played, when this turn was already written.
+        const key = `${voiceRef.current ?? ''}|${item.text}`;
+        const ready = preloadedRef.current.get(key);
+        if (ready) {
+          preloadedRef.current.delete(key);
+          const preloaded = await ready;
+          if (generation !== generationRef.current) return;
+          if (preloaded.ok) {
+            item.stream = false;
+            item.audio = Promise.resolve(preloaded);
+          }
+        }
       }
 
       if (item.stream && !pacedToPlayback(languageRef.current)) {
@@ -822,6 +877,7 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
     speaking,
     push,
     flush,
+    preloadOpening,
     interrupt,
     waitUntilDone,
     unlock,
