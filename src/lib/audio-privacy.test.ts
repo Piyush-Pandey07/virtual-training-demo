@@ -230,3 +230,17 @@ describe("Deepgram's own retention (AI-45)", () => {
     );
   });
 });
+
+describe('the microphone at the end of a session (AI-45)', () => {
+  it('closes when the session ends by wrapping up, as it does on Stop', () => {
+    const session = read('src/hooks/useTrainingSession.ts');
+    assert.match(
+      session,
+      /if \(kind === 'recap'\) \{[\s\S]{0,400}?sttRef\.current\.stop\(\);\s*setPhase\('ended'\);/,
+    );
+    assert.match(
+      session,
+      /sttRef\.current\.stop\(\);\s*setPhase\('ended'\);[\s\S]*sttRef\.current\.stop\(\);\s*setPhase\('ended'\);/,
+    );
+  });
+});

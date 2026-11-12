@@ -10,7 +10,8 @@
 import type { Metadata } from 'next';
 
 import { requireUserPage } from '@/lib/auth/guard';
-import { DEFAULT_DECK_ID, deckStore, listDecks } from '@/lib/decks/registry';
+import { DEFAULT_DECK_ID, deckStore, listDecks, loadDeck } from '@/lib/decks/registry';
+import { COMPLETION_THRESHOLD, completionPercentOf } from '@/lib/roster/completion';
 import { rosterStore } from '@/lib/roster/registry';
 import { peopleOverview, trainingFor } from '@/lib/roster/report';
 import { journeysFor } from '@/lib/training/journey';
@@ -37,7 +38,26 @@ export default async function HomePage() {
       trainingFor(person.orgId, person),
       journeysFor(person).catch(() => []),
     ]);
-    return <HomeForTrainee person={person} rows={rows} journeys={journeys} />;
+    // Each deck's own completion point (AI-34), for the cards and the note under them. A
+    // participant has a handful of decks, so reading each is cheap.
+    const completionPercents = Object.fromEntries(
+      await Promise.all(
+        rows.map(async (row) => [
+          row.deckId,
+          await loadDeck(person.orgId, row.deckId)
+            .then((deck) => (deck ? completionPercentOf(deck.meta) : COMPLETION_THRESHOLD))
+            .catch(() => COMPLETION_THRESHOLD),
+        ]),
+      ),
+    ) as Record<string, number>;
+    return (
+      <HomeForTrainee
+        person={person}
+        rows={rows}
+        journeys={journeys}
+        completionPercents={completionPercents}
+      />
+    );
   }
 
   const store = deckStore(person.orgId);

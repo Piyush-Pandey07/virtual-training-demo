@@ -360,7 +360,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
      * locally, every Next still waited on a fresh request). It is sent as though already
      * recorded and taught, which it will be by the time the prefetch is used.
      */
-    (slideId: number, pending?: { text: string; slideId: number }) => {
+    (slideId: number, pending?: { text: string; slideId: number; teaches?: boolean }) => {
       prefetchRef.current?.controller.abort();
       const controller = new AbortController();
       const history = buildHistory();
@@ -374,7 +374,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           : history,
         traineeName: traineeNameRef.current,
         coveredSlideIds:
-          pending && !covered.includes(pending.slideId)
+          pending && pending.teaches !== false && !covered.includes(pending.slideId)
             ? [...covered, pending.slideId].sort((a, b) => a - b)
             : covered,
         learner: learnerRef.current,
@@ -656,6 +656,27 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
             prefetchNarration(upcoming.id, { text: written, slideId: targetSlide });
           }
         }
+        // An answer makes any narration fetched ahead stale, since the model has to know
+        // the question was asked, so it is asked for again, from the slide on screen, as
+        // soon as the answer's text is whole: the answer then plays for some seconds,
+        // which is when the next slide can be written. Measured on the live site, Next
+        // after a question took 3.5 s without this, against about 2.3 s with it ready.
+        if (kind !== 'narrate' && kind !== 'recap' && written && isCurrent()) {
+          // Whether or not the slide on screen has been taught: an answer often moves the
+          // deck to the slide it is about, and Next is then pressed from there, whichever
+          // slide that leads to.
+          const onScreen = navigatedTo ?? slideIdRef.current;
+          const index = deck.slides.findIndex((entry) => entry.id === onScreen);
+          const upcoming = deck.slides[index + 1];
+          // Taught or not: Next shows it again either way, and it is what Next asks for.
+          if (upcoming) {
+            prefetchNarration(upcoming.id, {
+              text: written,
+              slideId: targetSlide,
+              teaches: false,
+            });
+          }
+        }
 
         // A turn superseded meanwhile leaves the player to the turn that replaced it,
         // whose half-buffered sentence would otherwise be spoken as a fragment.
@@ -688,7 +709,15 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           void reportProgress({ deckId: deck.meta.id, kind: 'covered', slideId: taughtSlide });
         }
 
-        setPhase(kind === 'recap' ? 'ended' : 'listening');
+        if (kind === 'recap') {
+          // A session that ends by wrapping up closes the microphone too, as Stop does.
+          // Found in a browser run: after the recap the screen said the session had ended
+          // and the microphone was off, while it was still open and listening (AI-45).
+          sttRef.current.stop();
+          setPhase('ended');
+        } else {
+          setPhase('listening');
+        }
 
         // Where the server moved the deck mid-turn, the next slide is only known now, so
         // that one is asked for here instead. Only for a slide not yet taught; a question in
