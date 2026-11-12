@@ -37,6 +37,8 @@ import {
 interface Props {
   session: TrainingSession;
   participants: { id: string; name: string }[];
+  /** Whether to link each participant's learner profile (AI-06). */
+  profileLinks?: boolean;
   deckAvailable: boolean;
   /** The closure summary (AI-33). Null if it could not be read. */
   summary: {
@@ -63,6 +65,7 @@ function markLabel(mark: AttendanceMark | undefined, late = false): string {
 export function SessionRecord({
   session,
   participants,
+  profileLinks = false,
   deckAvailable,
   summary,
   resultsLink,
@@ -177,6 +180,14 @@ export function SessionRecord({
               >
                 <span className="text-mist min-w-0 flex-1">
                   {person.name}
+                  {profileLinks && (
+                    <Link
+                      href={`/people/${person.id}/profile`}
+                      className="text-teal ml-3 text-xs font-semibold hover:underline"
+                    >
+                      Profile
+                    </Link>
+                  )}
                   {late && !finished && (
                     <span className="text-azure-bright ml-2 text-xs font-semibold">
                       Joined late
