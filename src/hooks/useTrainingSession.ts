@@ -927,7 +927,12 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
 
       // Playback must be unlocked from the user gesture that started the session.
       await ttsRef.current.unlock();
-      await sttRef.current.start();
+      // The microphone opens alongside the welcome rather than before it. Opening it
+      // fetches a Deepgram token and asks the browser for the device, a second or two
+      // on the live site, and the welcome does not need either: nobody answers a
+      // greeting before it is spoken. Waiting for it put that time in front of the
+      // first word. start() reports its own failures through onError and never throws.
+      const listening = sttRef.current.start();
 
       setSlideId(resumeAt);
       slideIdRef.current = resumeAt;
@@ -943,7 +948,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       learnerRef.current = EMPTY_LEARNER;
 
       void reportProgress({ deckId: deck.meta.id, kind: 'start' });
-      await runTurn('narrate', { slideId: resumeAt });
+      await Promise.all([runTurn('narrate', { slideId: resumeAt }), listening]);
     },
     [deck, resume, resumeAt, runTurn],
   );
