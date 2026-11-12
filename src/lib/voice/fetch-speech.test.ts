@@ -217,3 +217,25 @@ describe('streaming the opening sentence (AI-44)', () => {
     assert.match(player, /!item\.audio && !item\.stream/);
   });
 });
+
+describe('the opening sentence fetched ahead (AI-44)', () => {
+  it('is fetched while the last turn plays, and used before streaming is tried', () => {
+    const player = readFileSync('src/hooks/useTtsPlayer.ts', 'utf8').replaceAll(
+      String.fromCharCode(13),
+      '',
+    );
+    const session = readFileSync('src/hooks/useTrainingSession.ts', 'utf8').replaceAll(
+      String.fromCharCode(13),
+      '',
+    );
+    assert.match(session, /ttsRef\.current\.preloadOpening\(result\)/);
+    assert.match(player, /const ready = preloadedRef\.current\.get\(key\);/);
+    // Cut as playback will cut it, so the text matches the sentence it is used for.
+    assert.match(player, /const cut = nextOpeningCut\(fullText\);/);
+    // Never for the Sarvam languages, whose credit is spent only on what is heard.
+    assert.match(
+      player,
+      /preloadOpening = useCallback\(\s*\(fullText: string\) => \{\s*if \(pacedToPlayback/,
+    );
+  });
+});
