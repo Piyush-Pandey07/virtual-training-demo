@@ -216,6 +216,42 @@ function block(key: string, until: number, weight: number): void {
   blockedUntil.set(key, { until, weight });
 }
 
+/**
+ * The counts, held in this server's memory unless shared counting is asked for.
+ *
+ * Counting in Firestore cost a read and a write on every sentence spoken, every
+ * transcription and every chat turn, a few hundred of each per session, and on the free
+ * Spark plan a day of testing used up the project's allowance, after which Firestore
+ * refused everything and nobody could sign in. Counted here, each server applies the
+ * limits to what it serves, which still stops a runaway loop or a scripted burst, at the
+ * cost of a person spread across several servers getting each server's allowance.
+ * RATE_LIMIT_STORE=firestore counts in Firestore as before, for a plan that can afford it.
+ */
+const localCounts = new Map<string, { windows: StoredRate['windows']; expireAt: number }>();
+
+function sharedCounting(options: RateOptions): boolean {
+  return options.store !== undefined || process.env.RATE_LIMIT_STORE?.trim() === 'firestore';
+}
+
+function countLocally(
+  key: string,
+  windows: (typeof RATE_LIMITS)[RateKind],
+  weight: number,
+  longest: number,
+): RateDecision {
+  const now = Date.now();
+  const current = localCounts.get(key);
+  const decision = decide(
+    current && current.expireAt > now ? current.windows : undefined,
+    windows,
+    now,
+    weight,
+  );
+  if (localCounts.size >= MAX_BLOCKED) localCounts.clear();
+  localCounts.set(key, { windows: decision.next, expireAt: now + longest * 1000 });
+  return decision;
+}
+
 function documents(store: DocumentStore | undefined, orgId: string): DocumentStore {
   return scopedDocuments(store ?? (orgsConfigured() ? firestoreDocuments() : fallback), orgId);
 }
@@ -280,6 +316,12 @@ export async function rateLimited(
   }
 
   const longest = Math.max(...windows.map((window) => window.seconds));
+  if (!sharedCounting(options)) {
+    const local = countLocally(key, windows, weight, longest);
+    if (local.allowed) return null;
+    block(key, Date.now() + local.retryAfter * 1000, weight);
+    return refusal(local.retryAfter);
+  }
   let decision: RateDecision | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

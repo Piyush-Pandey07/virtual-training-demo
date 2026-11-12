@@ -58,7 +58,49 @@ export async function record(orgId: string, delta: UsageDelta, when = new Date()
  * being metered.
  */
 export function recordQuietly(orgId: string, delta: UsageDelta): void {
-  void record(orgId, delta).catch(() => undefined);
+  const key = `${orgId}/${monthOf(new Date())}`;
+  const waiting = pending.get(key);
+  pending.set(key, {
+    orgId,
+    delta: waiting ? sumDeltas(waiting.delta, delta) : { ...delta },
+    since: waiting?.since ?? Date.now(),
+  });
+  flushDue();
+}
+
+/**
+ * Counts not yet written, by customer and month.
+ *
+ * Writing the counter on every chat turn and every transcription cost a read and a
+ * write each, and on the free Spark plan helped use up the project's daily allowance.
+ * So counts are added up here and written at most every FLUSH_MS per customer, on the
+ * next count after that, which is one transaction where there were dozens. A server
+ * that stops in between loses at most that long's counting: an under-count of usage,
+ * never a failed session.
+ */
+const pending = new Map<string, { orgId: string; delta: UsageDelta; since: number }>();
+const FLUSH_MS = 20_000;
+
+function sumDeltas(a: UsageDelta, b: UsageDelta): UsageDelta {
+  const sum: Record<string, number> = { ...(a as Record<string, number>) };
+  for (const [name, value] of Object.entries(b as Record<string, number | undefined>)) {
+    if (typeof value === 'number') sum[name] = (sum[name] ?? 0) + value;
+  }
+  return sum as UsageDelta;
+}
+
+function flushDue(force = false): void {
+  const now = Date.now();
+  for (const [key, waiting] of pending) {
+    if (!force && now - waiting.since < FLUSH_MS) continue;
+    pending.delete(key);
+    void record(waiting.orgId, waiting.delta).catch(() => undefined);
+  }
+}
+
+/** Writes every waiting count now. For the tests, and for a server about to stop. */
+export function flushUsage(): void {
+  flushDue(true);
 }
 
 export async function usageFor(orgId: string, when = new Date()): Promise<Usage> {

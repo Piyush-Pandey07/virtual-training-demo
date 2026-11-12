@@ -25,6 +25,7 @@ import { recordLeaver } from '@/lib/roster/leavers';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
 import { ROLES, type Role } from '@/lib/roster/types';
+import { forgetPerson } from '@/lib/auth/person-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,6 +77,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
 
     const updated = await store.setRole(id, body.role);
+    // Their held row on this server, so the new role applies from their next request.
+    forgetPerson(id);
     // A role decides what somebody may see, so every change is in the history (AI-40).
     if (person.role !== body.role) {
       await recordAudit(admin, {
@@ -128,6 +131,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     // and the daily retention job deletes it with the rest five years after last use.
     await recordLeaver(admin.orgId, leaving, admin.id);
     await roster.removePerson(id, { keepAttempts: true });
+    forgetPerson(id);
 
     // Their login goes too (AI-42, RUL-8), not only their sessions. Losing the roster
     // row is already enough to refuse them on the next request, since every request

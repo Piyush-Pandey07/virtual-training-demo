@@ -620,3 +620,21 @@ describe('the routes that cost money', () => {
     }
   });
 });
+
+describe('counting in memory on the free plan', () => {
+  it('applies the limit without touching the database, and refuses past it', async () => {
+    const person = { id: `memory-${Date.now()}`, orgId: 'acme' };
+    const max = RATE_LIMITS.chat[0]!.max;
+    for (let call = 0; call < max; call += 1) {
+      assert.equal(await rateLimited(person, 'chat'), null, `call ${call + 1} is allowed`);
+    }
+    const refused = await rateLimited(person, 'chat');
+    assert.equal(refused?.status, 429);
+    assert.ok(Number(refused?.headers.get('Retry-After')) > 0);
+  });
+
+  it('counts in Firestore only when asked to', () => {
+    const source = readFileSync('src/lib/limits/rate.ts', 'utf8');
+    assert.match(source, /process\.env\.RATE_LIMIT_STORE\?\.trim\(\) === 'firestore'/);
+  });
+});

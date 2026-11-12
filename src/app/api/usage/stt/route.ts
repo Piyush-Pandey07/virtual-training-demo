@@ -14,7 +14,7 @@
  */
 
 import { checkUser } from '@/lib/auth/guard';
-import { record } from '@/lib/usage/store';
+import { recordQuietly } from '@/lib/usage/store';
 import { streamedSeconds } from '@/lib/usage/streamed';
 
 export const runtime = 'nodejs';
@@ -32,7 +32,8 @@ export async function POST(request: Request) {
   // an under-count, and the trainee is not told about it because there is nothing for
   // them to do.
   if (seconds > 0) {
-    await record(gate.person.orgId, { sttSeconds: seconds }).catch(() => undefined);
+    // Added to the counts waiting to be written, as every other meter is.
+    recordQuietly(gate.person.orgId, { sttSeconds: seconds });
   }
 
   return new Response(null, { status: 204 });
