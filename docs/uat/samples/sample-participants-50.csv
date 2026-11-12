@@ -1,0 +1,51 @@
+﻿email,name,education,years_of_experience,department,proficiency,city,studied_at,experience_by_area,interests,hobbies
+uat-participant-01@example.com,Aarav Sharma,"B.Tech, Electrical",6,Facilities operations,Intermediate,Pune,COEP Technological University,"Electrical 4 years, UPS 2 years",How data centres stay running,Cricket
+uat-participant-02@example.com,Diya Iyer,"B.E., Mechanical",3,HVAC maintenance,Beginner,Chennai,,HVAC 3 years,Cooling design,Carnatic music
+uat-participant-03@example.com,Kabir Mehta,"Diploma, Electrical",12,Electrical maintenance,Advanced,Mumbai,,"Electrical 10 years, generators 2 years",,Trekking
+uat-participant-04@example.com,Ananya Reddy,"B.Sc, Computer Science",2,IT operations,Beginner,Hyderabad,Osmania University,,Cloud computing,Badminton
+uat-participant-05@example.com,Rohan Gupta,"B.E., Electronics",8,Network operations,Intermediate,Noida,,Networking 8 years,,
+uat-participant-06@example.com,Ishita Nair,"MBA, Operations",5,Site management,Intermediate,Kochi,,,Sustainability,Reading
+uat-participant-07@example.com,Vihaan Joshi,"B.Tech, Mechanical",1,Facilities operations,Beginner,Pune,,,,
+uat-participant-08@example.com,Meera Krishnan,"M.Tech, Power Systems",10,Electrical design,Advanced,Bengaluru,IISc Bengaluru,"HV/MV 6 years, design 4 years",Grid connections,Painting
+uat-participant-09@example.com,Arjun Patel,"Diploma, Mechanical",7,HVAC maintenance,Intermediate,Ahmedabad,,Chillers 5 years,,Cooking
+uat-participant-10@example.com,Saanvi Desai,"B.Com, Finance",4,Procurement,Beginner,Mumbai,,,,Dance
+uat-participant-11@example.com,Aditya Kulkarni,"B.E., Electrical",9,Electrical maintenance,Intermediate,Pune,,"UPS 5 years, switchgear 4 years",,
+uat-participant-12@example.com,Kavya Menon,"B.Tech, Information Technology",2.5,Service desk,Beginner,Kochi,,,Cyber security,Photography
+uat-participant-13@example.com,Reyansh Singh,"B.Tech, Civil",6,Construction,Intermediate,Delhi,,Civil works 6 years,,
+uat-participant-14@example.com,Aisha Khan,"B.Sc, Physics",3,Monitoring and control,Beginner,Hyderabad,,BMS monitoring 3 years,,Chess
+uat-participant-15@example.com,Vivaan Rao,"M.E., Thermal Engineering",11,Cooling design,Advanced,Bengaluru,,Cooling design 11 years,Liquid cooling,
+uat-participant-16@example.com,Anika Bose,"B.E., Electrical",5,Commissioning,Intermediate,Kolkata,Jadavpur University,Commissioning 5 years,,Football
+uat-participant-17@example.com,Krishna Pillai,"Diploma, Electrical",15,,Advanced,Chennai,,Electrical 15 years,,
+uat-participant-18@example.com,Myra Chatterjee,BBA,1,Customer service,Beginner,Kolkata,,,,
+uat-participant-19@example.com,Ayaan Malhotra,"B.Tech, Electronics",4,Network operations,Intermediate,Gurugram,,,,Gaming
+uat-participant-20@example.com,Riya Saxena,"B.E., Computer Engineering",3,IT operations,Beginner,Noida,,,Automation,
+uat-participant-21@example.com,Atharv Pawar,"ITI, Electrician",8,Electrical maintenance,Intermediate,Navi Mumbai,,Electrical 8 years,,Kabaddi
+uat-participant-22@example.com,Navya Hegde,"B.E., Mechanical",6,HVAC maintenance,Intermediate,Mangaluru,,,,
+uat-participant-23@example.com,Shaurya Verma,"B.Tech, Electrical",2,Facilities operations,Beginner,Lucknow,,,,Cricket
+uat-participant-24@example.com,Tara Fernandes,"M.Sc, Environmental Science",7,Sustainability,Intermediate,Goa,,Energy audits 4 years,Renewable power,Surfing
+uat-participant-25@example.com,Dhruv Agarwal,CA,9,Finance,Beginner,Jaipur,,,,
+uat-participant-26@example.com,Pari Mishra,"B.Tech, Electrical",,Electrical design,Intermediate,Bhopal,,,,
+uat-participant-27@example.com,Arnav Tiwari,"Diploma, Mechanical",5,Facilities operations,Intermediate,Kanpur,,,,
+uat-participant-28@example.com,Siya Jain,B.Arch,6,Construction,Intermediate,Indore,,Design coordination 6 years,,
+uat-participant-29@example.com,Kian Dsouza,"B.E., Electronics and Telecommunication",10,Network operations,Advanced,Mumbai,,"Fibre 6 years, routing 4 years",,Guitar
+uat-participant-30@example.com,Avni Ghosh,"B.Sc, Chemistry",2,Health and safety,Beginner,Kolkata,,,,
+uat-participant-31@example.com,Yash Chauhan,"B.Tech, Mechanical",4,HVAC maintenance,Intermediate,Chandigarh,,,,
+uat-participant-32@example.com,Aadhya Srinivasan,"B.E., Electrical",7,Commissioning,Intermediate,Chennai,Anna University,,,Bharatanatyam
+uat-participant-33@example.com,Rudra Thakur,"ITI, Fitter",11,Facilities operations,Intermediate,Shimla,,Mechanical 11 years,,
+uat-participant-34@example.com,Prisha Banerjee,"MBA, Human Resources",6,Human resources,Beginner,Kolkata,,,,
+uat-participant-35@example.com,Ishaan Kapoor,"B.Tech, Computer Science",5,IT operations,Intermediate,Delhi,,Linux 5 years,,
+uat-participant-36@example.com,Anvi Shetty,"B.E., Electrical",3,Electrical maintenance,Beginner,Bengaluru,,,,
+uat-participant-37@example.com,Laksh Yadav,"Diploma, Electrical",6,Electrical maintenance,Intermediate,Patna,,,,Wrestling
+uat-participant-38@example.com,Kiara Sinha,"B.Tech, Electronics",2,Monitoring and control,Beginner,Ranchi,,,,
+uat-participant-39@example.com,Ritvik Bhat,"M.Tech, Structural Engineering",13,Construction,Advanced,Mysuru,,,,
+uat-participant-40@example.com,Zara Ali,"B.Sc, Information Technology",4,Security operations,Intermediate,Hyderabad,,Access control 4 years,,Poetry
+uat-participant-41@example.com,Om Jadhav,"ITI, Electrician",3,Facilities operations,Beginner,Nashik,,,,
+uat-participant-42@example.com,Sara Thomas,"B.E., Mechanical",8,Cooling design,Intermediate,Thiruvananthapuram,,,,
+uat-participant-43@example.com,Veer Rathore,"B.Tech, Electrical",14,Site management,Advanced,Jodhpur,,Operations 14 years,,
+uat-participant-44@example.com,Nisha Das,B.Com,2,Procurement,Beginner,Guwahati,,,,
+uat-participant-45@example.com,Aryan Naidu,"B.E., Electrical and Electronics",6,Commissioning,Intermediate,Visakhapatnam,,,,
+uat-participant-46@example.com,Mahira Qureshi,"B.Tech, Computer Science",1.5,Service desk,Beginner,Lucknow,,,,
+uat-participant-47@example.com,Parth Shah,"Diploma, Mechanical",9,HVAC maintenance,Intermediate,Surat,,Chillers 9 years,,
+uat-participant-48@example.com,Tanvi Kamath,"M.Sc, Data Science",3,IT operations,Intermediate,Mangaluru,,,Machine learning,
+uat-participant-49@example.com,Harsh Dubey,"B.Tech, Fire and Safety",5,Health and safety,Intermediate,Nagpur,,Fire safety 5 years,,
+uat-participant-10@example.com,Saanvi Desai,"B.Com, Finance",4,Procurement,Beginner,Mumbai,,,,
