@@ -149,6 +149,30 @@ function idOf(part: { id: number; generation?: string }): string {
   return part.generation ? partId(part.generation, part.id) : ordinal(part.id);
 }
 
+/**
+ * The slides and topics of deck generations already read, by deck id and generation.
+ * A generation is written once and never changed, so an entry cannot go stale; it is
+ * only bounded, oldest out first, since a server serves few decks at a time.
+ */
+const PARTS_CACHE = new Map<
+  string,
+  { slides: Part<DeckSlide>[]; topics: Part<KnowledgeTopic>[] }
+>();
+const PARTS_CACHE_LIMIT = 64;
+
+function rememberParts(
+  key: string,
+  parts: { slides: Part<DeckSlide>[]; topics: Part<KnowledgeTopic>[] },
+): void {
+  PARTS_CACHE.delete(key);
+  PARTS_CACHE.set(key, parts);
+  while (PARTS_CACHE.size > PARTS_CACHE_LIMIT) {
+    const oldest = PARTS_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    PARTS_CACHE.delete(oldest);
+  }
+}
+
 export class DocumentDeckStore implements DeckStore {
   readonly kind = 'documents' as const;
   readonly writable = true;
@@ -220,10 +244,24 @@ export class DocumentDeckStore implements DeckStore {
     const document = await this.docs.get<DeckDocument>(DECKS, id);
     if (!document) return undefined;
 
-    const [slides, topics] = await Promise.all([
-      this.docs.all<Part<DeckSlide>>(slidesOf(id)),
-      this.docs.all<Part<KnowledgeTopic>>(topicsOf(id)),
-    ]);
+    // A deck's slides and topics only change when it is saved, and every save writes
+    // them under a new generation, so the parts of a generation once read never change.
+    // Read each generation once per server: without this every chat turn read the deck
+    // document and every slide and topic, about forty reads a turn, and a day of testing
+    // used up the project's daily allowance and refused everybody's sign-in.
+    const key = `${id}@${document.generation ?? ''}`;
+    let parts = PARTS_CACHE.get(key);
+    if (!parts) {
+      const [readSlides, readTopics] = await Promise.all([
+        this.docs.all<Part<DeckSlide>>(slidesOf(id)),
+        this.docs.all<Part<KnowledgeTopic>>(topicsOf(id)),
+      ]);
+      parts = { slides: readSlides, topics: readTopics };
+      // A generation-less document predates generations and may be rewritten in place,
+      // so only real generations are kept.
+      if (document.generation) rememberParts(key, parts);
+    }
+    const { slides, topics } = parts;
 
     // Only the generation this deck currently points at. Anything else is either a save
     // that lost a race or one that was interrupted, and in both cases it is a complete
