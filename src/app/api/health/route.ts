@@ -10,8 +10,12 @@
  * deployed it a single URL to confirm the variables landed.
  *
  * Only booleans and non-secret model names are returned. Never a key, never a
- * prefix of a key, and no upstream calls, so the endpoint is safe to leave public
- * and cannot be used to probe the account.
+ * prefix of a key, so the endpoint is safe to leave public. The one upstream call is
+ * a read of a document and a user that do not exist, to say whether Firebase answers.
+ *
+ * It is also what an uptime monitor polls (AI-56), so the status code carries the
+ * verdict as well as the body: 503 when the deployment cannot serve anybody, with the
+ * same JSON either way, and `healthStatus` deciding which.
  */
 
 import {
@@ -25,7 +29,9 @@ import {
 import { platformAdminEmails } from '@/lib/auth/roles';
 import { assetStorage, deckStorage } from '@/lib/decks/registry';
 import { rosterStorage } from '@/lib/roster/registry';
+import { fileBackups } from '@/lib/backup/files';
 import { firebaseAdminConfigured, probeFirebase, type FirebaseProbe } from '@/lib/firebase/admin';
+import { healthStatus } from '@/lib/health/status';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -129,6 +135,16 @@ export interface HealthResponse {
     writable: boolean;
     sharedRecordsLocalImages: boolean;
   };
+  /**
+   * Whether uploaded files are being copied to the backup store (AI-57).
+   *
+   * `off` is the normal state of a developer machine and a silent gap on a live one,
+   * since nothing else shows that `BACKUP_BLOB_READ_WRITE_TOKEN` did not land. Firestore
+   * backups are not reported: they are a console setting this server cannot see.
+   */
+  backups: {
+    files: 'on' | 'off';
+  };
 }
 
 function isSet(name: string): boolean {
@@ -184,11 +200,14 @@ export async function GET() {
       writable: roster.writable,
     },
     firebase,
+    backups: { files: fileBackups() },
   };
 
   return Response.json(body, {
+    status: healthStatus(body),
     // A stale answer here is worse than no answer, since the whole point is to
-    // reflect the environment as it is right now.
+    // reflect the environment as it is right now. A cached 200 would also hide an
+    // outage from the monitor for as long as the cache held it.
     headers: { 'Cache-Control': 'no-store' },
   });
 }
