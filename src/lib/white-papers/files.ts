@@ -18,6 +18,7 @@ import 'server-only';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { backUpFile, type BackUpFile } from '../backup/files';
 import type { BinaryBlobClient } from '../decks/assets';
 import { vercelBinaryBlobClient } from '../decks/store-blob';
 import { defaultDataRoot } from '../decks/store-fs';
@@ -74,10 +75,14 @@ class FilesystemPaperFiles implements WhitePaperFileStore {
 export class BlobPaperFiles implements WhitePaperFileStore {
   readonly kind = 'blob' as const;
   readonly writable = true;
-  /** @param base the customer's prefix for papers, e.g. `orgs/acme/white-papers`. */
+  /**
+   * @param base the customer's prefix for papers, e.g. `orgs/acme/white-papers`.
+   * @param backup where a second copy of each original goes. Injected for the tests.
+   */
   constructor(
     private readonly client: BinaryBlobClient,
     private readonly base: string,
+    private readonly backup: BackUpFile = backUpFile,
   ) {}
 
   private key(paperId: string): string {
@@ -86,7 +91,10 @@ export class BlobPaperFiles implements WhitePaperFileStore {
   }
 
   async put(paperId: string, bytes: Uint8Array): Promise<void> {
-    await this.client.put(this.key(paperId), bytes, 'application/pdf');
+    const key = this.key(paperId);
+    await this.client.put(key, bytes, 'application/pdf');
+    // After the real write, and after the response: see `backup/files.ts`.
+    this.backup(key, bytes, 'application/pdf');
   }
 
   async get(paperId: string): Promise<Uint8Array | undefined> {

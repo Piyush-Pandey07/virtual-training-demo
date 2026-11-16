@@ -16,6 +16,7 @@ import 'server-only';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { backUpFile, type BackUpFile } from '../backup/files';
 import { pageAssetName, pageAssetUrl } from './asset-paths';
 import { assertUsableDeckId, DeckStoreError } from './store';
 
@@ -112,10 +113,14 @@ export class BlobAssetStore implements AssetStore {
   readonly kind = 'blob' as const;
   readonly writable = true;
 
-  /** @param base the same prefix the deck store uses, e.g. `orgs/acme/decks`. */
+  /**
+   * @param base the same prefix the deck store uses, e.g. `orgs/acme/decks`.
+   * @param backup where a second copy of each file goes. Injected for the tests.
+   */
   constructor(
     private readonly client: BinaryBlobClient,
     private readonly base: string,
+    private readonly backup: BackUpFile = backUpFile,
   ) {}
 
   private key(deckId: string, name: string): string {
@@ -125,7 +130,11 @@ export class BlobAssetStore implements AssetStore {
   }
 
   async put(deckId: string, name: string, bytes: Uint8Array, contentType: string): Promise<void> {
-    await this.client.put(this.key(deckId, name), bytes, contentType);
+    const key = this.key(deckId, name);
+    await this.client.put(key, bytes, contentType);
+    // Only once the real write has succeeded, so the backup never holds a file the
+    // deck does not. Not awaited in any sense that matters: it runs after the response.
+    this.backup(key, bytes, contentType);
   }
 
   async get(deckId: string, name: string): Promise<DeckAsset | undefined> {
