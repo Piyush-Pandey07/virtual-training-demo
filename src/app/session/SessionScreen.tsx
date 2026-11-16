@@ -51,7 +51,10 @@ function Lobby({
   useEffect(() => {
     let cancelled = false;
     fetch('/api/health')
-      .then((response) => (response.ok ? response.json() : null))
+      // Read whatever the status. A deployment that is not ready now answers 503 with
+      // the same body, for the uptime monitor's sake, and that body is exactly what the
+      // lobby needs in order to block the start button and say why.
+      .then((response) => response.json() as Promise<HealthState>)
       .then((body: HealthState | null) => {
         if (!cancelled && body) setHealth(body);
       })

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
+import { AUDIT, type AuditEntry } from '../audit/log';
 import { InMemoryDocumentStore } from '../roster/documents';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { SignedInPerson } from '../roster/types';
@@ -14,7 +16,13 @@ import {
 } from './csv';
 import { findProfile, PROFILES, saveProfile } from './store';
 import type { LearnerProfileRecord } from './types';
-import { importParticipants, summarise } from './upload';
+import {
+  importParticipants,
+  offDomainReason,
+  recordUploadAudit,
+  summarise,
+  uploadAuditDetail,
+} from './upload';
 
 /**
  * The bulk participant upload (BRD v2.3, AI-28): the template, reading a file nobody
@@ -419,5 +427,159 @@ describe('importing the rows', () => {
       results.map((result) => result.status),
       ['rejected', 'created'],
     );
+  });
+});
+
+describe('refusing addresses the company has not claimed (AI-59)', () => {
+  async function run(
+    csv: string,
+    domains: readonly string[] | undefined,
+    setUp?: (roster: DocumentRosterStore) => Promise<void>,
+  ) {
+    const store = new InMemoryDocumentStore();
+    const roster = new DocumentRosterStore(store);
+    if (setUp) await setUp(roster);
+    const read = readUpload(csv);
+    assert.ok(read.ok, read.ok ? '' : read.error);
+    const results = await importParticipants(uploader, read.rows, { roster, store, domains });
+    return { store, roster, results };
+  }
+
+  it('says which domain is wrong and which the company uses', () => {
+    assert.equal(
+      offDomainReason('asha@gmail.com', ['acme.com', 'acme.in']),
+      'The address is not on a domain this company uses (gmail.com), so this person could ' +
+        'not sign in. This company uses acme.com, acme.in.',
+    );
+    assert.equal(offDomainReason('asha@acme.in', ['acme.com', 'acme.in']), null);
+    // Recorded domains are compared as sign-in compares them, whatever their case or `@`.
+    assert.equal(offDomainReason('asha@acme.com', ['@ACME.com']), null);
+    // A subdomain is not the domain: sign-in would not place it either.
+    assert.match(offDomainReason('asha@mail.acme.com', ['acme.com']) ?? '', /mail\.acme\.com/);
+  });
+
+  it('refuses nothing for an organisation with no domains, rather than refusing everybody', () => {
+    assert.equal(offDomainReason('asha@gmail.com', []), null);
+    assert.equal(offDomainReason('asha@gmail.com', undefined), null);
+  });
+
+  it('imports the rows on any of its domains and lists the others as failed, with why', async () => {
+    const { roster, store, results } = await run(
+      [
+        HEADER,
+        row('asha@acme.com'),
+        row('bina@gmail.com'),
+        row('chitra@ACME.IN'),
+        row('dev@globex.com'),
+      ].join('\n'),
+      ['acme.com', 'acme.in'],
+    );
+    assert.deepEqual(
+      results.map((result) => [result.line, result.status]),
+      [
+        [2, 'created'],
+        [3, 'rejected'],
+        [4, 'created'],
+        [5, 'rejected'],
+      ],
+    );
+    assert.match(results[1]!.reason ?? '', /not on a domain this company uses \(gmail\.com\)/);
+    assert.match(results[3]!.reason ?? '', /\(globex\.com\)/);
+    // Nobody refused was put on the roster or given a profile.
+    assert.deepEqual((await roster.listPeople()).map((person) => person.emailKey).sort(), [
+      'asha@acme.com',
+      'chitra@acme.in',
+    ]);
+    assert.equal((await store.all(`orgs/acme/${PROFILES}`)).length, 2);
+    assert.equal(summarise(results).rejected, 2);
+  });
+
+  it('still updates somebody here who has signed in, wherever their address is', async () => {
+    const { results } = await run(
+      [HEADER, row('moved@gmail.com'), row('added@gmail.com')].join('\n'),
+      ['acme.com'],
+      async (roster) => {
+        // Signed in, so the directory knows them: placed here by hand, say.
+        await roster.upsertPerson({ id: 'moved-uid', email: 'moved@gmail.com' });
+        // Added on the people screen and never signed in, so still unable to.
+        await roster.upsertPerson({ email: 'added@gmail.com' });
+      },
+    );
+    assert.deepEqual(
+      results.map((result) => result.status),
+      ['updated', 'rejected'],
+    );
+  });
+
+  it('still gives the documented result for the 50-row sample, on the domain it is for', async () => {
+    const sample = readFileSync('docs/uat/samples/sample-participants-50.csv', 'utf8');
+    const claimed = await run(sample, ['example.com']);
+    assert.deepEqual(summarise(claimed.results), {
+      created: 49,
+      updated: 0,
+      duplicates: 1,
+      rejected: 0,
+      incomplete: 2,
+    });
+    // Uploaded into a company that has not claimed example.com, as UAT-NOTES warns.
+    const unclaimed = await run(sample, ['technavious.com']);
+    assert.deepEqual(summarise(unclaimed.results), {
+      created: 0,
+      updated: 0,
+      duplicates: 1,
+      rejected: 49,
+      incomplete: 0,
+    });
+  });
+});
+
+describe('recording an upload (AI-60)', () => {
+  it('says how the upload went, in counts', async () => {
+    const store = new InMemoryDocumentStore();
+    const roster = new DocumentRosterStore(store);
+    const read = readUpload(
+      [
+        HEADER,
+        row('asha@acme.com'),
+        row('bina@acme.com', { education: '' }),
+        row('asha@acme.com'),
+        row('dev@gmail.com'),
+        row('bad'),
+      ].join('\n'),
+    );
+    assert.ok(read.ok);
+    const results = await importParticipants(uploader, read.rows, {
+      roster,
+      store,
+      domains: ['acme.com'],
+    });
+    assert.equal(
+      uploadAuditDetail(results),
+      'Uploaded a file of 5 rows: 2 imported (2 new, 0 already here), 1 duplicate, ' +
+        '2 failed or refused, 1 to complete',
+    );
+  });
+
+  it('writes one entry for the upload, in the uploader organisation', async () => {
+    const store = new InMemoryDocumentStore();
+    const now = Date.parse('2026-11-16T09:30:00.000Z');
+    await recordUploadAudit(
+      uploader,
+      [{ line: 2, email: 'asha@acme.com', status: 'created', profile: 'prefilled', missing: [] }],
+      { store, now, immediate: true },
+    );
+    const entries = await store.all<AuditEntry>(`orgs/acme/${AUDIT}`);
+    assert.equal(entries.length, 1);
+    const [entry] = entries;
+    assert.equal(entry!.action, 'uploaded');
+    assert.equal(entry!.subjectType, 'participant-upload');
+    assert.equal(entry!.subjectId, '2026-11-16T09:30:00.000Z');
+    assert.equal(entry!.actorId, uploader.id);
+    assert.equal(
+      entry!.detail,
+      'Uploaded a file of 1 row: 1 imported (1 new, 0 already here), 0 duplicates, ' +
+        '0 failed or refused, 0 to complete',
+    );
+    assert.deepEqual(await store.all(`orgs/globex/${AUDIT}`), []);
   });
 });

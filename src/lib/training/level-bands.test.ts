@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { saveBank, setLevelBands } from '../assessments/service';
 import { DEFAULT_LEVEL_BANDS } from '../assessments/types';
+import { auditHistory } from '../audit/log';
 import type { DeckRecord } from '../deck-types';
 import { approveDeck } from '../decks/approval';
 import { ISMS_DECK } from '../decks/isms';
@@ -20,7 +21,7 @@ import type { TrainingSession } from './types';
 /**
  * A trainer-led session's own level bands: filled when it is set up, from the deck's
  * pre-session bands or the defaults, and changed by its facilitator or an administrator
- * until it closes.
+ * until it opens (AI-51).
  *
  * Kept apart from training.test.ts, with its own copy of the setup, so the two change
  * independently.
@@ -235,6 +236,128 @@ describe("a trainer-led session's level bands", () => {
         options(),
       ),
       refused(409),
+    );
+  });
+
+  // AI-51: once the trainer is pitching to the room, moving the bands would regrade people
+  // part way through, so they are settled before the session opens.
+  it('are fixed once the session has started, for everybody who could change them', async () => {
+    const created = await create();
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    for (const who of [fran, companyAdmin, technavious]) {
+      await assert.rejects(
+        changeSession(
+          who,
+          created.id,
+          { levelBands: { intermediateFrom: 10, advancedFrom: 20 } },
+          options(),
+        ),
+        (error: unknown) => {
+          refused(409)(error);
+          assert.equal(
+            (error as Error).message,
+            'Level bands are fixed once the session has started. Set them before it opens.',
+          );
+          return true;
+        },
+        who.id,
+      );
+    }
+    const stored = (await trainingStore(ORG, store).getSession(created.id)) as TrainingSession;
+    assert.deepEqual(stored.levelBands, DEFAULT_LEVEL_BANDS);
+  });
+
+  it('when refused for a started session, take nothing else sent with them', async () => {
+    const created = await create();
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    await assert.rejects(
+      changeSession(
+        fran,
+        created.id,
+        {
+          levelBands: { intermediateFrom: 10, advancedFrom: 20 },
+          attendance: { [asha.id]: 'present' },
+        },
+        options(),
+      ),
+      refused(409),
+    );
+    const stored = (await trainingStore(ORG, store).getSession(created.id)) as TrainingSession;
+    assert.deepEqual(stored.attendance, {});
+    // Marking attendance on its own still works on an open session.
+    const marked = await changeSession(
+      fran,
+      created.id,
+      { attendance: { [asha.id]: 'present' } },
+      options(),
+    );
+    assert.equal(marked.attendance[asha.id], 'present');
+  });
+
+  it('give the same reason once the session is closed or cancelled', async () => {
+    const message = 'Level bands are fixed once the session has started. Set them before it opens.';
+    const closed = await create();
+    await changeSession(
+      fran,
+      closed.id,
+      { attendance: { [asha.id]: 'present' }, status: 'closed' },
+      options(),
+    );
+    const cancelled = await create();
+    await changeSession(fran, cancelled.id, { status: 'cancelled' }, options());
+    for (const id of [closed.id, cancelled.id]) {
+      await assert.rejects(
+        changeSession(
+          fran,
+          id,
+          { levelBands: { intermediateFrom: 10, advancedFrom: 20 } },
+          options(),
+        ),
+        { message },
+        id,
+      );
+    }
+  });
+
+  it('may be set in the same change that opens the session', async () => {
+    const created = await create();
+    const opened = await changeSession(
+      fran,
+      created.id,
+      { levelBands: { intermediateFrom: 35, advancedFrom: 66 }, status: 'open' },
+      options(),
+    );
+    assert.equal(opened.status, 'open');
+    assert.deepEqual(opened.levelBands, { intermediateFrom: 35, advancedFrom: 66 });
+  });
+
+  it('are in the audit history when set beforehand, and not when refused afterwards', async () => {
+    const created = await create();
+    await changeSession(
+      fran,
+      created.id,
+      { levelBands: { intermediateFrom: 35, advancedFrom: 66 } },
+      options(),
+    );
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    await changeSession(
+      fran,
+      created.id,
+      { levelBands: { intermediateFrom: 10, advancedFrom: 20 } },
+      options(),
+    ).catch(() => undefined);
+    // The entries are written after the call returns, as after a response.
+    await new Promise((resolve) => setImmediate(resolve));
+    const entries = await auditHistory(
+      ORG,
+      { month: new Date().toISOString().slice(0, 7), subjectType: 'training-session' },
+      { store },
+    );
+    assert.deepEqual(
+      entries
+        .filter((entry) => entry.detail.startsWith('Set the level bands'))
+        .map((entry) => entry.detail),
+      ['Set the level bands: Intermediate from 35%, Advanced from 66%'],
     );
   });
 });

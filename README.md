@@ -246,10 +246,28 @@ curl https://your-deployment.vercel.app/api/health
 ```
 
 `{"ready": true, "missing": []}` means the variables landed. It also reports which models are live,
-which is how to confirm what is actually deployed. It returns no key material and makes no upstream
-calls, so it is safe to leave public. The session lobby calls it on load and blocks the start button
-with a plain explanation if something is missing, rather than letting a trainee grant microphone
-access and then hit an error.
+which is how to confirm what is actually deployed. It returns no key material, and its only upstream
+calls are one read of a Firestore document and one lookup of a Firebase user that do not exist, so it
+is safe to leave public. The session lobby calls it on load and blocks the start button with a plain
+explanation if something is missing, rather than letting a trainee grant microphone access and then
+hit an error.
+
+### Uptime monitoring
+
+Point an external uptime monitor (Better Stack, UptimeRobot, Pingdom or similar) at
+`https://your-deployment/api/health` with a plain HTTP GET every 5 minutes, alerting on any status
+other than 200. No authentication or keyword match is needed. The endpoint answers:
+
+- **200** when every required variable is set and both Firebase probes answered.
+- **503**, with the same JSON body, when `ready` is false, when the Firestore probe failed, or when
+  the Firebase sign-in probe failed. Sign-in counts because sessions are verified against it on every
+  request, and while it is down the site refuses everybody without any page actually erroring.
+
+Each probe gives up after 4 seconds, so a Firestore that hangs rather than refusing still produces a
+503 well inside the route's 10 second limit, instead of a timeout the monitor cannot tell from a
+network blip. Set the monitor's own timeout to 10 seconds or more. The response is `no-store`, so
+every poll is a fresh check. When it alerts, open the URL in a browser: `firebase.firestore.error`
+and `firebase.auth.error` name what failed, without any data.
 
 ### What was configured for Vercel, and why
 
@@ -423,6 +441,46 @@ can see, such as dropped connections and timeouts, with what it knows about its 
 The log is the `devlog` Firestore collection, outside every customer's data. Entries carry `expireAt`
 90 days ahead. **Enable a TTL policy on `devlog` / `expireAt` in the Firebase console**, as for
 `ratelimits` / `expireAt`, or entries are never deleted.
+
+### Backups
+
+Two halves, because the data lives in two places.
+
+**Firestore** (every record: people, decks, progress, white paper text). Backups are console
+settings, switched on once by the project owner in the Google Cloud console under **Firestore >
+Disaster recovery** for the `(default)` database:
+
+1. **Point-in-time recovery: on.** Any moment in the last 7 days can be read back or exported, which
+   covers a bad script or a mistaken delete noticed within the week.
+2. **Scheduled backups: daily, retained 30 days.** Restoring one creates a new database, from which
+   the lost documents are copied back. There is no code involved in either, and `/api/health` cannot
+   see whether they are on, so check the console after any change of project or billing.
+
+**Files** (slide renders and white paper PDFs, in Vercel Blob). Every upload is also written to a
+second Blob store, under the same pathname, when `BACKUP_BLOB_READ_WRITE_TOKEN` is set
+(`src/lib/backup/files.ts`). The copy is made after the response and never awaited by the upload, so
+a slow or failing backup store costs the person uploading nothing; a failed copy goes to the developer
+log as `vercel-blob` / `backup_failed`. `/api/health` reports `"backups": {"files": "on"}` once the
+variable has landed.
+
+To set it up, create a second Blob store under **Storage**, in the same region, and leave it private.
+Do not connect it to the project, which would inject a second `BLOB_READ_WRITE_TOKEN`; copy its
+read-write token into a `BACKUP_BLOB_READ_WRITE_TOKEN` variable by hand, and redeploy. Files uploaded
+before the variable was set are not copied retroactively.
+
+To restore, with both tokens in `.env.local`:
+
+```bash
+npm run restore-files                                  # lists what it would copy, changes nothing
+npm run restore-files -- --apply                       # copies everything back
+npm run restore-files -- --prefix=orgs/acme/ --apply   # one customer only
+npm run restore-files -- --missing-only --apply        # only what the main store lacks
+```
+
+Nothing is ever deleted from the backup store, which is what makes it a backup against deletion. It
+also means a customer's files outlive that customer's purge there: a full restore brings them back,
+so prefer `--prefix` or `--missing-only` to a blanket restore, and remove a purged customer's
+`orgs/<id>/` prefix from the backup store by hand where the deletion has to be complete.
 
 ### Retention: the daily job
 

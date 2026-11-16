@@ -71,14 +71,41 @@ export function describeFailure(error: unknown): string {
 }
 
 /**
+ * How long each half of the probe may take before it counts as failed.
+ *
+ * An uptime monitor polls /api/health, and a database that accepts the connection and
+ * then never answers is a real way for Firestore to be down. Without a limit the probe
+ * would wait as long as the client library does, which is far longer than the route's
+ * own ten second ceiling, so the monitor would see a timeout from the platform rather
+ * than a 503 from us. Four seconds is generous for one read from the same region and
+ * leaves the route time to answer.
+ */
+export const PROBE_TIMEOUT_MS = 4000;
+
+/** Rejects once `ms` have passed, with a code `describeFailure` can report. */
+export function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error('timed out'), { name: 'Timeout', code: 'timeout' })),
+      ms,
+    );
+  });
+  // The timer is cleared either way, so a probe that answered does not keep the
+  // function alive for the rest of the four seconds.
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Reads one document that does not exist and looks up one user that does not exist.
- * Both are answered "not there" by a healthy project, so anything else is the failure.
+ * Both are answered "not there" by a healthy project, so anything else is the failure,
+ * and so is taking longer than `PROBE_TIMEOUT_MS`.
  */
 export async function probeFirebase(): Promise<FirebaseProbe> {
   const timed = async (work: () => Promise<unknown>, expected?: string) => {
     const started = Date.now();
     try {
-      await work();
+      await withTimeout(work(), PROBE_TIMEOUT_MS);
       return { ok: true, ms: Date.now() - started };
     } catch (error) {
       const code = (error as { code?: unknown })?.code;

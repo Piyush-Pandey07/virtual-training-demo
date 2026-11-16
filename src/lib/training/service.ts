@@ -261,7 +261,8 @@ export async function sessionFor(
  * Marks attendance, changes the level bands, opens, closes or cancels a session.
  *
  * Only the facilitator, or an administrator, may change it at all, and a closed session
- * stays closed: its record is what reports and retention rely on. Closing asks for every
+ * stays closed: its record is what reports and retention rely on. The level bands may
+ * only change while the session is still scheduled. Closing asks for every
  * listed participant to be marked first, so an absence is a decision rather than an
  * omission. A session that has not started may be cancelled instead, by the same
  * people; it is kept, shown as cancelled, and can never be opened.
@@ -293,6 +294,16 @@ export async function changeSession(
     marked = [];
     cancelled = false;
     if (!current) throw new TrainingRuleError(404, 'No such session.');
+    // The bands decide each participant's level and so how the trainer pitches the session
+    // (AI-51). Once it has opened the trainer is already pitching to the room, and moving
+    // the bands then would quietly regrade people part way through, so they are settled
+    // beforehand. Checked first, so a closed or cancelled session gives the same reason.
+    if (levelBands && current.status !== 'scheduled') {
+      throw new TrainingRuleError(
+        409,
+        'Level bands are fixed once the session has started. Set them before it opens.',
+      );
+    }
     if (current.status === 'closed') {
       throw new TrainingRuleError(
         409,
