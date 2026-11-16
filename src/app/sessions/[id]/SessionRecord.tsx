@@ -77,6 +77,10 @@ export function SessionRecord({
   const cancelled = session.status === 'cancelled';
   // Either way it is a record now, and nothing on it can be changed.
   const finished = closed || cancelled;
+  // The server refuses a change to the bands once the session has opened (AI-51), since
+  // the trainer is by then pitching to the levels they gave, so the form is only offered
+  // before that.
+  const bandsOpen = session.status === 'scheduled';
 
   async function change(body: unknown) {
     setBusy(true);
@@ -249,9 +253,16 @@ export function SessionRecord({
             assessment.{' '}
             {session.levelBands
               ? describeBands(session.levelBands)
-              : 'This session was set up before sessions had their own bands, so each participant keeps the level their result gave until bands are saved here.'}
+              : bandsOpen
+                ? 'This session was set up before sessions had their own bands, so each participant keeps the level their result gave until bands are saved here.'
+                : 'This session was set up before sessions had their own bands, so each participant keeps the level their result gave.'}
           </p>
-          {!closed && (
+          {!bandsOpen && !closed && (
+            <p className="text-muted mt-2 text-sm">
+              Level bands are fixed once the session has started. Set them before it opens.
+            </p>
+          )}
+          {bandsOpen && (
             <div className="mt-4">
               <LevelBandsForm
                 current={session.levelBands ?? DEFAULT_LEVEL_BANDS}

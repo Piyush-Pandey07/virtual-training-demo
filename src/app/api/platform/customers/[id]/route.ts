@@ -2,17 +2,20 @@
  * PATCH, DELETE /api/platform/customers/{id}
  *
  * Managing a customer: suspending them, capping their month, and ending the
- * relationship entirely.
+ * relationship entirely. Suspending, reinstating and closing are in the platform's audit
+ * history, with who did it and when (AI-52).
  *
  * Technavious only, and a 404 for everybody else. A customer administrator should not
  * learn that these exist, and certainly not that other customers do.
  */
 
+import { recordCustomerAudit } from '@/lib/audit/log';
 import { requireUser, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { purge, resume, suspend } from '@/lib/orgs/lifecycle';
 import { orgStore } from '@/lib/orgs/registry';
 import { OrgStoreError } from '@/lib/orgs/store';
+import type { SignedInPerson } from '@/lib/roster/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,19 +27,20 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-async function platformStaff(): Promise<Response | null> {
+/** The member of platform staff asking, or the refusal to send anybody else. */
+async function platformStaff(): Promise<SignedInPerson | Response> {
   const person = await requireUser();
   // Made fresh for each refusal. One Response shared across requests is empty from the
   // second refusal on, because a response body can be read only once.
   return isPlatformAdmin(person.email)
-    ? null
+    ? person
     : Response.json({ error: 'Not found.' }, { status: 404 });
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
   try {
-    const refused = await platformStaff();
-    if (refused) return refused;
+    const person = await platformStaff();
+    if (person instanceof Response) return person;
 
     const { id } = await params;
 
@@ -51,8 +55,16 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       if (body.status !== 'active' && body.status !== 'suspended') {
         return Response.json({ error: "status must be 'active' or 'suspended'." }, { status: 400 });
       }
+      // Read first, so the history records a change rather than every press of the
+      // button: suspending a customer who is already suspended changes nothing.
+      const before = await orgStore().get(id);
       if (body.status === 'suspended') await suspend(id);
       else await resume(id);
+      if (before && before.status !== body.status) {
+        await recordCustomerAudit(person, id, {
+          kind: body.status === 'suspended' ? 'suspended' : 'reinstated',
+        });
+      }
     }
 
     if (body.sessionsPerMonth !== undefined) {
@@ -85,8 +97,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
 export async function DELETE(request: Request, { params }: RouteContext) {
   try {
-    const refused = await platformStaff();
-    if (refused) return refused;
+    const person = await platformStaff();
+    if (person instanceof Response) return person;
 
     const { id } = await params;
 
@@ -108,10 +120,15 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     }
 
     const report = await purge(id);
-    // Worth a line in the log. This is the one action in the product that destroys a
-    // customer's records, and "who ran it and when" is the first question afterwards.
-    const person = await requireUser();
+    // Worth a line in the log and in the platform's audit history. This is the one action
+    // in the product that destroys a customer's records, and "who ran it and when" is the
+    // first question afterwards. The entry is the platform's, so it outlives the customer.
     console.warn(`[platform] ${person.email} deleted customer "${id}": ${JSON.stringify(report)}`);
+    await recordCustomerAudit(person, id, {
+      kind: 'closed',
+      decks: report.decks,
+      documents: Object.values(report.documents).reduce((sum, count) => sum + count, 0),
+    });
 
     return Response.json({ deleted: report });
   } catch (error) {

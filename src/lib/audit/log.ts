@@ -16,7 +16,8 @@
  * under that customer's prefix in `audit`, so it goes with them when they are deleted
  * and can never be read from inside another customer. The glossary is Technavious's
  * and belongs to no customer, so its entries go in `platformAudit`, outside every
- * prefix. Which of the two an entry goes to follows from its subject alone, so a caller
+ * prefix, as do a customer's suspension and closure, which have to outlive the customer
+ * (AI-52). Which of the two an entry goes to follows from its subject alone, so a caller
  * cannot put a glossary change inside a customer by mistake.
  *
  * Kept 400 days, comfortably over the year AI-40 asks for. Each entry carries
@@ -43,7 +44,7 @@ import type { Role } from '../roster/types';
 
 /** A customer's own entries, under their prefix. */
 export const AUDIT = 'audit';
-/** The platform's entries, outside every prefix: the glossary, which no customer owns. */
+/** The platform's entries, outside every prefix: the glossary, and customers themselves. */
 export const PLATFORM_AUDIT = 'platformAudit';
 
 /** How long an entry is kept. Over a year, which is what AI-40 asks for. */
@@ -70,6 +71,10 @@ export const AUDIT_ACTIONS = [
   // A white paper put on a deck for the trainer to draw on, and taken off it (AI-46).
   'attached',
   'detached',
+  // A customer stopped from signing in, and let back in (AI-52). Closing a customer for
+  // good deletes it, and is recorded as 'deleted'.
+  'suspended',
+  'reinstated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -89,6 +94,8 @@ export const AUDIT_SUBJECTS = [
   'training-session',
   // Approved white papers: uploaded, approved, withdrawn, attached to decks, deleted.
   'white-paper',
+  // A customer itself: suspended, reinstated, or closed and deleted (AI-52).
+  'customer',
 ] as const;
 export type AuditSubject = (typeof AUDIT_SUBJECTS)[number];
 
@@ -106,7 +113,22 @@ export const AUDIT_SUBJECT_LABELS: Record<AuditSubject, string> = {
   batch: 'Batches',
   'training-session': 'Trainer-led sessions',
   'white-paper': 'White papers',
+  customer: 'Customers',
 };
+
+/**
+ * The subjects that belong to no customer, and so go in `platformAudit`.
+ *
+ * The glossary is Technavious's own. A customer's suspension or closure is about the
+ * customer, but it cannot be filed inside them: closing one deletes everything under
+ * their prefix, their audit history included, and the record of who closed them is
+ * exactly what has to outlive them.
+ */
+export const PLATFORM_AUDIT_SUBJECTS: readonly AuditSubject[] = ['glossary-term', 'customer'];
+
+export function isPlatformAuditSubject(subject: AuditSubject): boolean {
+  return PLATFORM_AUDIT_SUBJECTS.includes(subject);
+}
 
 export function isAuditSubject(value: unknown): value is AuditSubject {
   return typeof value === 'string' && (AUDIT_SUBJECTS as readonly string[]).includes(value);
@@ -203,10 +225,10 @@ function later(work: () => Promise<void>): void {
 /**
  * Records that somebody viewed or changed something, for the audit history.
  *
- * The subject decides where it goes: the glossary to the platform's collection, and
- * everything else to the customer the actor is acting in. An entry about a customer's
- * data from somebody with no customer is dropped with a message rather than written
- * somewhere it could be read from the wrong place.
+ * The subject decides where it goes: the glossary and customers themselves to the
+ * platform's collection, and everything else to the customer the actor is acting in. An
+ * entry about a customer's data from somebody with no customer is dropped with a message
+ * rather than written somewhere it could be read from the wrong place.
  *
  * Returns once the entry is queued, not written, unless `immediate` is asked for.
  */
@@ -216,7 +238,7 @@ export async function recordAudit(
   options: AuditOptions = {},
 ): Promise<void> {
   const now = options.now ?? Date.now();
-  const platform = input.subjectType === 'glossary-term';
+  const platform = isPlatformAuditSubject(input.subjectType);
   const orgId = actor.orgId;
   if (!platform && !orgId) {
     console.error(`[audit] ${input.subjectType} ${input.action} by ${actor.id} names no customer`);
@@ -284,6 +306,49 @@ export function recordConsentAudit(
   );
 }
 
+/** What happened to a customer, for `recordCustomerAudit`. */
+export type CustomerChange =
+  | { kind: 'suspended' }
+  | { kind: 'reinstated' }
+  | { kind: 'closed'; decks: number; documents: number };
+
+/**
+ * Records that Technavious suspended a customer, reinstated them, or closed them and
+ * deleted everything of theirs (AI-52).
+ *
+ * Filed in the platform's collection, by the subject, so the entry survives the customer
+ * it is about. Who did it and when come with every entry, as they do for the rest.
+ */
+export function recordCustomerAudit(
+  actor: AuditActor,
+  orgId: string,
+  change: CustomerChange,
+  options: AuditOptions = {},
+): Promise<void> {
+  const input: AuditInput =
+    change.kind === 'suspended'
+      ? {
+          action: 'suspended',
+          subjectType: 'customer',
+          subjectId: orgId,
+          detail: `Suspended customer ${orgId}: nobody there can sign in until it is reinstated`,
+        }
+      : change.kind === 'reinstated'
+        ? {
+            action: 'reinstated',
+            subjectType: 'customer',
+            subjectId: orgId,
+            detail: `Reinstated customer ${orgId}: its people can sign in again`,
+          }
+        : {
+            action: 'deleted',
+            subjectType: 'customer',
+            subjectId: orgId,
+            detail: `Closed customer ${orgId} and deleted everything of theirs: ${change.decks} ${change.decks === 1 ? 'deck' : 'decks'} and ${change.documents} ${change.documents === 1 ? 'record' : 'records'}`,
+          };
+  return recordAudit(actor, input, options);
+}
+
 /** What the history page asks for: a day or a month, and optionally one kind of subject. */
 export interface AuditFilter {
   /** `YYYY-MM-DD`. Takes precedence over `month`. */
@@ -326,7 +391,7 @@ export async function auditHistory(
   return narrowed(entries, filter);
 }
 
-/** The platform's own entries, the glossary's, for a day or a month, newest first. */
+/** The platform's own entries, the glossary's and the customers', for a day or a month. */
 export async function platformAuditHistory(
   filter: AuditFilter,
   options: { store?: DocumentStore } = {},

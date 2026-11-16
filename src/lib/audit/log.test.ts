@@ -301,6 +301,26 @@ describe('assessments and question banks', () => {
     assert.equal(viewed?.subjectId, DECK);
     assert.match(viewed?.detail ?? '', /1 person/);
   });
+
+  // AI-52: a company administrator sees results without the feedback, so the entry says
+  // which of the two was on the screen.
+  it('says whether feedback was shown alongside the results', async () => {
+    const options = { store, roster };
+    await resultsForDeck(companyAdmin, DECK, null, options);
+    await resultsForDeck(benchmark, DECK, null, options);
+
+    const viewed = (await entries()).filter(
+      (entry) => entry.subjectType === 'assessment-result' && entry.action === 'viewed',
+    );
+    assert.equal(
+      viewed.find((entry) => entry.actorId === companyAdmin.id)?.detail,
+      `Viewed results for 1 person on ${DECK}`,
+    );
+    assert.equal(
+      viewed.find((entry) => entry.actorId === benchmark.id)?.detail,
+      `Viewed results and feedback for 1 person on ${DECK}`,
+    );
+  });
 });
 
 describe('the routes, read from the source', () => {
