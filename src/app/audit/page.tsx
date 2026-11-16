@@ -88,7 +88,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <p className="text-muted mt-3 max-w-3xl text-base leading-relaxed">
           Who viewed or changed learner profiles, assessment results and question banks; consent
           given and withdrawn; role changes, downloads and deletions; and the administrators&apos;
-          own actions on decks, assignments, batches and sessions, in{' '}
+          own actions on decks, assignments, batches, sessions and participant uploads, in{' '}
           <span className="text-mist font-semibold">{person.orgId}</span>; and who changed the
           glossary, which belongs to no customer, and who suspended, reinstated or closed any
           customer. Times are UTC, and entries are kept for {AUDIT_RETENTION_DAYS} days.

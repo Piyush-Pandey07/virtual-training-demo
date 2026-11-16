@@ -54,6 +54,7 @@ describe('the vocabulary', () => {
       'assignment',
       'batch',
       'training-session',
+      'participant-upload',
     ] as const) {
       assert.ok(AUDIT_SUBJECTS.includes(subject), `no subject ${subject}`);
       assert.ok(AUDIT_SUBJECT_LABELS[subject], `no label for ${subject}`);
@@ -166,6 +167,28 @@ describe('downloads', () => {
       text.indexOf("action: 'downloaded'") < text.indexOf('new Response(templateCsv()'),
       'the download is not recorded before it is sent',
     );
+  });
+});
+
+describe('participant uploads', () => {
+  const route = 'src/app/api/profiles/upload/route.ts';
+
+  it('records each upload once, with its counts, after it is imported (AI-60)', () => {
+    const text = read(route);
+    const imported = text.indexOf('await importParticipants(');
+    assert.ok(imported >= 0, 'the route no longer imports');
+    assert.ok(
+      text.indexOf('recordUploadAudit(uploader, results)', imported) > imported,
+      'the upload is not recorded after it is imported',
+    );
+    assert.match(
+      read('src/lib/profiles/upload.ts'),
+      /action: 'uploaded',\s*subjectType: 'participant-upload'/,
+    );
+  });
+
+  it('still records each profile it prefills, as it did before', () => {
+    records('src/lib/profiles/upload.ts', /saveUploadedProfile\(/, 'uploaded', 'profile');
   });
 });
 

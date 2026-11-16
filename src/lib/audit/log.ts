@@ -96,6 +96,9 @@ export const AUDIT_SUBJECTS = [
   'white-paper',
   // A customer itself: suspended, reinstated, or closed and deleted (AI-52).
   'customer',
+  // A bulk participant upload as a whole, with its counts (AI-60). Each profile it filled
+  // in is recorded separately, under 'profile'.
+  'participant-upload',
 ] as const;
 export type AuditSubject = (typeof AUDIT_SUBJECTS)[number];
 
@@ -114,6 +117,7 @@ export const AUDIT_SUBJECT_LABELS: Record<AuditSubject, string> = {
   'training-session': 'Trainer-led sessions',
   'white-paper': 'White papers',
   customer: 'Customers',
+  'participant-upload': 'Participant uploads',
 };
 
 /**

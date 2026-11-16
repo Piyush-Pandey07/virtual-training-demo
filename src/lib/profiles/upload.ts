@@ -11,13 +11,22 @@
  * also stamp them as seen just now, which would turn "has never signed in" into a lie for
  * everybody in the file; and their name is theirs to correct, on their profile, which
  * the upload does fill in.
+ *
+ * A row whose address is on a domain the company has not claimed is refused (AI-59).
+ * Sign-in places somebody who has never signed in by the domain of their address, so
+ * such a person would be on the roster with a prefilled profile and no way ever to reach
+ * it, and nothing on any screen would say why.
+ *
+ * Each upload is also recorded once in the audit history, with its counts (AI-60), next
+ * to the entry for each profile it filled in.
  */
 
 import 'server-only';
 
 import type { DocumentStore } from '../roster/documents';
 import type { RosterStore } from '../roster/store';
-import { recordAudit } from '../audit/log';
+import { recordAudit, type AuditOptions } from '../audit/log';
+import { domainKeyOf } from '../orgs/types';
 import type { Person, SignedInPerson } from '../roster/types';
 import type { UploadRow } from './csv';
 import { saveUploadedProfile, type UploadOutcome } from './store';
@@ -53,6 +62,11 @@ export interface ImportOptions {
   roster: RosterStore;
   /** The document store profiles are written to, before scoping. For the tests. */
   store?: DocumentStore;
+  /**
+   * The email domains the uploader's organisation has claimed, as its record lists them.
+   * Empty or absent refuses nothing: see `offDomainReason`.
+   */
+  domains?: readonly string[];
   now?: Date;
   /** How many rows are written at once. */
   concurrency?: number;
@@ -78,6 +92,35 @@ async function pooled<T, R>(items: readonly T[], width: number, work: (item: T) 
   };
   await Promise.all(Array.from({ length: Math.min(width, items.length) }, worker));
   return results;
+}
+
+/**
+ * Why a row cannot be imported because of its address's domain, or null when it can.
+ *
+ * Compared with every domain the organisation claims, since a company may have several,
+ * exactly as sign-in compares them: `mail.acme.com` is not `acme.com` there, so it is
+ * not here either.
+ *
+ * An organisation that has claimed no domains at all refuses nothing. Nobody it holds
+ * was placed by a domain: Technavious's own staff on personal addresses, a customer
+ * still being provisioned, and every organisation on a local build without Firebase,
+ * which has none recorded. Refusing every row there would make the upload useless
+ * without telling anybody anything they could fix, whereas a company that has named its
+ * domains has said which addresses are its own, and a row outside them is a mistake in
+ * the file.
+ */
+export function offDomainReason(
+  emailKey: string,
+  domains: readonly string[] | undefined,
+): string | null {
+  if (!domains || domains.length === 0) return null;
+  const claimed = [...new Set(domains.map(domainKeyOf))].sort();
+  const domain = emailKey.slice(emailKey.lastIndexOf('@') + 1);
+  if (claimed.includes(domain)) return null;
+  return (
+    `The address is not on a domain this company uses (${domain}), so this person could ` +
+    `not sign in. This company uses ${claimed.join(', ')}.`
+  );
 }
 
 export async function importParticipants(
@@ -117,6 +160,14 @@ export async function importParticipants(
         status: 'rejected',
         reason: 'This address belongs to an administrator or facilitator here, not a participant.',
       };
+    }
+
+    // Somebody already here who has signed in before is found by the directory at sign-in,
+    // whatever their domain, so the reason for refusing does not apply to them: they are
+    // often on an address placed by hand, such as one Technavious staff moved here.
+    const refused = existing?.lastSeenAt ? null : offDomainReason(row.emailKey, options.domains);
+    if (refused) {
+      return { line: row.line, email: row.email, status: 'rejected', reason: refused };
     }
 
     try {
@@ -181,4 +232,42 @@ export function summarise(results: readonly UploadResult[]): UploadSummary {
     rejected: results.filter((result) => result.status === 'rejected').length,
     incomplete: results.filter((result) => (result.missing?.length ?? 0) > 0).length,
   };
+}
+
+/**
+ * The one entry an upload adds to the audit history, with its counts (AI-60).
+ *
+ * The entries for each profile say whom an upload touched; this one says that the upload
+ * happened at all and how it went, which is the only record of a file that imported
+ * nobody. Failed and refused are one count, as on the upload page, because both are rows
+ * the uploader has to put right and send again.
+ */
+export function uploadAuditDetail(results: readonly UploadResult[]): string {
+  const summary = summarise(results);
+  const imported = summary.created + summary.updated;
+  return (
+    `Uploaded a file of ${results.length} ${results.length === 1 ? 'row' : 'rows'}: ` +
+    `${imported} imported (${summary.created} new, ${summary.updated} already here), ` +
+    `${summary.duplicates} ${summary.duplicates === 1 ? 'duplicate' : 'duplicates'}, ` +
+    `${summary.rejected} failed or refused, ${summary.incomplete} to complete`
+  );
+}
+
+export function recordUploadAudit(
+  uploader: SignedInPerson,
+  results: readonly UploadResult[],
+  options: AuditOptions = {},
+): Promise<void> {
+  const at = new Date(options.now ?? Date.now()).toISOString();
+  return recordAudit(
+    uploader,
+    {
+      action: 'uploaded',
+      subjectType: 'participant-upload',
+      // An upload is kept nowhere but here, so it is named by when it was made.
+      subjectId: at,
+      detail: uploadAuditDetail(results),
+    },
+    options,
+  );
 }
