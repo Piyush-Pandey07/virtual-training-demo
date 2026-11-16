@@ -9,7 +9,10 @@ import {
   AUDIT_ACTIONS,
   AUDIT_SUBJECT_LABELS,
   AUDIT_SUBJECTS,
+  isPlatformAuditSubject,
+  PLATFORM_AUDIT,
   recordConsentAudit,
+  recordCustomerAudit,
   type AuditEntry,
 } from './log';
 
@@ -238,6 +241,106 @@ describe('batches and sessions', () => {
       'deleted',
       'training-session',
     );
+  });
+});
+
+describe('customers suspended, reinstated and closed (AI-52)', () => {
+  let store: InMemoryDocumentStore;
+  beforeEach(() => {
+    store = new InMemoryDocumentStore();
+  });
+
+  const staff: SignedInPerson = {
+    id: 'bench',
+    orgId: 'technavious',
+    homeOrgId: 'technavious',
+    platform: true,
+    email: 'bench@technavious.example',
+    emailKey: 'bench@technavious.example',
+    name: 'Bench',
+    role: 'admin',
+    createdAt: '2026-11-01T00:00:00.000Z',
+    lastSeenAt: null,
+  };
+
+  it('has the actions and a labelled subject for them', () => {
+    for (const action of ['suspended', 'reinstated', 'deleted'] as const) {
+      assert.ok(AUDIT_ACTIONS.includes(action), `no action ${action}`);
+    }
+    assert.ok(AUDIT_SUBJECTS.includes('customer'));
+    assert.equal(AUDIT_SUBJECT_LABELS.customer, 'Customers');
+    assert.ok(isPlatformAuditSubject('customer'));
+    assert.ok(isPlatformAuditSubject('glossary-term'));
+    assert.ok(!isPlatformAuditSubject('training-session'));
+  });
+
+  it('records who did each and when, in the platform history rather than the customer', async () => {
+    // A minute apart, so the entries sort in the order they were made: two in the same
+    // millisecond are told apart by a random tail, not by order.
+    const at = (minute: number) => ({
+      store,
+      immediate: true,
+      now: Date.parse(`2026-11-16T10:0${minute}:00.000Z`),
+    });
+    // Acting from inside the customer, as platform staff can, still files it outside them.
+    const inside = { ...staff, orgId: 'acme' };
+    await recordCustomerAudit(inside, 'acme', { kind: 'suspended' }, at(0));
+    await recordCustomerAudit(inside, 'acme', { kind: 'reinstated' }, at(1));
+    await recordCustomerAudit(staff, 'acme', { kind: 'closed', decks: 3, documents: 1 }, at(2));
+
+    assert.equal((await store.all(`orgs/acme/${AUDIT}`)).length, 0);
+    const entries = (await store.all<AuditEntry>(PLATFORM_AUDIT)).sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
+    assert.deepEqual(
+      entries.map((entry) => [entry.action, entry.subjectType, entry.subjectId, entry.detail]),
+      [
+        [
+          'suspended',
+          'customer',
+          'acme',
+          'Suspended customer acme: nobody there can sign in until it is reinstated',
+        ],
+        [
+          'reinstated',
+          'customer',
+          'acme',
+          'Reinstated customer acme: its people can sign in again',
+        ],
+        [
+          'deleted',
+          'customer',
+          'acme',
+          'Closed customer acme and deleted everything of theirs: 3 decks and 1 record',
+        ],
+      ],
+    );
+    for (const [index, entry] of entries.entries()) {
+      assert.equal(entry.actorEmail, staff.email);
+      assert.equal(entry.actorRole, 'administrator');
+      assert.equal(entry.at, `2026-11-16T10:0${index}:00.000Z`);
+      assert.equal(entry.orgId, undefined);
+    }
+  });
+
+  it('is recorded by the route, after the change and only when the status changes', () => {
+    const route = read('src/app/api/platform/customers/[id]/route.ts');
+    const before = route.indexOf('const before = await orgStore().get(id);');
+    const suspended = route.indexOf('await suspend(id);');
+    const recorded = route.indexOf('await recordCustomerAudit(person, id, {', suspended);
+    assert.ok(before >= 0 && before < suspended, 'the status is not read before it is changed');
+    assert.ok(recorded > suspended, 'suspending or reinstating is not recorded after it');
+    assert.match(route, /if \(before && before\.status !== body\.status\) \{/);
+    assert.match(route, /kind: body\.status === 'suspended' \? 'suspended' : 'reinstated'/);
+
+    const purged = route.indexOf('await purge(id);');
+    const closed = route.indexOf("kind: 'closed'");
+    assert.ok(purged >= 0 && closed > purged, 'closing a customer is not recorded after it');
+  });
+
+  it('is read from the platform on the history page, whoever it is about', () => {
+    const page = read('src/app/audit/page.tsx');
+    assert.match(page, /isPlatformAuditSubject\(filter\.subjectType\)/);
   });
 });
 

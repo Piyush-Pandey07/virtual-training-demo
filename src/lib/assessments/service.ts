@@ -910,15 +910,16 @@ export async function resultsForDeck(
   });
   rows.sort((a, b) => a.name.localeCompare(b.name, 'en-GB'));
 
-  // What was shown, to whom: the deck, the session if narrowed to one, and how many
-  // people's results were on the screen (AI-40).
+  // What was shown, to whom: the deck, the session if narrowed to one, how many people's
+  // results were on the screen (AI-40), and whether their feedback was on it too, since a
+  // company administrator sees the results without it (AI-52).
   await recordAudit(
     viewer,
     {
       action: 'viewed',
       subjectType: 'assessment-result',
       subjectId: session ? `${deckId}/${session.id}` : deckId,
-      detail: `Viewed results for ${rows.length} ${rows.length === 1 ? 'person' : 'people'} on ${deckId}${session ? `, session ${session.id}` : ''}`,
+      detail: `Viewed results${showFeedback ? ' and feedback' : ''} for ${rows.length} ${rows.length === 1 ? 'person' : 'people'} on ${deckId}${session ? `, session ${session.id}` : ''}`,
     },
     { store: options.store },
   );
