@@ -13,6 +13,10 @@
  * Nothing in the file is trusted. The body is read with a byte cap however long the
  * request claims to be, decoded strictly as UTF-8, and every row goes through the same
  * checks as the profile form. The organisation is the uploader's, never a column.
+ *
+ * A row on an email domain the organisation has not claimed is refused, because that
+ * person could never sign in (AI-59), and each upload is recorded once in the audit
+ * history with its counts (AI-60).
  */
 
 import { checkUser } from '@/lib/auth/guard';
@@ -21,7 +25,8 @@ import { notifyIncompleteUpload } from '@/lib/notifications/events';
 import { mayUploadParticipants } from '@/lib/profiles/access';
 import { MAX_UPLOAD_BYTES, readUpload } from '@/lib/profiles/csv';
 import { notFound, reply, signedOut } from '@/lib/profiles/responses';
-import { importParticipants, summarise } from '@/lib/profiles/upload';
+import { orgStore } from '@/lib/orgs/registry';
+import { importParticipants, recordUploadAudit, summarise } from '@/lib/profiles/upload';
 import { rosterStore } from '@/lib/roster/registry';
 
 export const runtime = 'nodejs';
@@ -99,7 +104,22 @@ export async function POST(request: Request) {
   const read = readUpload(text);
   if (!read.ok) return reply({ error: read.error }, 400);
 
-  const results = await importParticipants(uploader, read.rows, { roster });
+  // The domains the organisation claims, read once for the whole file. A failed read
+  // stops the upload rather than letting every row through unchecked, which would quietly
+  // bring back the people who can never sign in (AI-59).
+  let domains: string[];
+  try {
+    domains = (await orgStore().get(uploader.orgId))?.domains ?? [];
+  } catch {
+    return reply(
+      { error: 'The email domains this company uses could not be checked. Try again shortly.' },
+      503,
+    );
+  }
+
+  const results = await importParticipants(uploader, read.rows, { roster, domains });
+  // One entry for the upload as a whole, beside the one per profile it filled in (AI-60).
+  await recordUploadAudit(uploader, results);
   // One email to Technavious's training team listing anybody left incomplete (AI-35).
   await notifyIncompleteUpload(uploader, results);
   return reply({ results, summary: summarise(results) });

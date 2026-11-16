@@ -77,11 +77,14 @@ Decisions already taken, which the notes below follow:
    `scripts/provision-org.ts`, in the form its header documents:
    `npm run provision-org -- --id <id> --name "<name>" --domains <domain> --admin <email> --admin-name "<name>"`.
    The administrator then sets a password with **First time here?**.
-3. **Suggested:** let that customer claim `example.com`, so the 50 sample participants
-   (`uat-participant-NN@example.com`) can sign in after they are uploaded into it. Without a
-   claimed domain they can be uploaded and seen by administrators, but cannot sign in. A
-   participant added by an administrator is not asked to confirm their address by email, so
-   **First time here?** works for them even though example.com mail cannot be read.
+3. **Needed for AI-28:** let that customer claim `example.com` (`--domains example.com`, or
+   several domains separated by commas), so the 50 sample participants
+   (`uat-participant-NN@example.com`) can be uploaded into it and sign in afterwards. An upload
+   refuses every address on a domain the organisation has not claimed (AI-59), because that
+   person could never sign in, so uploading the sample into an organisation without
+   example.com gives 49 failed rows rather than 49 imported. A participant added by an
+   administrator is not asked to confirm their address by email, so **First time here?** works
+   for them even though example.com mail cannot be read.
 
 ## Set up first, in this order
 
@@ -307,16 +310,19 @@ complete it on their first visit.
 
 **Where to click.**
 
-1. Sign in as an administrator or facilitator. Open **Upload participants**
-   (`/profiles/upload`).
+1. Sign in as an administrator or facilitator in the customer that claims example.com (set-up
+   step 3), or as uat.admin looking inside it (**Customers**, then **Look inside**). Open
+   **Upload participants** (`/profiles/upload`).
 2. Press **Download the template** to check the columns: `email, name, education,
    years_of_experience, department, proficiency, city, studied_at, experience_by_area,
    interests, hobbies`.
 3. Under **Upload the filled-in file**, choose `docs/uat/samples/sample-participants-50.csv`
    and press **Upload**.
 
-**Expected result for `sample-participants-50.csv`.** Checked by running the real parser and
-import code (`readUpload` and `importParticipants`) against the file on 12 November:
+**Expected result for `sample-participants-50.csv`**, uploaded into an organisation that claims
+example.com. Checked by running the real parser and import code (`readUpload` and
+`importParticipants`) against the file on 12 November, and again with the domain check on 16
+November:
 
 - The summary line reads: "49 imported (49 new, 0 already here), 1 duplicate, 0 failed. 2 will
   be asked to complete required fields on their first visit."
@@ -335,6 +341,9 @@ import code (`readUpload` and `importParticipants`) against the file on 12 Novem
 - The 49 people appear on `/people` with the role Employee.
 - An incomplete-profile notification is written on `/platform/notifications` (AI-35).
 - Each prefilled profile is recorded in **Audit history** under "Learner profiles".
+- The upload as a whole is recorded once in **Audit history** under "Participant uploads"
+  (AI-60), Did "uploaded", with the detail "Uploaded a file of 50 rows: 49 imported (49 new, 0
+  already here), 1 duplicate, 0 failed or refused, 2 to complete".
 
 Rows are numbered as a spreadsheet shows them: the header is row 1.
 
@@ -342,14 +351,20 @@ Rows are numbered as a spreadsheet shows them: the header is row 1.
 email to "not an address". Expected reasons: "How you rate your own proficiency must be
 Beginner, Intermediate or Advanced." and "Not an email address." A blank email gives "No email
 address." An address that belongs to an administrator or facilitator gives "This address
-belongs to an administrator or facilitator here, not a participant."
+belongs to an administrator or facilitator here, not a participant." An address on a domain
+the organisation has not claimed, such as `someone@gmail.com`, gives "The address is not on a
+domain this company uses (gmail.com), so this person could not sign in. This company uses
+example.com." (AI-59). An organisation that has claimed no domains at all refuses no row for
+its domain. Somebody already in the organisation who has signed in before is not refused
+either, because sign-in finds them by their account rather than by their domain.
 
 **Unit tests.** `src/lib/profiles/upload.test.ts` (including "has no cap on how many participants
-a file holds (AI-28)" and "imports the valid rows of fifty and lists the failed ones with the
-reason (AI-28)").
+a file holds (AI-28)", "imports the valid rows of fifty and lists the failed ones with the
+reason (AI-28)", "refusing addresses the company has not claimed (AI-59)" and "recording an
+upload (AI-60)"), and `src/lib/audit/actions.test.ts` ("participant uploads").
 
-**Known limits / waiting on.** Upload is into the organisation you are in. Uploaded example.com
-participants can only sign in if their organisation claims example.com (see Test accounts).
+**Known limits / waiting on.** Upload is into the organisation you are in, and only addresses
+on the domains it claims are imported (see Test accounts).
 Uploaded people stay on the live site; remove them afterwards with **Remove** on `/people`.
 
 ## AI-06 Profile visibility
@@ -868,7 +883,8 @@ actions. Entries are kept 400 days. Only the Technavious administrator can view 
 
 **Where to click.** Technavious administrator: **Audit history** (`/audit`). Use **What**
 (Everything, Learner profiles, Assessment results, Question banks, Glossary, Deck approvals,
-Consent, People and roles, Decks, Assignments, Batches, Trainer-led sessions, White papers),
+Consent, People and roles, Decks, Assignments, Batches, Trainer-led sessions, White papers,
+Participant uploads),
 **Month** or **Or one day**, then **Show**.
 
 **Expected result.**
@@ -877,7 +893,8 @@ Consent, People and roles, Decks, Assignments, Batches, Trainer-led sessions, Wh
 - After the earlier tests you should find: consent given and withdrawn; a role changed to
   Facilitator; the template and summary downloads; a profile viewed; attendance marks ("Marked
   ... present, joined late" for the late joiner); a session cancelled; a person removed; a deck
-  approved; a bank uploaded "as version 2".
+  approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
+  participant upload, with its counts.
 - Company administrator, facilitator, participant: `/audit` is a 404 and there is no nav link.
 - The history shown is for the organisation the administrator is in. To see a customer's
   history, open it from **Customers** with **Look inside** first.
