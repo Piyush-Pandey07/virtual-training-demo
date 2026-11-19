@@ -15,7 +15,6 @@ import { checkUser } from '@/lib/auth/guard';
 import { mayManageBanks } from '@/lib/assessments/access';
 import { bankFromCsv } from '@/lib/assessments/csv';
 import { refusalResponse } from '@/lib/assessments/responses';
-import { checkBands } from '@/lib/assessments/scoring';
 import { removeBank, saveBank, setLevelBands } from '@/lib/assessments/service';
 import { isBankKind, type BankKind } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
@@ -115,11 +114,12 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   }
 
   const body = await readJson(request);
-  const checked = checkBands(body?.bands);
-  if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
 
   try {
-    const bank = await setLevelBands(resolved.person, resolved.deckId, checked.bands);
+    // Handed over as they arrived. The service checks them and refuses, in words for
+    // the screen, anything outside 1 to 99, not a whole number, or the wrong way round,
+    // so the rule is in one place and holds for whatever calls it.
+    const bank = await setLevelBands(resolved.person, resolved.deckId, body?.bands);
     return Response.json({ bands: bank.bands });
   } catch (error) {
     const refused = refusalResponse(error);

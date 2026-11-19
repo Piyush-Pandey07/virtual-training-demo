@@ -52,9 +52,14 @@ export async function GET() {
 }
 
 /**
- * Saves the profile and records agreement to the notice with it. Every save asks for the
- * box to be ticked again, so every stored profile records agreement to the notice that
- * was on screen when it was last changed.
+ * Saves the profile and records agreement to the notice with it. Every save has to carry
+ * the ticked box and the version of the notice it was ticked against, so every stored
+ * profile records agreement to the notice that was on screen when it was last changed.
+ *
+ * My profile starts the box ticked for somebody whose agreement to the current notice
+ * stands, so they are not asked the same question on every visit. Nothing is relaxed
+ * here for that: a save without the box, or against an older notice, is still refused,
+ * and each save still adds its own record, as it always has.
  */
 export async function PUT(request: Request) {
   if (!profilesEnabled()) return notFound();

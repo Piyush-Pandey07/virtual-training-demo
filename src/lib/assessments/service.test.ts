@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, it } from 'node:test';
 
 import { InMemoryDocumentStore } from '../roster/documents';
@@ -7,6 +8,7 @@ import type { Role, SignedInPerson } from '../roster/types';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
 import { mayManageBanks, mayOpenResults, maySeeFeedbackOf, maySeeResultsOf } from './access';
+import { refusalResponse } from './responses';
 import {
   AlreadySubmitted,
   assessedLevel,
@@ -185,6 +187,129 @@ describe('the pre-session assessment', () => {
     await setLevelBands(benchmark, DECK, { intermediateFrom: 30, advancedFrom: 60 }, options);
     const replaced = await bank('pre');
     assert.deepEqual(replaced.bands, { intermediateFrom: 30, advancedFrom: 60 });
+  });
+
+  // A UAT dry run reported the 1 to 99 limits as the browser's alone. The route did
+  // check a deck's bands, but the service took whatever it was handed, so the rule held
+  // only for a caller that remembered it. It is the service's now, and each refusal is
+  // pinned with the words the screen shows. `advancedFrom` is the stored edge, one more
+  // than what is typed as "Advanced above".
+  const INTERMEDIATE_LIMITS = '"Intermediate from" must be a whole number from 1 to 99.';
+  const ADVANCED_LIMITS = '"Advanced above" must be a whole number from 1 to 99.';
+  const WRONG_WAY_ROUND =
+    '"Advanced above" cannot be lower than "Intermediate from", because that would leave no score for Intermediate.';
+  const BAD_BANDS: [unknown, string][] = [
+    // Out of range.
+    [{ intermediateFrom: 0, advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: -5, advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: 100, advancedFrom: 101 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: 150, advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: 101 }, ADVANCED_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: 1 }, ADVANCED_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: -20 }, ADVANCED_LIMITS],
+    // Not a whole number, or not a number at all.
+    [{ intermediateFrom: 40.5, advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: '40', advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: Number.NaN, advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ advancedFrom: 71 }, INTERMEDIATE_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: 70.5 }, ADVANCED_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: '71' }, ADVANCED_LIMITS],
+    [{ intermediateFrom: 40, advancedFrom: Number.POSITIVE_INFINITY }, ADVANCED_LIMITS],
+    [{ intermediateFrom: 40 }, ADVANCED_LIMITS],
+    [null, INTERMEDIATE_LIMITS],
+    [undefined, INTERMEDIATE_LIMITS],
+    ['above 70', INTERMEDIATE_LIMITS],
+    [[40, 71], INTERMEDIATE_LIMITS],
+    // The wrong way round: Intermediate at or above where Advanced starts.
+    [{ intermediateFrom: 60, advancedFrom: 60 }, WRONG_WAY_ROUND],
+    [{ intermediateFrom: 71, advancedFrom: 41 }, WRONG_WAY_ROUND],
+    [{ intermediateFrom: 99, advancedFrom: 99 }, WRONG_WAY_ROUND],
+  ];
+
+  it('refuses level bands outside 1 to 99, not whole, or the wrong way round, saying which', async () => {
+    await bank('pre');
+    await setLevelBands(benchmark, DECK, { intermediateFrom: 30, advancedFrom: 61 }, options);
+    for (const [bands, message] of BAD_BANDS) {
+      await assert.rejects(
+        setLevelBands(benchmark, DECK, bands, options),
+        (e: unknown) => {
+          assert.ok(e instanceof Refused, `expected a refusal, got ${e}`);
+          assert.equal(e.status, 400);
+          assert.equal(e.message, message);
+          return true;
+        },
+        JSON.stringify(bands),
+      );
+    }
+    // Nothing was written by any of them.
+    const kept = await assessmentStore(ORG, options.store).getBank(DECK, 'pre');
+    assert.deepEqual(kept?.bands, { intermediateFrom: 30, advancedFrom: 61 });
+  });
+
+  it('takes the limits themselves, 1 and 99, in either box', async () => {
+    await bank('pre');
+    for (const bands of [
+      // Intermediate from 1, Advanced above 1.
+      { intermediateFrom: 1, advancedFrom: 2 },
+      // Intermediate from 99, Advanced above 99.
+      { intermediateFrom: 99, advancedFrom: 100 },
+      { intermediateFrom: 1, advancedFrom: 100 },
+      // Advanced above the very score Intermediate starts at.
+      { intermediateFrom: 40, advancedFrom: 41 },
+    ]) {
+      const saved = await setLevelBands(benchmark, DECK, bands, options);
+      assert.deepEqual(saved.bands, bands);
+    }
+  });
+
+  it('asks who is saving before it looks at the bands, and at the bands before the bank', async () => {
+    const nonsense = { intermediateFrom: 0, advancedFrom: 0 };
+    // Nobody but the administrator learns what the limits are.
+    for (const who of [companyAdmin, facilitator, asha]) {
+      await assert.rejects(
+        setLevelBands(who, DECK, nonsense, options),
+        (e: unknown) => e instanceof Refused && e.status === 404,
+        who.id,
+      );
+    }
+    // With no bank yet, bad bands are still told what is wrong with them.
+    await assert.rejects(
+      setLevelBands(benchmark, DECK, nonsense, options),
+      (e: unknown) => e instanceof Refused && e.status === 400,
+    );
+    await assert.rejects(
+      setLevelBands(benchmark, DECK, { intermediateFrom: 40, advancedFrom: 71 }, options),
+      (e: unknown) => e instanceof Refused && e.status === 404 && /bank first/.test(e.message),
+    );
+  });
+
+  it('reaches the screen as the route sends it: a 400 with the reason, shown as it is', async () => {
+    await bank('pre');
+    const error = await setLevelBands(
+      benchmark,
+      DECK,
+      { intermediateFrom: 150, advancedFrom: 71 },
+      options,
+    ).catch((e: unknown) => e);
+    const response = refusalResponse(error);
+    assert.equal(response?.status, 400);
+    assert.deepEqual(await response?.json(), { error: INTERMEDIATE_LIMITS });
+
+    // The route hands the bands over as they arrived, and answers with that response.
+    const route = readFileSync('src/app/api/decks/[id]/questions/[kind]/route.ts', 'utf8');
+    const patch = route.slice(
+      route.indexOf('export async function PATCH'),
+      route.indexOf('export async function DELETE'),
+    );
+    assert.match(
+      patch,
+      /await setLevelBands\(resolved\.person, resolved\.deckId, body\?\.bands\);[\s\S]*?const refused = refusalResponse\(error\);\s*if \(refused\) return refused;/,
+    );
+    // And the screen shows the server's own words for it, beside the form.
+    assert.match(
+      readFileSync('src/app/decks/[id]/questions/QuestionBanks.tsx', 'utf8'),
+      /if \(!response\.ok\) return body\.error \?\? 'The bands could not be saved\.';/,
+    );
   });
 
   it('marks a paper against the version it was taken on, after the bank is replaced', async () => {

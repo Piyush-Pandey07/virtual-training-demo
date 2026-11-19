@@ -10,6 +10,13 @@
  *
  * India time, because that is where Technavious and its customers in this release run
  * their sessions. A customer elsewhere would need a zone of its own, set per customer.
+ *
+ * A day on its own is held to the same rule (D-04). Formatted without a zone it has the
+ * fault a time has, only harder to notice: it is right for most of the day and a day out
+ * for the five and a half hours after midnight in India, while the servers are still on
+ * the day before. A deck approved early on 19 November read "19 Nov" in the heading the
+ * browser drew and "18 Nov" in the sentence the server wrote beneath it. A day carries
+ * no "IST" after it, because it has no time of day for the label to explain.
  */
 
 export const TRAINING_TIME_ZONE = 'Asia/Kolkata';
@@ -48,6 +55,49 @@ export function dayInTrainingZone(iso: string): string {
     month: '2-digit',
     day: '2-digit',
   });
+}
+
+/** "19 Nov 2026": the day something happened, short enough for a row in a list. */
+export function formatDay(iso: string): string {
+  return dayText(iso, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** "19 November 2026": the day written out, for a sentence somebody may quote. */
+export function formatDayLong(iso: string): string {
+  return dayText(iso, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/** "19 Nov": the day without its year, for a row on a page about one run of training. */
+export function formatDayShort(iso: string): string {
+  return dayText(iso, { day: 'numeric', month: 'short' });
+}
+
+/**
+ * Whether a day is over in India, which is when something due on it becomes late.
+ *
+ * A due date is a day with no time on it. Read as a moment it is midnight UTC, half past
+ * five that morning in India, so set against the clock a deck due on the 20th turned
+ * late at breakfast on the 20th. Set day against day, it is late from the 21st.
+ */
+export function dayHasPassed(iso: string, now: Date = new Date()): boolean {
+  if (Number.isNaN(new Date(iso).getTime())) return false;
+  return dayInTrainingZone(iso) < dayInTrainingZone(now.toISOString());
+}
+
+/**
+ * One day as text, or nothing for a value that is not a date.
+ *
+ * Nothing rather than the words "Invalid Date", so each caller can say what suits its
+ * own sentence in that place: "unknown", "never", or nothing at all.
+ *
+ * A date stored with no time, as a due date is, reads as midnight UTC. India is ahead of
+ * UTC, so that is still the day that was typed. A zone behind UTC would need such a date
+ * read as the day it names rather than as a moment.
+ */
+function dayText(iso: string, parts: Intl.DateTimeFormatOptions): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  return at.toLocaleDateString('en-GB', { ...parts, timeZone: TRAINING_TIME_ZONE });
 }
 
 function clock(at: Date): string {

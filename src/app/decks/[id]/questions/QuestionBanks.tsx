@@ -22,6 +22,7 @@ import {
 } from '@/lib/assessments/types';
 import { LevelBandsForm } from '@/components/LevelBandsForm';
 import { describeFailure, readFailure } from '@/lib/failures/codes';
+import { formatDay } from '@/lib/time';
 
 /**
  * The administrator's question banks for one deck: upload, preview, sample generation,
@@ -39,13 +40,6 @@ const QUIET_BUTTON =
   'border-charcoal-line text-mist hover:border-teal hover:text-teal rounded-md border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
 const TEMPLATE_HREF = `data:text/csv;charset=utf-8,${encodeURIComponent(CSV_TEMPLATE)}`;
-
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 
 function letter(index: number): string {
   return String.fromCharCode('A'.charCodeAt(0) + index);
@@ -129,7 +123,7 @@ function VersionHistory({ versions }: { versions: BankVersionSummary[] }) {
           <li key={each.version}>
             Version {each.versionNumber}: {each.questions}{' '}
             {each.questions === 1 ? 'question' : 'questions'},{' '}
-            {each.source === 'upload' ? 'uploaded' : 'sample'} {onDate(each.savedAt)}
+            {each.source === 'upload' ? 'uploaded' : 'sample'} {formatDay(each.savedAt)}
           </li>
         ))}
       </ul>
@@ -293,7 +287,7 @@ function BankPanel({
           <summary className="hover:text-teal cursor-pointer text-sm font-semibold">
             {bank.versionNumber ? `Version ${bank.versionNumber}: ` : ''}
             {bank.questions.length} {bank.questions.length === 1 ? 'question' : 'questions'}, saved{' '}
-            {onDate(bank.savedAt)}. Show them with their answers.
+            {formatDay(bank.savedAt)}. Show them with their answers.
           </summary>
           <div className="mt-4">
             <QuestionList questions={bank.questions} />

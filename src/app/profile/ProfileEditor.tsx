@@ -3,9 +3,16 @@
 /**
  * Viewing and changing one's own profile, or withdrawing consent.
  *
- * Saving asks for the consent box every time, so every stored profile records agreement
+ * Saving sends the consent box every time, so every stored profile records agreement
  * to the notice that was on screen when it was last changed. Withdrawing asks once more
  * before it acts, because the profile it deletes cannot be brought back.
+ *
+ * The box starts ticked for somebody whose agreement to that notice already stands, and
+ * stays ticked after a save. It used to start empty on every visit, which left "Save my
+ * profile" switched off, with nothing saying why, for somebody who had only come to
+ * correct their department. Anybody who has not agreed to the notice as it now reads, or
+ * who withdrew, still ticks it themselves, and the route refuses a save without it
+ * whatever this screen does.
  */
 
 import { useId, useState } from 'react';
@@ -21,16 +28,19 @@ export function ProfileEditor({
   initial,
   exists,
   withdrawn,
+  agreed,
 }: {
   initial: ProfileFormValues;
   exists: boolean;
   withdrawn: boolean;
+  /** Their agreement to the notice on screen stands, by the server's own record. */
+  agreed: boolean;
 }) {
   const id = useId();
   const [values, setValues] = useState<ProfileFormValues>(initial);
   const [stored, setStored] = useState(exists);
   const [hasWithdrawn, setHasWithdrawn] = useState(withdrawn);
-  const [consented, setConsented] = useState(false);
+  const [consented, setConsented] = useState(agreed);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -49,7 +59,8 @@ export function ProfileEditor({
     const result = await saveProfile(values, consented);
     setStatus('idle');
     if (!result.ok) return setError(result.error);
-    setConsented(false);
+    // The box is left ticked: the save has just recorded their agreement to this notice,
+    // so a second correction straight afterwards does not ask for it again.
     setStored(true);
     setHasWithdrawn(false);
     setMessage('Saved. The trainer will use this from your next turn.');

@@ -6,6 +6,7 @@ import { bankFromCsv, CSV_TEMPLATE, parseBankCsv, splitCsv } from './csv';
 import {
   advancedAbove,
   AnswersRejected,
+  BAND_LIMITS,
   bandsOf,
   checkBands,
   checkFeedback,
@@ -210,6 +211,46 @@ describe('level bands', () => {
       assert.equal(checked.ok, false, JSON.stringify(bad));
       if (!checked.ok) assert.ok(checked.error.length > 10);
     }
+  });
+
+  // What the form sends for what is typed: "Advanced above" plus one is the stored edge,
+  // and an empty box is not a number. Each reason names the box it is about, as the
+  // screen labels it, and its limits.
+  it('names the box that is wrong and its limits, for whatever was typed in it', () => {
+    const typed = (intermediateFrom: number, above: number) =>
+      checkBands({ intermediateFrom, advancedFrom: above + 1 });
+    const reason = (checked: ReturnType<typeof checkBands>) => (checked.ok ? null : checked.error);
+
+    assert.equal(BAND_LIMITS.min, 1);
+    assert.equal(BAND_LIMITS.max, 99);
+    for (const intermediateFrom of [0, 100, 150, -1, 40.5, Number.NaN]) {
+      assert.equal(
+        reason(typed(intermediateFrom, 70)),
+        '"Intermediate from" must be a whole number from 1 to 99.',
+        String(intermediateFrom),
+      );
+    }
+    for (const above of [0, 100, 150, -1, 70.5, Number.NaN]) {
+      assert.equal(
+        reason(typed(40, above)),
+        '"Advanced above" must be a whole number from 1 to 99.',
+        String(above),
+      );
+    }
+    assert.equal(
+      reason(typed(60, 40)),
+      '"Advanced above" cannot be lower than "Intermediate from", because that would leave no score for Intermediate.',
+    );
+    // Equal is allowed: Intermediate is then that one score, and Advanced everything above.
+    assert.deepEqual(typed(40, 40), {
+      ok: true,
+      bands: { intermediateFrom: 40, advancedFrom: 41 },
+    });
+    assert.deepEqual(typed(1, 99), { ok: true, bands: { intermediateFrom: 1, advancedFrom: 100 } });
+    assert.deepEqual(typed(99, 99), {
+      ok: true,
+      bands: { intermediateFrom: 99, advancedFrom: 100 },
+    });
   });
 });
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { saveBank, setLevelBands } from '../assessments/service';
@@ -207,6 +208,95 @@ describe("a trainer-led session's level bands", () => {
     const stored = (await trainingStore(ORG, store).getSession(created.id)) as TrainingSession;
     assert.deepEqual(stored.levelBands, DEFAULT_LEVEL_BANDS);
     assert.deepEqual(stored.attendance, {});
+  });
+
+  // A UAT dry run reported the 1 to 99 limits as the browser's alone. They are the
+  // server's: each kind of bad value is pinned here with the status and the words the
+  // screen shows for it. `advancedFrom` is the stored edge, one more than what is typed
+  // as "Advanced above".
+  it('are refused outside 1 to 99, not whole, or the wrong way round, saying which', async () => {
+    const intermediateLimits = '"Intermediate from" must be a whole number from 1 to 99.';
+    const advancedLimits = '"Advanced above" must be a whole number from 1 to 99.';
+    const wrongWayRound =
+      '"Advanced above" cannot be lower than "Intermediate from", because that would leave no score for Intermediate.';
+    const created = await create();
+    for (const [levelBands, message] of [
+      // Out of range.
+      [{ intermediateFrom: 0, advancedFrom: 71 }, intermediateLimits],
+      [{ intermediateFrom: -5, advancedFrom: 71 }, intermediateLimits],
+      [{ intermediateFrom: 100, advancedFrom: 101 }, intermediateLimits],
+      [{ intermediateFrom: 150, advancedFrom: 71 }, intermediateLimits],
+      [{ intermediateFrom: 40, advancedFrom: 101 }, advancedLimits],
+      [{ intermediateFrom: 40, advancedFrom: 1 }, advancedLimits],
+      // Not a whole number, or not a number at all.
+      [{ intermediateFrom: 40.5, advancedFrom: 71 }, intermediateLimits],
+      [{ intermediateFrom: '40', advancedFrom: 71 }, intermediateLimits],
+      [{ advancedFrom: 71 }, intermediateLimits],
+      [{ intermediateFrom: 40, advancedFrom: 70.5 }, advancedLimits],
+      [{ intermediateFrom: 40, advancedFrom: '71' }, advancedLimits],
+      [{ intermediateFrom: 40 }, advancedLimits],
+      [null, intermediateLimits],
+      ['above 70', intermediateLimits],
+      // The wrong way round: Intermediate at or above where Advanced starts.
+      [{ intermediateFrom: 60, advancedFrom: 60 }, wrongWayRound],
+      [{ intermediateFrom: 71, advancedFrom: 41 }, wrongWayRound],
+    ] as const) {
+      await assert.rejects(
+        changeSession(fran, created.id, { levelBands }, options()),
+        (error: unknown) => {
+          refused(400)(error);
+          assert.equal((error as Error).message, message);
+          return true;
+        },
+        JSON.stringify(levelBands),
+      );
+    }
+    const stored = (await trainingStore(ORG, store).getSession(created.id)) as TrainingSession;
+    assert.deepEqual(stored.levelBands, DEFAULT_LEVEL_BANDS);
+  });
+
+  it('may be the limits themselves, 1 and 99, in either box', async () => {
+    const created = await create();
+    for (const levelBands of [
+      // Intermediate from 1, Advanced above 1.
+      { intermediateFrom: 1, advancedFrom: 2 },
+      // Intermediate from 99, Advanced above 99.
+      { intermediateFrom: 99, advancedFrom: 100 },
+      // Advanced above the very score Intermediate starts at.
+      { intermediateFrom: 40, advancedFrom: 41 },
+    ]) {
+      const changed = await changeSession(fran, created.id, { levelBands }, options());
+      assert.deepEqual(changed.levelBands, levelBands);
+    }
+  });
+
+  it('when refused, reach the screen in the words the server gave', () => {
+    const read = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
+    // The service refuses with the reason, and the route sends it as it is.
+    assert.match(
+      read('src/lib/training/service.ts'),
+      /const checked = checkBands\(input\.levelBands\);\s*if \(!checked\.ok\) throw new TrainingRuleError\(400, checked\.error\);/,
+    );
+    assert.match(
+      read('src/lib/training/route-helpers.ts'),
+      /if \(error instanceof TrainingRuleError\) \{\s*return Response\.json\(\{ error: error\.message \}, \{ status: error\.status \}\);/,
+    );
+    assert.match(
+      read('src/app/sessions/[id]/SessionRecord.tsx'),
+      /return reply\.error \?\? 'The bands could not be saved\. Try again\.';/,
+    );
+    // The form shows that sentence under the boxes as it is typed, from the same check,
+    // and switches the browser's own validation off so its bubble is not the message.
+    const form = read('src/components/LevelBandsForm.tsx');
+    assert.match(form, /<form\s+noValidate\b/);
+    assert.match(
+      form,
+      /\{checked\.ok \? \(changed \? describeBands\(checked\.bands\) : ''\) : checked\.error\}/,
+    );
+    assert.match(form, /role=\{message\.error \? 'alert' : 'status'\}/);
+    // The number fields take their limits from the rule, so the two cannot drift apart.
+    assert.equal(form.match(/min=\{BAND_LIMITS\.min\}/g)?.length, 2);
+    assert.equal(form.match(/max=\{BAND_LIMITS\.max\}/g)?.length, 2);
   });
 
   it('are kept when anything else about the session changes', async () => {

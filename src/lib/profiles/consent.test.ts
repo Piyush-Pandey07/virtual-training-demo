@@ -10,6 +10,7 @@ import type { TrainingSession } from '../training/types';
 import { mayUploadParticipants, mayViewProfile } from './access';
 import {
   agreedToCurrent,
+  agreementStands,
   CONSENTS,
   type ConsentRecord,
   consentHistory,
@@ -137,6 +138,102 @@ describe('the consent record', () => {
       ]),
       true,
     );
+  });
+});
+
+/**
+ * The consent box beside the form on My profile.
+ *
+ * It started empty on every visit, so "Save my profile" stayed switched off until it was
+ * ticked again, even for somebody who had agreed to the very notice on screen and only
+ * wanted to correct a field. It now starts ticked for them, and for nobody else. The
+ * route is as strict as it was: the screen decides how the box starts, never whether it
+ * is needed.
+ */
+describe('the consent box on My profile', () => {
+  let tick = 0;
+  /** One decision after another, a minute apart, as the log holds them. */
+  const record = (decision: 'given' | 'withdrawn', noticeVersion: string): ConsentRecord => ({
+    id: `r${(tick += 1)}`,
+    personId: 'asha',
+    decision,
+    noticeVersion,
+    at: new Date(Date.UTC(2026, 10, 19, 9, tick)).toISOString(),
+    withProfile: decision === 'given',
+  });
+  const given = () => record('given', PROFILE_NOTICE_VERSION);
+  const older = () => record('given', 'draft-2020-01-01');
+  const withdrawn = () => record('withdrawn', PROFILE_NOTICE_VERSION);
+
+  it('starts ticked for somebody who has agreed to the notice on screen', () => {
+    assert.equal(agreementStands([given()]), true);
+    assert.equal(agreementStands([older(), given()]), true, 'agreed again when it changed');
+    assert.equal(agreementStands([given(), given()]), true, 'and saved their profile since');
+  });
+
+  it('starts empty for somebody who has never agreed', () => {
+    assert.equal(agreementStands([]), false);
+  });
+
+  it('starts empty when their agreement was to an older notice', () => {
+    assert.equal(agreementStands([older()]), false);
+  });
+
+  it('starts empty for somebody who withdrew, until they agree again', () => {
+    // The gate still lets them attend, which is why it cannot be the test here.
+    const history = [given(), withdrawn()];
+    assert.equal(agreedToCurrent(history), true);
+    assert.equal(agreementStands(history), false);
+    assert.equal(agreementStands([...history, given()]), true);
+    assert.equal(agreementStands([...history, older()]), false);
+  });
+
+  it('is read from the log as it is stored, the latest decision last', async () => {
+    const store = new InMemoryDocumentStore();
+    const at = (day: number) => new Date(Date.UTC(2026, 10, day, 9));
+    assert.equal(agreementStands(await consentHistory(asha, { store })), false);
+    await recordConsent(asha, 'given', true, { store }, at(17));
+    assert.equal(agreementStands(await consentHistory(asha, { store })), true);
+    await recordConsent(asha, 'withdrawn', false, { store }, at(18));
+    assert.equal(agreementStands(await consentHistory(asha, { store })), false);
+    await recordConsent(asha, 'given', true, { store }, at(19));
+    assert.equal(agreementStands(await consentHistory(asha, { store })), true);
+    assert.equal(agreementStands(await consentHistory(bina, { store })), false, 'only their own');
+  });
+
+  it('is decided by the page from the record, and empty when the record cannot be read', () => {
+    const page = read('src/app/profile/page.tsx');
+    assert.match(page, /agreed: agreementStands\(history\),/);
+    assert.match(page, /ok: false as const,[\s\S]*?agreed: false,/);
+    assert.match(page, /<ProfileEditor[\s\S]*?agreed=\{agreed\}/);
+  });
+
+  it('starts as the page says, stays ticked after a save, and is cleared by withdrawing', () => {
+    const editor = read('src/app/profile/ProfileEditor.tsx');
+    assert.match(editor, /const \[consented, setConsented\] = useState\(agreed\);/);
+    // Saving is still switched off without it.
+    assert.match(editor, /disabled=\{busy \|\| !consented\}/);
+    const save = editor.slice(editor.indexOf('const save = '), editor.indexOf('const withdraw = '));
+    assert.doesNotMatch(save, /setConsented\(/, 'a save empties the box again');
+    const withdraw = editor.slice(editor.indexOf('const withdraw = '), editor.indexOf('return ('));
+    assert.match(withdraw, /setConsented\(false\);/);
+  });
+
+  it('is still required by the route, which records each save as it always has', () => {
+    const route = read('src/app/api/profile/route.ts');
+    const put = route.slice(
+      route.indexOf('export async function PUT'),
+      route.indexOf('export async function DELETE'),
+    );
+    // Refused before anything is saved, and nothing here reads the history to let it off.
+    assert.match(
+      put,
+      /const parsed = parseSubmission\([\s\S]*?if \(!parsed\.ok\) return reply\(\{ error: parsed\.error \}, 400\);[\s\S]*?await saveProfile\(/,
+    );
+    assert.doesNotMatch(put, /agreementStands|agreedToCurrent|hasCurrentConsent/);
+    assert.equal([...put.matchAll(/recordConsent\(gate\.person, 'given', true\)/g)].length, 1);
+    // What the route's check refuses is tested with `parseSubmission`, in profiles.test.ts.
+    assert.match(read('src/lib/profiles/validate.ts'), /if \(body\.consent !== true\) \{/);
   });
 });
 

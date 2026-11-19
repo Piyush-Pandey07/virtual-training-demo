@@ -20,6 +20,7 @@ import { loadStoredDeck } from '@/lib/decks/registry';
 import type { DeckStatus } from '@/lib/decks/store';
 import type { SignedInPerson } from '@/lib/roster/types';
 import { progressForDeck } from '@/lib/roster/report';
+import { formatDayShort } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,9 +53,7 @@ function seesDeck(viewer: SignedInPerson, status: DeckStatus): boolean {
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'unknown';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return formatDayShort(iso) || 'unknown';
 }
 
 export default async function DeckProgressPage({ params }: ProgressPageProps) {

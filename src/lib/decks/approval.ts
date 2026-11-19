@@ -45,6 +45,7 @@ import { orgsConfigured } from '../orgs/registry';
 import { scopedDocuments } from '../orgs/scope';
 import { InMemoryDocumentStore, type DocumentStore } from '../roster/documents';
 import type { Role, SignedInPerson } from '../roster/types';
+import { formatDay } from '../time';
 import { loadStoredDeck } from './registry';
 import type { DeckStatus, DeckSummary } from './store';
 
@@ -201,11 +202,13 @@ export function approvalStateOf(
   return { state: 'approved', by: who, at: approval.approvedAt };
 }
 
+/**
+ * The day of an approval, in India, which is the day the deck page's heading names too.
+ * Written on the server, this sentence used to say the UTC day, a day behind the heading
+ * for an approval given before half past five in the morning (D-04).
+ */
 function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? 'an earlier date'
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDay(iso) || 'an earlier date';
 }
 
 /** Why a deck in this state cannot be assigned, in words for the screen, or null if it can. */

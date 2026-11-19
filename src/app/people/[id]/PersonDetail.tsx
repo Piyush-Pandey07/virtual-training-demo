@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { ProgressBar } from '@/components/ProgressBar';
 import type { ProgressRow } from '@/lib/roster/types';
+import { formatDay } from '@/lib/time';
 
 export interface AssignableDeck {
   id: string;
@@ -20,9 +21,7 @@ export interface AssignableDeck {
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'unknown';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDay(iso) || 'unknown';
 }
 
 export function PersonDetail({

@@ -20,9 +20,10 @@ import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
 import { profilesEnabled, profilesEnabledFor } from '@/lib/config';
 import { formValuesOf } from '@/lib/profiles/client';
-import { consentHistory, latestDecision } from '@/lib/profiles/consent';
+import { agreementStands, consentHistory, latestDecision } from '@/lib/profiles/consent';
 import { findProfile } from '@/lib/profiles/store';
 import { isRestricted, visibleTo } from '@/lib/retention/restricted';
+import { formatDayLong } from '@/lib/time';
 import { TRAINER_NAME } from '@/lib/trainer';
 import { ProfileEditor } from './ProfileEditor';
 
@@ -40,16 +41,26 @@ export default async function ProfilePage() {
   //
   // A profile restricted under the retention policy (AI-41) is not shown to its owner, only
   // said to be there. The form starts empty, and saving it makes a new profile in use.
+  //
+  // Whether their agreement to the notice stands is worked out here, from the record, and
+  // decides only how the consent box starts. The route still refuses a save without it.
   const read = await Promise.all([findProfile(person), consentHistory(person)]).then(
     ([stored, history]) => ({
       ok: true as const,
       profile: visibleTo(person, stored),
       restricted: isRestricted(stored),
       latest: latestDecision(history),
+      agreed: agreementStands(history),
     }),
-    () => ({ ok: false as const, profile: undefined, restricted: false, latest: undefined }),
+    () => ({
+      ok: false as const,
+      profile: undefined,
+      restricted: false,
+      latest: undefined,
+      agreed: false,
+    }),
   );
-  const { profile, latest, restricted } = read;
+  const { profile, latest, restricted, agreed } = read;
 
   const initial = formValuesOf(profile);
   if (!initial.name && person.name) initial.name = person.name;
@@ -80,8 +91,8 @@ export default async function ProfilePage() {
         {latest && (
           <p className="text-muted mt-4 text-sm">
             {latest.decision === 'given'
-              ? `You agreed to the privacy notice on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}.`
-              : `You withdrew your consent on ${new Date(latest.at).toLocaleDateString('en-GB', { dateStyle: 'long' })}. Your training carries on without a profile.`}
+              ? `You agreed to the privacy notice on ${formatDayLong(latest.at)}.`
+              : `You withdrew your consent on ${formatDayLong(latest.at)}. Your training carries on without a profile.`}
           </p>
         )}
 
@@ -108,6 +119,7 @@ export default async function ProfilePage() {
             initial={initial}
             exists={Boolean(profile)}
             withdrawn={latest?.decision === 'withdrawn'}
+            agreed={agreed}
           />
         )}
       </main>

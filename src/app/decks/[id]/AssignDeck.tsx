@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { formatDay } from '@/lib/time';
+
 /**
  * Giving a deck to the people who have to attend it.
  *
@@ -51,12 +53,11 @@ function describe(person: { name: string; email: string }): string {
   return person.name.trim() ? `${person.name} · ${person.email}` : person.email;
 }
 
+// The same words for a day as every other screen. This one used the browser's own
+// language as well as its zone, so the same due date could be worded one way here and
+// another on the person's page (D-04).
 function onDate(iso: string | null): string {
-  if (!iso) return '';
-  const when = new Date(iso);
-  return Number.isNaN(when.getTime())
-    ? ''
-    : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return iso ? formatDay(iso) : '';
 }
 
 export function AssignDeck({

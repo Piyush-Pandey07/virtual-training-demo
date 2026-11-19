@@ -37,6 +37,7 @@ import {
 import { assessmentHref, feedbackHref } from './paths';
 import {
   bandsOf,
+  checkBands,
   checkFeedback,
   levelFor,
   levelWithBands,
@@ -65,7 +66,6 @@ import {
   type BankVersionSummary,
   type FeedbackRecord,
   type Level,
-  type LevelBands,
   type QuestionBank,
   type QuestionBankVersion,
   type ResultsRow,
@@ -689,14 +689,24 @@ export async function bankVersionsForAdministrator(
   }));
 }
 
-/** Changes the pre-session bank's level bands. Results already given keep their level. */
+/**
+ * Changes the pre-session bank's level bands. Results already given keep their level.
+ *
+ * The bands are taken as they arrived and checked here, as a session's are in
+ * `changeSession`, rather than trusted from the route. A percentage outside 1 to 99, a
+ * fraction, or "Advanced above" below "Intermediate from" is refused with the reason,
+ * before anything is read or written, whatever sent it.
+ */
 export async function setLevelBands(
   viewer: SignedInPerson,
   deckId: string,
-  bands: LevelBands,
+  value: unknown,
   options: ServiceOptions = {},
 ): Promise<QuestionBank> {
   refuseUnlessAdministrator(viewer);
+  const checked = checkBands(value);
+  if (!checked.ok) throw new Refused(400, checked.error);
+  const bands = checked.bands;
   const store = assessmentStore(viewer.orgId, options.store);
   if (!(await store.getBank(deckId, 'pre'))) {
     throw new Refused(404, 'Upload or generate the pre-session bank first.');

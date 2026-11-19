@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { formatDay } from '@/lib/time';
+
 /**
  * Where the deck stands with its approver, and the button that approves it (AI-39).
  *
@@ -25,17 +27,12 @@ interface ApproveDeckProps {
   assignedCount: number;
 }
 
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
+// The day comes from `formatDay`, as it does in the sentence the server writes for the
+// assign panel below (`assignmentRefusalFor`), so the two name the same day (D-04).
 function describe(approval: ApprovalView): { heading: string; body: string } {
   if (approval.state === 'approved') {
     return {
-      heading: `Approved by ${approval.by} on ${onDate(approval.at)}`,
+      heading: `Approved by ${approval.by} on ${formatDay(approval.at)}`,
       body: 'It can be assigned. Any change to what it teaches, or unpublishing it, will need a fresh approval.',
     };
   }
@@ -45,7 +42,7 @@ function describe(approval: ApprovalView): { heading: string; body: string } {
         approval.reason === 'withdrawn'
           ? 'Withdrawn since approval'
           : 'Changed since approval: needs approving again',
-      body: `${approval.by} approved it on ${onDate(approval.at)}, and it has ${
+      body: `${approval.by} approved it on ${formatDay(approval.at)}, and it has ${
         approval.reason === 'withdrawn' ? 'been withdrawn' : 'changed'
       } since. Nobody new can be given it until it is approved again.`,
     };
@@ -104,8 +101,11 @@ export function ApproveDeck({
 
       {!approved && assignedCount > 0 && (
         <p className="mt-2 text-sm leading-relaxed">
-          {assignedCount === 1 ? 'One person already has' : `${assignedCount} people already have`}{' '}
-          this deck and keep it, but it needs re-approval before anybody else is given it.
+          {/* Both verbs change with the count: one person has it and keeps it (D-05). */}
+          {assignedCount === 1
+            ? 'One person already has this deck and keeps it'
+            : `${assignedCount} people already have this deck and keep it`}
+          , but it needs re-approval before anybody else is given it.
         </p>
       )}
 
