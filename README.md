@@ -587,9 +587,10 @@ that owns the account, so `training@technavious.com` needs the domain. Then open
 ### Audit history
 
 `/audit` (AI-40) is the Benchmark administrator's alone; anybody else gets a 404. It records views
-and changes of learner profiles, results and question banks; consent given and withdrawn; role
-changes; downloads (the participant upload template, and the session summary); deletions of people,
-decks, banks and sessions; attendance edits; and the administrators' own actions: decks uploaded,
+and changes of learner profiles, results and question banks; consent given and withdrawn; people
+added by hand, by a participant upload or by a move between customers; role changes; downloads (the
+participant upload template, and the session summary); deletions of people, decks, banks and
+sessions; attendance edits; and the administrators' own actions: decks uploaded,
 edited, analysed, published, withdrawn and approved, assignments, batches and sessions set up and
 changed, and glossary changes. Entries live in each customer's `audit` collection (the glossary's in
 `platformAudit`) with `expireAt` 400 days ahead: **enable a TTL policy on `audit` / `expireAt` and

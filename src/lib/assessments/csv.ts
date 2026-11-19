@@ -50,6 +50,12 @@ export interface CsvProblem {
 export interface ParsedBank {
   questions: Omit<BankQuestion, 'id'>[];
   problems: CsvProblem[];
+  /**
+   * How many question rows the file holds, good or bad, and however many a bank can take.
+   * The preview says this beside what it read, so a file of 51 is never shown as "50
+   * questions read" with the reason somewhere else on the screen (D-08).
+   */
+  total: number;
 }
 
 /**
@@ -136,6 +142,12 @@ function isHeader(fields: string[]): boolean {
  * file with any problem is not saved at all (see `bankFromCsv`). Saving the good rows and
  * dropping the bad would leave a bank shorter than the one the user team wrote, with
  * nobody told.
+ *
+ * The same goes for a file longer than a bank can hold. `MAX_QUESTIONS` is a deliberate
+ * limit, not a row lost in reading: every row is counted in `total`, the rows past the
+ * limit are not read as questions, and the file is refused whole with a problem on the
+ * first row that is one too many. Saving the first fifty of fifty-one would be the same
+ * shorter bank with nobody told.
  */
 export function parseBankCsv(text: string): ParsedBank {
   const rows = splitCsv(text);
@@ -144,12 +156,19 @@ export function parseBankCsv(text: string): ParsedBank {
 
   const body = rows.length > 0 && isHeader(rows[0]!.fields) ? rows.slice(1) : rows;
   if (body.length === 0) {
-    return { questions, problems: [{ row: 1, message: 'The file has no questions in it.' }] };
+    return {
+      questions,
+      problems: [{ row: 1, message: 'The file has no questions in it.' }],
+      total: 0,
+    };
   }
   if (body.length > MAX_QUESTIONS) {
+    const over = body.length - MAX_QUESTIONS;
     problems.push({
       row: body[MAX_QUESTIONS]!.line,
-      message: `A bank can hold at most ${MAX_QUESTIONS} questions, and this file has ${body.length}.`,
+      message:
+        `A bank holds at most ${MAX_QUESTIONS} questions and this file has ${body.length}. ` +
+        `Take ${over} out and choose the file again.`,
     });
   }
 
@@ -230,7 +249,30 @@ export function parseBankCsv(text: string): ParsedBank {
     if (!bad && correctIndex !== null) questions.push({ question, options, correctIndex });
   }
 
-  return { questions, problems };
+  return { questions, problems, total: body.length };
+}
+
+/**
+ * What the preview says it read, as the words after "Preview of <file>:".
+ *
+ * A clean file reads "10 questions read". A file with bad rows says how many of its rows
+ * were read, and a file longer than a bank can hold says so in the same breath as the
+ * count, because "50 questions read" under a file of 51 looks like a row gone missing
+ * (D-08). Nothing is ever quietly left out of a saved bank: such a file cannot be saved.
+ */
+export function describeRead(parsed: ParsedBank): string {
+  const read = parsed.questions.length;
+  const questions = (count: number) => `${count} ${count === 1 ? 'question' : 'questions'}`;
+  const over = parsed.total - MAX_QUESTIONS;
+  if (over > 0) {
+    return (
+      `${questions(parsed.total)} in the file. A bank holds at most ${MAX_QUESTIONS}, so the ` +
+      `last ${over} ${over === 1 ? 'was' : 'were'} left out and the file cannot be saved as it is.`
+    );
+  }
+  return read < parsed.total
+    ? `${read} of ${questions(parsed.total)} read`
+    : `${questions(read)} read`;
 }
 
 /**

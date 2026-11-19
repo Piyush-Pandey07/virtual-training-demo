@@ -16,6 +16,73 @@ Mehar turns each section into UAT test cases.
   confirm that the thing exists.
 - Unit test files are under `src/`. Run them all with `npm test`.
 
+## Fixed after the dev-test dry run of 18 to 19 November
+
+The dry run of the 70-test checklist found ten defects and six things to review. All were
+looked at on 19 November. Each fix was checked in a real browser on a local build, except
+where the table says otherwise.
+
+| ID | What was found | What happens now |
+| --- | --- | --- |
+| D-01 | Course information, Case studies and Completion point showed "Saved." and were back to their old values after a reload. | Fixed. They were saved, then dropped every time the deck was read, so the trainer never saw them and every deck completed at 90%. They now come back, and the trainer uses them. |
+| D-02 | Adding a person on `/people` wrote nothing to the audit history. | Fixed. "Added <email> by hand, with the role trainee" under **People and roles**. Adding an address again, creating people from an upload, and moving somebody between customers are recorded too. (Unit tests only.) |
+| D-03 | The completion point refusal named `meta.completionPercent`. | Fixed: "The completion point must be a whole number from 50 to 100." Every refusal on the deck page names the box as the page does. |
+| D-04 | Dates mixed India time and UTC. | Fixed. Every date is the day in India, on the server and in the browser. Checked with a browser set to Los Angeles: "You agreed to the privacy notice on 19 November 2026." A session's **When** is read as India time too, and the box says so. |
+| D-05 | "One person already has this deck and keep it". | Fixed: "One person already has this deck and keeps it", "N people already have this deck and keep it". |
+| D-06 | A deck unpublished after approval showed only "Draft". | Fixed. The library shows **Draft** and **Needs re-approval**. The assign panel says "Needs re-approval. This deck was withdrawn after <name> approved it on <date>…", and still lists who has it. |
+| D-07 | After **Save this bank** the old version number stayed until a reload. | Fixed. The version, count and date change the moment "Saved N questions." appears, and the history lists the new version. |
+| D-08 | A 51-question file previewed as "50 questions read". | Not a lost row: a bank holds at most 50 questions and the file was already refused. The page now says so where the file is chosen, and the preview reads "51 questions in the file. A bank holds at most 50, so the last 1 was left out and the file cannot be saved as it is." |
+| D-09 | After each typed answer Nova "re-taught slide 3" while the counter stayed on slide 2. | Not heard by a participant. After an answer the app prepares the next slide's narration in the background, so that **Next** starts at once (AI-44); that request is what showed in the network log. Measured in a browser: after each of four typed answers on slide 2, 16 to 25 seconds of audio played, the answer alone, and the counter stayed on slide 2. |
+| D-10 | The privacy notice says "contact Srikant, [CONTACT DETAILS TO BE CONFIRMED]". | Open. It waits for the contact details and for Prashant's approval of the notice (AI-27). |
+
+Reviewed, from the observations:
+
+- **Re-uploading a participant file** cannot overwrite a profile its owner has confirmed; tests
+  now prove it. The wording was misleading and is changed: "Already here. They have confirmed
+  their own profile, so it was left exactly as it is."
+- **The sample lesson plans** were written for a different outline, which is why the gap sample
+  reported seven differences. Both are now written for the Introduction to Data Centers deck
+  (see AI-43).
+- **My profile**: somebody who has already agreed to the notice on screen finds the box ticked
+  and **Save my profile** ready.
+- **Level bands**: the server already refused bad values. The messages now name the box, for
+  example `"Intermediate from" must be a whole number from 1 to 99.`, and the screen shows the
+  app's message, not the browser's.
+- **Referrals**: Nova says "your administrator", with no department in front. Six of six
+  out-of-scope questions did so on a local build. On the ISMS deck Nova may still say "the IT
+  support desk", because that deck's own material names it as the place to ask.
+- **A personal address as a Technavious administrator, and the OpenAI test page in the menu**:
+  both are as set up, and are for Technavious to confirm for R1.
+
+**Two decks need approving once more after this build.** Introduction to Data Centers in
+Technavious and ISMS in UAT Test Company were approved while their course information and case
+studies were being dropped (D-01). Those values now count as part of the deck, so each shows
+"Changed since approval: needs approving again". Check the text is what you want, then approve.
+
+**Setting up, from the dry run's list of blockers:**
+
+- **Test accounts.** An address an administrator has added does not need a verification email.
+  On the sign-in page press **First time here?**, enter the address and a password, and it signs
+  in. That works for `uat.companyadmin`, `uat.facilitator`, `uat.facilitator.b`,
+  `uat.participant1` to `3` and `uat-participant-01` to `49` at example.com, none of which has
+  had a password set yet. The "unverified email address" message came from
+  `uat.participanttest@example.com`, which was not on the roster when it registered, so it was
+  asked to prove its address; it has now been marked as verified.
+- **A second deck in UAT Test Company.** Introduction to Data Centers is there now, published
+  and waiting for approval, with all its slides.
+- **Email (checked on the live site, 19 November).** The Resend key is set and Resend accepts
+  it, but it refuses every send with "The technavious.com domain is not verified. Please, add
+  and verify your domain on https://resend.com/domains". The three notifications of the dry run
+  are listed as **Failed** on `/platform/notifications` with that reason. To finish: verify
+  technavious.com, or a subdomain such as mail.technavious.com, in Resend by adding the DNS
+  records it lists; set `NOTIFY_FROM` to an address on that domain; then press **Retry now** on
+  each failed notification. The home banner used to read "Not set up for Resend", which looked
+  like a missing key; it now says which of the two it can be.
+- **Build and settings.** `/api/health` now shows `build` (the commit the site was built from)
+  and `settings`: whether the daily jobs and email are on, how many deck approvers are listed
+  (0 means every Technavious administrator may approve), and which languages customers are
+  offered. The database plan is a setting of the Firebase project and cannot be shown.
+
 ## The site
 
 - URL: https://virtual-training-demo.vercel.app
@@ -129,7 +196,7 @@ All in `docs/uat/samples/`. Everything is fictional and labelled as a sample.
 | `sample-questions-isms-pre.csv` | Sample pre-session bank for the built-in ISMS deck: 10 questions |
 | `sample-questions-isms-post.csv` | Sample post-session bank for the ISMS deck: 10 questions |
 | `sample-participants-50.csv` | 50 rows for **Upload participants**, with 2 incomplete rows and 1 duplicate |
-| `public/samples/lesson-plan-data-centre.txt` and `...-with-gap.txt` | Sample lesson plans (in the app already, downloadable from a deck page; see AI-43) |
+| `public/samples/lesson-plan-data-centre.txt` and `...-with-gap.txt` | Sample lesson plans, written for the **Introduction to Data Centers** deck (in the app already, downloadable from a deck page; see AI-43) |
 
 **Sample decks.** The built-in **ISMS Awareness Session** (7 slides, in `src/lib/decks/isms/`;
 the source PowerPoint is `docs/ISMS-Awareness-Session.pptx`). The **Introduction to Data
@@ -336,16 +403,46 @@ November:
 - **Duplicates (1)**: row 51, `uat-participant-10@example.com`, "Duplicate of row 11, which is
   the one kept."
 - No **Failed** table, because no row fails.
-- Uploading the same file a second time gives "49 imported (0 new, 49 already here), 1
-  duplicate, 0 failed. 2 will be asked to complete required fields on their first visit."
 - The 49 people appear on `/people` with the role Employee.
 - An incomplete-profile notification is written on `/platform/notifications` (AI-35).
 - Each prefilled profile is recorded in **Audit history** under "Learner profiles".
+- Each person the upload adds is recorded in **Audit history** under "People and roles", Did
+  "created", with the detail "Added uat-participant-01@example.com from line 2 of a participant
+  upload, with the role trainee" (D-02). Somebody the upload only found is not recorded there.
 - The upload as a whole is recorded once in **Audit history** under "Participant uploads"
   (AI-60), Did "uploaded", with the detail "Uploaded a file of 50 rows: 49 imported (49 new, 0
   already here), 1 duplicate, 0 failed or refused, 2 to complete".
 
 Rows are numbered as a spreadsheet shows them: the header is row 1.
+
+**Uploading the same file a second time.** A second upload never overwrites a profile its owner
+has confirmed. What it does to somebody already here depends only on that:
+
+- Nobody has confirmed the profile yet, so what is stored is the earlier upload. The newer file
+  replaces it whole: a field the newer file leaves empty becomes empty. It stays unconfirmed and
+  is still not given to the trainer. The row reads "Already here. They have not confirmed a
+  profile yet, so it was prefilled from this file. They will confirm it when they next sign
+  in." (or "... They will be asked for: current department." when a required field is empty).
+- The participant has confirmed their profile, whether it began as an upload or they wrote it
+  themselves, and however often they have edited it since. The profile is left exactly as it
+  is, nothing is recorded as written, and the row reads "Already here. They have confirmed
+  their own profile, so it was left exactly as it is." The summary line then ends "1 already
+  here has confirmed their own profile, which was left as it is." (or "N already here have
+  confirmed their own profiles, which were left as they are.").
+- Either way their row on `/people` is not changed: an upload never renames somebody already
+  here, changes their role, or marks them as having signed in.
+
+Expected for `sample-participants-50.csv` uploaded again before anybody has signed in: "49
+imported (0 new, 49 already here), 1 duplicate, 0 failed. 2 will be asked to complete required
+fields on their first visit.", and every row in **Imported (49)** begins "Already here. They
+have not confirmed a profile yet, so it was prefilled from this file." To see the other case,
+sign in as one of the 49, confirm the profile on the consent page, and upload the file again:
+that row reads "Already here. They have confirmed their own profile, so it was left exactly as
+it is.", and **My profile** for that participant is unchanged. A confirmed participant is no
+longer counted in "will be asked to complete required fields", whatever the file leaves empty
+for them. The upload page says the same under **How to fill in the template**: "A file can be
+uploaded again. Somebody who has confirmed their own profile keeps it exactly as it is. A
+profile nobody has confirmed yet is filled in again from the newer file."
 
 **To see a failed row**, copy the file and change one row's proficiency to "Expert", or its
 email to "not an address". Expected reasons: "How you rate your own proficiency must be
@@ -360,8 +457,9 @@ either, because sign-in finds them by their account rather than by their domain.
 
 **Unit tests.** `src/lib/profiles/upload.test.ts` (including "has no cap on how many participants
 a file holds (AI-28)", "imports the valid rows of fifty and lists the failed ones with the
-reason (AI-28)", "refusing addresses the company has not claimed (AI-59)" and "recording an
-upload (AI-60)"), and `src/lib/audit/actions.test.ts` ("participant uploads").
+reason (AI-28)", "refusing addresses the company has not claimed (AI-59)", "recording an
+upload (AI-60)" and "uploading a file again", which holds both cases above and the wording of
+each row), and `src/lib/audit/actions.test.ts` ("participant uploads", "people added (D-02)").
 
 **Known limits / waiting on.** Upload is into the organisation you are in, and only addresses
 on the domains it claims are imported (see Test accounts).
@@ -435,7 +533,8 @@ shuffled for each participant and stays the same on reload. Every version of a b
 each result records the version it was taken on. Nobody fails the pre-session assessment: it
 only places the participant. Default bands: below 40% Beginner, 40% to 70% Intermediate, above
 70% Advanced. A new session copies the deck's bands, and its facilitator or an administrator
-can change them for that session.
+can change them for that session. A bank holds at most 50 questions, on purpose: a file with
+more is refused whole rather than saved as its first 50.
 
 **Where to click (Technavious administrator).**
 
@@ -457,11 +556,24 @@ session (`/sessions/<id>`), section **Level bands**, change the values, **Save t
 
 **Expected result.**
 
-- After saving: "Saved 10 questions." The badge reads **Uploaded**.
+- After saving: "Saved 10 questions." The badge reads **Uploaded**. The line at the top of the
+  panel reads "Version 1: 10 questions, saved <date>. Show them with their answers." at once,
+  without reloading the page (D-07).
 - The bands text reads "Below 40% is Beginner, 40% to 70% is Intermediate, and above 70% is
   Advanced."
-- After a second upload: "2 versions kept. Every result is marked against the version it was
-  taken on." and the list shows "Version 2: 10 questions, uploaded <date>".
+- After a second upload: the same line changes to "Version 2: ..." in the same moment as "Saved
+  10 questions.", and beneath it "2 versions kept. Every result is marked against the version it
+  was taken on." appears, whose list shows "Version 2: 10 questions, uploaded <date>". None of
+  this needs a reload.
+- Under **Upload a CSV** the text ends "A bank holds at most 50 questions, and a file with more
+  cannot be saved." A file of 51 questions previews as "Preview of <file>: 51 questions in the
+  file. A bank holds at most 50, so the last 1 was left out and the file cannot be saved as it
+  is.", lists "Row 52: A bank holds at most 50 questions and this file has 51. Take 1 out and
+  choose the file again." under "This file cannot be saved until these are fixed. Nothing has
+  been changed.", shows the first 50, and **Save this bank** is disabled (D-08). A file of
+  exactly 50 previews as "50 questions read" and saves.
+- A file with bad rows says how many it read of how many it holds, such as "Preview of <file>:
+  8 of 10 questions read", above the list of problems.
 - Leaving a question blank warns "Question N has not been answered. It will be marked Not
   attempted and score nothing. Submit anyway?"
 - With the 10-question samples: 3 correct gives 30%, Beginner; 4 correct gives 40%,
@@ -480,9 +592,11 @@ session (`/sessions/<id>`), section **Level bands**, change the values, **Save t
 - The closure summary (AI-33) shows each participant's pre-session level and the bank version.
 
 **Unit tests.** `src/lib/assessments/scoring.test.ts` (marking, rounding down, blanks, bands,
-shuffle "is the same every time for the same person and version"), `src/lib/assessments/service.test.ts`
+shuffle "is the same every time for the same person and version", and "the most questions a bank
+holds (D-08)"), `src/lib/assessments/service.test.ts`
 ("places 40% and 70% at Intermediate, below 40% at Beginner and above 70% at Advanced", "keeps
-every version, numbered", "records the version on each result"), `src/lib/training/level-bands.test.ts`.
+every version, numbered", "records the version on each result", "what a save answers with
+(D-07)"), `src/lib/training/level-bands.test.ts`.
 
 **Known limits / waiting on.** The user team's real banks. The samples are drafted, not reviewed
 by the content owner.
@@ -877,9 +991,10 @@ Technavious administrator can approve.
 ## AI-40 Audit history (and item 13)
 
 **What was built.** A history of who viewed or changed profiles, assessment results, question
-banks, the glossary and deck approvals, plus consent given and withdrawn, role changes, downloads
-(participant template, session summary), deletions, attendance edits and administrators' own
-actions. Entries are kept 400 days. Only the Technavious administrator can view it.
+banks, the glossary and deck approvals, plus consent given and withdrawn, people added, role
+changes, downloads (participant template, session summary), deletions, attendance edits and
+administrators' own actions. Entries are kept 400 days. Only the Technavious administrator can
+view it.
 
 **Where to click.** Technavious administrator: **Audit history** (`/audit`). Use **What**
 (Everything, Learner profiles, Assessment results, Question banks, Glossary, Deck approvals,
@@ -895,6 +1010,17 @@ Participant uploads),
   ... present, joined late" for the late joiner); a session cancelled; a person removed; a deck
   approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
   participant upload, with its counts.
+- Adding somebody on `/people` is under "People and roles" (D-02): Did "created", Detail "Added
+  <email> by hand, with the role trainee", with who added them under Who. Everybody is added as
+  an employee, stored as `trainee`, so making them a facilitator afterwards is a second entry,
+  Did "role-changed", "Changed <email> from trainee to facilitator". Adding an address that is
+  already there adds nobody: Did "updated", "Added <email> again: already here with the role
+  <role>, which was not changed", followed by "Their name was changed from "<old>" to "<new>""
+  if a different name was typed. Each person a participant upload adds has an entry of their
+  own there too (see AI-28). Moving somebody between customers from **Customers** is recorded
+  in both: Did "deleted", "Moved <email> to "<customer>", which removed them from here with
+  their assignments" in the one they left, and Did "created", "Moved <email> here from
+  "<customer>", with the role trainee" in the one they joined.
 - Company administrator, facilitator, participant: `/audit` is a 404 and there is no nav link.
 - The history shown is for the organisation the administrator is in. To see a customer's
   history, open it from **Customers** with **Look inside** first.
@@ -1064,6 +1190,12 @@ from the plan, Nova follows the deck and the gap is shown to the administrator o
 and to the facilitator before and during the session. Built and tested with the sample plans in
 `public/samples/`.
 
+**Which deck.** Both samples are written for the **Introduction to Data Centers** deck, slide by
+slide. Use them on that deck. On any other deck, such as ISMS, they report many more differences,
+because they describe slides that deck does not have. (Until 19 November the samples were written
+for a different outline, and on Introduction to Data Centers the gap sample reported seven
+differences instead of one. That is fixed.)
+
 **Where to click.**
 
 1. Deck page, **Lesson plan** box: **Download the sample lesson plan** or **the sample with a
@@ -1079,14 +1211,17 @@ and to the facilitator before and during the session. Built and tested with the 
 
 - After saving: "Lesson plan saved. If the deck was approved, it needs approving again before
   anybody new is given it."
-- The gap list includes "The lesson plan's section "Fire suppression" has no slide in this deck;
-  Nova will follow the deck and not teach it."
+- With the plain sample: no differences are listed. Its eight sections match slides 1 to 2, 3 to
+  4, 5 to 6, 7 to 10, 11 to 12, 13 to 14, 15 to 17 and 18 to 19.
+- With the gap sample: the gap list is exactly one line, "The lesson plan's section "Fire
+  suppression" has no slide in this deck; Nova will follow the deck and not teach it."
 - The facilitator sees the same gaps on the session page and the run screen, with "Where they
   differ, the deck is followed. Cover anything the plan expects and the deck lacks yourself, or
   tell the group it is not part of today."
 - Removing the plan: **Remove the plan**, "Lesson plan removed."
 
-**Unit tests.** `src/lib/lesson-plan/lesson-plan.test.ts` ("finds the deliberate gap, and says the
+**Unit tests.** `src/lib/lesson-plan/lesson-plan.test.ts` ("the sample lesson plans that ship,
+against the Introduction to Data Centers deck", "finds the deliberate gap, and says the
 trainer will follow the deck", "shows the gaps to the facilitator before and during the session,
 and to the administrator").
 

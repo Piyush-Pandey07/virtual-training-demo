@@ -208,6 +208,29 @@ describe('where a deck stands', () => {
       /withdrawn after Srikant approved it/,
     );
   });
+
+  // D-04. Approved at 01:30 on 19 November in India, which is still the 18th in UTC. The
+  // server wrote "18 Nov" here while the heading above it, drawn by the browser, said
+  // "19 Nov".
+  it('names the day of the approval in India, as the heading above it does', () => {
+    const at = '2026-11-18T20:00:00.000Z';
+    for (const reason of ['changed', 'withdrawn'] as const) {
+      const refusal = assignmentRefusalFor({ state: 'changed', by: 'Srikant', at, reason }) ?? '';
+      assert.match(refusal, /Srikant approved it on 19 Nov 2026,/, reason);
+      assert.doesNotMatch(refusal, /18 Nov/, reason);
+    }
+    // The heading and the sentence under it are written by the same helper.
+    const panel = read('src/app/decks/[id]/ApproveDeck.tsx');
+    assert.match(
+      panel,
+      /heading: `Approved by \$\{approval\.by\} on \$\{formatDay\(approval\.at\)\}`/,
+    );
+    assert.match(panel, /approved it on \$\{formatDay\(approval\.at\)\}/);
+    assert.match(
+      read('src/lib/decks/approval.ts'),
+      /return formatDay\(iso\) \|\| 'an earlier date';/,
+    );
+  });
 });
 
 describe('who may approve', () => {
@@ -484,5 +507,18 @@ describe('the paths that change a deck', () => {
       read('src/app/people/[id]/PersonDetail.tsx'),
       /disabled=\{Boolean\(deck\.unavailable\)\}/,
     );
+  });
+
+  // D-05. The sentence read "One person already has this deck and keep it": the first
+  // verb changed with the count and the second did not.
+  it('makes both verbs agree with how many people keep the deck', () => {
+    const panel = read('src/app/decks/[id]/ApproveDeck.tsx');
+    assert.match(
+      panel,
+      /assignedCount === 1\s*\? 'One person already has this deck and keeps it'\s*: `\$\{assignedCount\} people already have this deck and keep it`\}\s*, but it needs re-approval before anybody else is given it\./,
+    );
+    // Neither half is left to be finished by words shared between one and many.
+    assert.doesNotMatch(panel, /already has'/);
+    assert.doesNotMatch(panel, /\n\s*this deck and keep it/);
   });
 });

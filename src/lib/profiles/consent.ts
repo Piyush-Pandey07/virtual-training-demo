@@ -104,6 +104,21 @@ export function latestDecision(history: readonly ConsentRecord[]): ConsentRecord
   return history.at(-1);
 }
 
+/**
+ * Whether this person's agreement to the notice on screen now still stands, which is
+ * what My profile asks before it starts its consent box ticked.
+ *
+ * Stricter than `agreedToCurrent`, which lets a withdrawal pass because attending does
+ * not need a profile. Keeping a profile does: somebody who withdrew took back their
+ * agreement to exactly that, so the last thing they decided has to be an agreement, and
+ * to this notice rather than an earlier one. Anybody else is asked to tick the box
+ * themselves, as they were the first time.
+ */
+export function agreementStands(history: readonly ConsentRecord[]): boolean {
+  const latest = latestDecision(history);
+  return latest?.decision === 'given' && latest.noticeVersion === PROFILE_NOTICE_VERSION;
+}
+
 export async function hasCurrentConsent(
   owner: ProfileOwner,
   options: ProfileStoreOptions = {},

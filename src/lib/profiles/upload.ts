@@ -18,14 +18,19 @@
  * it, and nothing on any screen would say why.
  *
  * Each upload is also recorded once in the audit history, with its counts (AI-60), next
- * to the entry for each profile it filled in.
+ * to the entry for each profile it filled in and for each person it added (D-02).
+ *
+ * Uploading a file again is safe for anybody who has confirmed their own profile: it is
+ * left exactly as it is, and so is their row on the roster. Only a profile nobody has
+ * confirmed, which is the organisation's own earlier upload, is replaced by the newer
+ * file. `saveUploadedProfile` decides which, and the result says which it was.
  */
 
 import 'server-only';
 
 import type { DocumentStore } from '../roster/documents';
 import type { RosterStore } from '../roster/store';
-import { recordAudit, type AuditOptions } from '../audit/log';
+import { recordAudit, recordPersonAudit, type AuditOptions } from '../audit/log';
 import { domainKeyOf } from '../orgs/types';
 import type { Person, SignedInPerson } from '../roster/types';
 import type { UploadRow } from './csv';
@@ -179,6 +184,18 @@ export async function importParticipants(
           role: 'trainee',
           orgId: uploader.orgId,
         }));
+      // Somebody new on the roster is recorded as that, under people, as adding them by
+      // hand is (D-02). The entry for their profile below says what was written about
+      // them; this one says they were made able to sign in, and by whom. Nothing is
+      // recorded for somebody already here, whose row an upload never touches.
+      if (!existing) {
+        await recordPersonAudit(
+          uploader,
+          person,
+          { kind: 'uploaded', line: row.line },
+          { store: options.store },
+        );
+      }
 
       const profile = await saveUploadedProfile(
         { id: person.id, orgId: uploader.orgId, emailKey: person.emailKey },

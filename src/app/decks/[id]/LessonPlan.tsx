@@ -25,6 +25,7 @@ import {
   type LessonPlanDraft,
 } from '@/lib/lesson-plan/types';
 import type { LessonPlanView } from '@/lib/lesson-plan/view';
+import { formatDay } from '@/lib/time';
 
 interface Props {
   deckId: string;
@@ -86,13 +87,6 @@ function formFrom(draft: LessonPlanDraft | LessonPlanView): Form {
     })),
     outcomes: draft.outcomes.join('\n'),
   };
-}
-
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function LessonPlan({ deckId, plan, slides }: Props) {
@@ -245,7 +239,7 @@ export function LessonPlan({ deckId, plan, slides }: Props) {
       </h2>
       <p className="text-muted mt-2 text-sm leading-relaxed">
         {plan
-          ? `${plan.sections.length} sections${plan.sourceName ? `, from ${plan.sourceName}` : ''}, saved ${onDate(plan.updatedAt)}. Nova teaches each slide towards its section's objective and time, and follows the deck wherever the two differ.`
+          ? `${plan.sections.length} sections${plan.sourceName ? `, from ${plan.sourceName}` : ''}, saved ${formatDay(plan.updatedAt)}. Nova teaches each slide towards its section's objective and time, and follows the deck wherever the two differ.`
           : 'Upload the session flow and learning outcomes, and Nova will teach each slide towards its section of the plan. Word, PDF, text or CSV, or paste it in.'}{' '}
         <a href={SAMPLE} download className="text-teal hover:underline">
           Download the sample lesson plan
@@ -254,7 +248,8 @@ export function LessonPlan({ deckId, plan, slides }: Props) {
         <a href={SAMPLE_WITH_GAP} download className="text-teal hover:underline">
           the sample with a deliberate gap
         </a>
-        .
+        . Both are written for the Introduction to Data Centers deck, so on any other deck they
+        show more differences than the one that is deliberate.
       </p>
 
       {plan && !form && (

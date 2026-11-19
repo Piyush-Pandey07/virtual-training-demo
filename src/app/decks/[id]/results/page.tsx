@@ -35,6 +35,7 @@ import { describeBands } from '@/lib/assessments/scoring';
 import { LEVEL_LABELS, PASS_MARK, RATING_MAX, SAMPLE_LABEL } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
+import { formatDayShort } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,13 +50,6 @@ export async function generateMetadata({ params }: ResultsPageProps): Promise<Me
   if (!viewer || !mayOpenResults(viewer)) return {};
   const stored = await loadStoredDeck(viewer.orgId, id).catch(() => undefined);
   return stored ? { title: `Results: ${stored.record.meta.title}` } : {};
-}
-
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 /** "2 wrong, 1 not attempted, version 3": the detail under a score. */
@@ -134,7 +128,7 @@ function FeedbackSection({ feedback }: { feedback: NonNullable<DeckResults['feed
                 >
                   {comment.text}
                   <span className="text-muted mt-2 block text-xs">
-                    {onDate(comment.submittedAt)}
+                    {formatDayShort(comment.submittedAt)}
                   </span>
                 </li>
               ))}
@@ -205,7 +199,9 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
         </p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{stored.record.meta.title}</h1>
         <p className="text-muted mt-3 max-w-2xl text-base leading-relaxed">
-          {session?.scheduledFor ? `The session planned for ${onDate(session.scheduledFor)}. ` : ''}
+          {session?.scheduledFor
+            ? `The session planned for ${formatDayShort(session.scheduledFor)}. `
+            : ''}
           A score is the share of all the questions answered correctly; a question left blank is Not
           attempted and scores nothing. The pre-session assessment only sets a starting level, and
           nobody fails it. The pass mark for the post-session assessment is {PASS_MARK}%.
@@ -313,7 +309,7 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                           <>
                             {row.post.percent}%
                             <span className="text-muted block text-xs">
-                              {onDate(row.post.submittedAt)}
+                              {formatDayShort(row.post.submittedAt)}
                             </span>
                             <ScoreDetail
                               wrong={row.post.wrong}

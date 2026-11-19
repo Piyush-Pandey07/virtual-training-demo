@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-import { advancedAbove, checkBands, describeBands } from '@/lib/assessments/scoring';
+import { advancedAbove, BAND_LIMITS, checkBands, describeBands } from '@/lib/assessments/scoring';
 import type { LevelBands } from '@/lib/assessments/types';
 
 /**
@@ -12,6 +12,11 @@ import type { LevelBands } from '@/lib/assessments/types';
  * Shared by a deck's question banks and a trainer-led session, so both ask the same
  * question in the same words and check it with the same rule the server does. The
  * stored shape counts Advanced from one more than what is typed here (see `LevelBands`).
+ *
+ * What is wrong with a value is said underneath, in the sentence the server would send
+ * back for it, as it is typed. The form is `noValidate` so that this is the only message:
+ * the number fields keep their limits for the arrows and a phone's keypad, but the
+ * browser's own wording for a number out of range is not shown in place of ours.
  */
 
 const BUTTON =
@@ -70,6 +75,7 @@ export function LevelBandsForm({
   return (
     <div>
       <form
+        noValidate
         className="flex flex-wrap items-end gap-4"
         onSubmit={(event) => {
           event.preventDefault();
@@ -80,8 +86,8 @@ export function LevelBandsForm({
           <span className="text-muted block">Intermediate from (%)</span>
           <input
             type="number"
-            min={1}
-            max={99}
+            min={BAND_LIMITS.min}
+            max={BAND_LIMITS.max}
             step={1}
             value={intermediateFrom}
             disabled={disabled}
@@ -93,8 +99,8 @@ export function LevelBandsForm({
           <span className="text-muted block">Advanced above (%)</span>
           <input
             type="number"
-            min={1}
-            max={99}
+            min={BAND_LIMITS.min}
+            max={BAND_LIMITS.max}
             step={1}
             value={above}
             disabled={disabled}

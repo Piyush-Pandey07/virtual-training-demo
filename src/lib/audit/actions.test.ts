@@ -13,12 +13,14 @@ import {
   PLATFORM_AUDIT,
   recordConsentAudit,
   recordCustomerAudit,
+  recordPersonAudit,
   type AuditEntry,
 } from './log';
 
 /**
- * The widened audit history (AI-40): consent changes, role changes, downloads, deletions,
- * and the administrators' own actions, readable by the Benchmark administrator alone.
+ * The widened audit history (AI-40): consent changes, people added, role changes,
+ * downloads, deletions, and the administrators' own actions, readable by the Benchmark
+ * administrator alone.
  *
  * What can be driven without a server is driven. The rest sits in routes, which need a
  * session to call, so each is read out of the source as log.test.ts does: the action and
@@ -157,6 +159,229 @@ describe('people', () => {
   it('records the removal of a person, as well as of their profile', () => {
     records(route, /roster\.removePerson\(id/, 'deleted', 'person');
     records(route, /deleteProfile\(/, 'deleted', 'profile');
+  });
+});
+
+describe('people added (D-02)', () => {
+  let store: InMemoryDocumentStore;
+  beforeEach(() => {
+    store = new InMemoryDocumentStore();
+  });
+
+  const hr: SignedInPerson = {
+    id: 'hr',
+    orgId: 'acme',
+    homeOrgId: 'acme',
+    platform: false,
+    email: 'hr@acme.example',
+    emailKey: 'hr@acme.example',
+    name: 'Hema',
+    role: 'admin',
+    createdAt: '2026-11-01T00:00:00.000Z',
+    lastSeenAt: '2026-11-01T00:00:00.000Z',
+  };
+  const asha = { id: 'local-asha-acme-example', email: 'asha@acme.example', name: '' };
+  const at = (minute: number) => ({
+    store,
+    immediate: true,
+    now: Date.parse(`2026-11-19T09:0${minute}:00.000Z`),
+  });
+  const entriesIn = async (orgId: string) =>
+    (await store.all<AuditEntry>(`orgs/${orgId}/${AUDIT}`)).sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
+
+  it('has an action for it, on the subject people already had', () => {
+    // No new vocabulary: adding is 'created', as setting up a batch or a session is, and
+    // the history page lists every subject and prints the action as it is stored.
+    for (const action of ['created', 'updated', 'deleted'] as const) {
+      assert.ok(AUDIT_ACTIONS.includes(action), `no action ${action}`);
+    }
+    assert.ok(AUDIT_SUBJECTS.includes('person'));
+    assert.equal(AUDIT_SUBJECT_LABELS.person, 'People and roles');
+    assert.ok(!isPlatformAuditSubject('person'), 'people belong to their customer');
+    assert.match(read('src/app/audit/page.tsx'), /AUDIT_SUBJECTS\.map\(/);
+  });
+
+  it('records who was added by hand, with which role, by whom and when', async () => {
+    await recordPersonAudit(hr, { ...asha, role: 'trainee' }, { kind: 'added' }, at(0));
+    const [entry, ...rest] = await entriesIn('acme');
+    assert.deepEqual(rest, []);
+    assert.equal(entry!.action, 'created');
+    assert.equal(entry!.subjectType, 'person');
+    assert.equal(entry!.subjectId, asha.id);
+    assert.equal(entry!.detail, 'Added asha@acme.example by hand, with the role trainee');
+    assert.equal(entry!.actorId, 'hr');
+    assert.equal(entry!.actorEmail, 'hr@acme.example');
+    assert.equal(entry!.actorRole, 'company administrator');
+    assert.equal(entry!.orgId, 'acme');
+    assert.equal(entry!.at, '2026-11-19T09:00:00.000Z');
+    // In the customer's own history, and nowhere a different customer could read it.
+    assert.deepEqual(await store.all(PLATFORM_AUDIT), []);
+    assert.deepEqual(await entriesIn('globex'), []);
+  });
+
+  it('says that an address added again made nobody new and changed no role', async () => {
+    const facilitator = { id: 'fran-uid', email: 'fran@acme.example', role: 'facilitator' as Role };
+    await recordPersonAudit(
+      hr,
+      { ...facilitator, name: 'Fran' },
+      { kind: 'added-again', nameBefore: 'Fran' },
+      at(0),
+    );
+    await recordPersonAudit(
+      hr,
+      { ...facilitator, name: 'Fran Dsouza' },
+      { kind: 'added-again', nameBefore: 'Fran' },
+      at(1),
+    );
+    await recordPersonAudit(
+      hr,
+      { ...facilitator, name: 'Fran' },
+      { kind: 'added-again', nameBefore: '' },
+      at(2),
+    );
+    const entries = await entriesIn('acme');
+    assert.deepEqual(
+      entries.map((entry) => [entry.action, entry.subjectType, entry.subjectId, entry.detail]),
+      [
+        [
+          'updated',
+          'person',
+          'fran-uid',
+          'Added fran@acme.example again: already here with the role facilitator, which was not changed',
+        ],
+        [
+          'updated',
+          'person',
+          'fran-uid',
+          'Added fran@acme.example again: already here with the role facilitator, which was not changed. Their name was changed from "Fran" to "Fran Dsouza"',
+        ],
+        [
+          'updated',
+          'person',
+          'fran-uid',
+          'Added fran@acme.example again: already here with the role facilitator, which was not changed. Their name was set to "Fran"',
+        ],
+      ],
+    );
+  });
+
+  it('records somebody a participant upload added, with the line they came from', async () => {
+    await recordPersonAudit(
+      { ...hr, id: 'fran-uid', email: 'fran@acme.example', role: 'facilitator' },
+      { ...asha, role: 'trainee' },
+      { kind: 'uploaded', line: 7 },
+      at(0),
+    );
+    const [entry] = await entriesIn('acme');
+    assert.deepEqual(
+      [entry!.action, entry!.subjectType, entry!.actorRole, entry!.detail],
+      [
+        'created',
+        'person',
+        'facilitator',
+        'Added asha@acme.example from line 7 of a participant upload, with the role trainee',
+      ],
+    );
+  });
+
+  it('records a move in both customers: leaving one, and arriving in the other', async () => {
+    const staff: SignedInPerson = {
+      ...hr,
+      id: 'bench',
+      email: 'bench@technavious.example',
+      orgId: 'technavious',
+      homeOrgId: 'technavious',
+      platform: true,
+    };
+    const moving = { ...asha, id: 'asha-uid', role: 'facilitator' as Role };
+    await recordPersonAudit(
+      { ...staff, orgId: 'globex' },
+      moving,
+      { kind: 'moved-out', toOrgId: 'acme' },
+      at(0),
+    );
+    await recordPersonAudit(
+      { ...staff, orgId: 'acme' },
+      { ...moving, role: 'trainee' },
+      { kind: 'moved-in', fromOrgId: 'globex' },
+      at(1),
+    );
+    const [left] = await entriesIn('globex');
+    const [arrived] = await entriesIn('acme');
+    assert.deepEqual(
+      [left!.action, left!.subjectType, left!.subjectId, left!.detail, left!.actorRole],
+      [
+        'deleted',
+        'person',
+        'asha-uid',
+        'Moved asha@acme.example to "acme", which removed them from here with their assignments',
+        'administrator',
+      ],
+    );
+    assert.deepEqual(
+      [arrived!.action, arrived!.subjectType, arrived!.subjectId, arrived!.detail],
+      [
+        'created',
+        'person',
+        'asha-uid',
+        'Moved asha@acme.example here from "globex", with the role trainee',
+      ],
+    );
+    assert.deepEqual(await entriesIn('technavious'), []);
+  });
+
+  it('is recorded by the people route once the row is written, new or already here', () => {
+    const route = read('src/app/api/people/route.ts');
+    const looked = route.indexOf('const existing = await store.getPersonByEmail(email);');
+    const written = route.indexOf('const person = await store.upsertPerson(');
+    const recorded = route.indexOf('await recordPersonAudit(', written);
+    const answered = route.indexOf('return Response.json(person,', written);
+    assert.ok(looked >= 0 && looked < written, 'whether they were here is not read first');
+    assert.ok(recorded > written, 'adding somebody is not recorded after it');
+    assert.ok(answered > recorded, 'the answer goes before the entry is queued');
+    assert.match(
+      route,
+      /recordPersonAudit\(\s*admin,\s*person,\s*existing \? \{ kind: 'added-again', nameBefore: existing\.name \} : \{ kind: 'added' \},\s*\)/,
+    );
+  });
+
+  it('cannot be given a role at the same time, so a role is always its own entry', () => {
+    // The route reads an address and a name from the request and nothing else, and the
+    // store never takes a role for somebody already here. Anything but an employee is
+    // therefore the PATCH on /api/people/{id}, which records 'role-changed'.
+    const route = read('src/app/api/people/route.ts');
+    assert.match(route, /store\.upsertPerson\(\{ email, name: body\.name\?\.trim\(\) \}\)/);
+    assert.doesNotMatch(route, /body\.role|setRole\(/);
+    records(
+      'src/app/api/people/[id]/route.ts',
+      /store\.setRole\(id, body\.role\)/,
+      'role-changed',
+      'person',
+    );
+  });
+
+  it('is recorded for each person an upload creates, and for nobody it only found', () => {
+    assert.match(
+      read('src/lib/profiles/upload.ts'),
+      /if \(!existing\) \{\s*await recordPersonAudit\(\s*uploader,\s*person,\s*\{ kind: 'uploaded', line: row\.line \},/,
+    );
+  });
+
+  it('is recorded for a move in the customer left and the customer joined', () => {
+    const route = read('src/app/api/platform/move/route.ts');
+    const moved = route.indexOf('await movePerson(person.id, fromOrgId, toOrgId);');
+    assert.ok(moved >= 0, 'the route no longer moves anybody');
+    const after = route.slice(moved);
+    assert.match(
+      after,
+      /recordPersonAudit\(\{ \.\.\.staff, orgId: fromOrgId \}, person, \{\s*kind: 'moved-out',\s*toOrgId,\s*\}\)/,
+    );
+    assert.match(
+      after,
+      /recordPersonAudit\(\s*\{ \.\.\.staff, orgId: toOrgId \},\s*arrived \?\? \{ \.\.\.person, role: 'trainee' \},\s*\{ kind: 'moved-in', fromOrgId \},\s*\)/,
+    );
   });
 });
 

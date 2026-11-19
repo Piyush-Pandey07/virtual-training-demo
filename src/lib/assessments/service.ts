@@ -35,8 +35,10 @@ import {
   maySeeResultsOf,
 } from './access';
 import { assessmentHref, feedbackHref } from './paths';
+import type { SavedBankReply } from './saved';
 import {
   bandsOf,
+  checkBands,
   checkFeedback,
   levelFor,
   levelWithBands,
@@ -65,7 +67,6 @@ import {
   type BankVersionSummary,
   type FeedbackRecord,
   type Level,
-  type LevelBands,
   type QuestionBank,
   type QuestionBankVersion,
   type ResultsRow,
@@ -689,14 +690,56 @@ export async function bankVersionsForAdministrator(
   }));
 }
 
-/** Changes the pre-session bank's level bands. Results already given keep their level. */
+/**
+ * What a save answers with: the bank as it was saved, and every version now kept.
+ *
+ * So the administrator's screen can show the new version number, count and date in the
+ * same moment it says "Saved", rather than the old ones until the page has been fetched
+ * again (D-07). The versions are read after the save, so they include the one just made
+ * and any earlier bank the save kept for the first time.
+ *
+ * By the time this runs the bank is saved. If the versions cannot be read, the answer
+ * goes without them rather than failing, because an error here would tell the
+ * administrator a save had failed that had not. The screen then waits for the page.
+ */
+export async function bankAsSaved(
+  viewer: SignedInPerson,
+  saved: QuestionBank,
+  options: ServiceOptions = {},
+): Promise<SavedBankReply> {
+  refuseUnlessAdministrator(viewer);
+  const versions = await bankVersionsForAdministrator(
+    viewer,
+    saved.deckId,
+    saved.kind,
+    options,
+  ).catch(() => undefined);
+  return {
+    questions: saved.questions.length,
+    savedAt: saved.savedAt,
+    bank: saved,
+    ...(versions ? { versions } : {}),
+  };
+}
+
+/**
+ * Changes the pre-session bank's level bands. Results already given keep their level.
+ *
+ * The bands are taken as they arrived and checked here, as a session's are in
+ * `changeSession`, rather than trusted from the route. A percentage outside 1 to 99, a
+ * fraction, or "Advanced above" below "Intermediate from" is refused with the reason,
+ * before anything is read or written, whatever sent it.
+ */
 export async function setLevelBands(
   viewer: SignedInPerson,
   deckId: string,
-  bands: LevelBands,
+  value: unknown,
   options: ServiceOptions = {},
 ): Promise<QuestionBank> {
   refuseUnlessAdministrator(viewer);
+  const checked = checkBands(value);
+  if (!checked.ok) throw new Refused(400, checked.error);
+  const bands = checked.bands;
   const store = assessmentStore(viewer.orgId, options.store);
   if (!(await store.getBank(deckId, 'pre'))) {
     throw new Refused(404, 'Upload or generate the pre-session bank first.');

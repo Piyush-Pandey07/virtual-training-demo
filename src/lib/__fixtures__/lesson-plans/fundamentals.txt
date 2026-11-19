@@ -1,0 +1,29 @@
+Lesson plan: Data Centre Fundamentals (CDFA)
+
+This is a sample lesson plan for a data centre fundamentals session. Upload it on a deck's
+page, or copy its layout for your own plan: numbered sections, each with a time, then an
+"Objective:" line. A "Slides:" line ties a section to slide numbers when the titles do not
+match, for example "Slides: 4-5". Lines that are not in a section, like these, are ignored.
+
+Session flow
+1. Introduction and objectives (3 min)
+   Objective: Welcome the group, introduce the course and set out what the session covers.
+2. What a data centre is (8 min)
+   Objective: Explain what a data centre does and why availability matters to the business it serves.
+3. Key components (10 min)
+   Objective: Walk through the data hall and name the main components: racks, servers, network, power distribution and cooling units.
+4. Power: from the grid to the rack (15 min)
+   Objective: Trace the power path from the utility feed to the rack, and show how the UPS and generators keep the load running when the utility fails.
+5. Cooling (10 min)
+   Objective: Explain how heat is removed from the data hall, including hot and cold aisle containment.
+6. Tier levels and redundancy (10 min)
+   Objective: Explain the four tier levels and what N, N+1 and 2N redundancy mean in practice.
+7. Summary and questions (5 min)
+   Objective: Recap the session and answer the group's questions.
+
+Learning outcomes
+- Describe what a data centre is for and why availability matters.
+- Name the main components of a data hall and what each one does.
+- Trace the power path from the utility feed to the rack, including the UPS and generators.
+- Explain how cooling and containment keep IT equipment within its operating range.
+- Explain the tier levels and the difference between N, N+1 and 2N redundancy.

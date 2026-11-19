@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
-import { formatSessionTime } from '@/lib/time';
+import { formatSessionTime, momentFromTrainingZoneInput } from '@/lib/time';
 import type { Batch, TrainingSession } from '@/lib/training/types';
 import { NO_REOPENING, STATUS_WORDS } from '@/lib/training/words';
 import { ParticipantPicker, type PersonOption as PickerOption } from './ParticipantPicker';
@@ -98,7 +98,8 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
       facilitatorId: facilitatorChoice ? sessionFacilitator : undefined,
       batchId: batchId || undefined,
       participantIds: sessionPeople,
-      scheduledFor: when ? new Date(when).toISOString() : undefined,
+      // Read as India time, which is how it is shown everywhere afterwards.
+      scheduledFor: momentFromTrainingZoneInput(when),
     });
     if (done) {
       setSessionPeople([]);
@@ -206,7 +207,8 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
             </div>
             <div>
               <label htmlFor="session-when" className="block text-sm font-semibold">
-                When <span className="text-muted ml-2 font-normal">optional</span>
+                When, in India time (IST){' '}
+                <span className="text-muted ml-2 font-normal">optional</span>
               </label>
               <input
                 id="session-when"

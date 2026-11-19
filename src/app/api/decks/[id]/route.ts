@@ -68,6 +68,29 @@ const EDITABLE_META: EditableMetaField[] = [
   'closingReminder',
 ];
 
+/**
+ * What each field is called on the deck page.
+ *
+ * A refusal is shown to the administrator as it is written here, so it names the field
+ * the way the page does. It used to name the internal one: the UAT dry run of
+ * 18 November got "meta.completionPercent must be a whole number from 50 to 100." for
+ * the box labelled Completion point (D-03).
+ */
+const META_NAMES: Record<string, string> = {
+  title: 'Title',
+  subtitle: 'Subtitle',
+  spokenSubject: 'Spoken subject',
+  owner: 'Organisation',
+  ownerDescription: 'What they do',
+  trainerRole: 'Trainer role',
+  practitionerCredential: 'Why they are credible',
+  exampleDomain: 'Things the audience recognises',
+  exampleContext: 'Their working world',
+  closingReminder: 'Closing reminder',
+  topicInfo: 'Course information',
+  caseStudies: 'Case studies',
+};
+
 const ROLES: SlideRole[] = ['title', 'content', 'divider', 'closing'];
 
 /** Long enough for any of these, short enough that none becomes a paragraph. */
@@ -101,7 +124,7 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
     const value = raw[field];
     if (value === undefined) continue;
     if (typeof value !== 'string') {
-      problems.push(`meta.${field} must be a string.`);
+      problems.push(`${META_NAMES[field]} must be text.`);
       continue;
     }
     const clean = value
@@ -115,7 +138,7 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
   if (raw.completionPercent !== undefined) {
     const percent = Number(raw.completionPercent);
     if (!Number.isInteger(percent) || percent < 50 || percent > 100) {
-      problems.push('meta.completionPercent must be a whole number from 50 to 100.');
+      problems.push('The completion point must be a whole number from 50 to 100.');
     } else {
       next.completionPercent = percent;
     }
@@ -124,14 +147,14 @@ function applyMeta(meta: DeckMeta, raw: unknown, problems: string[]): DeckMeta {
     const value = raw[field];
     if (value === undefined) continue;
     if (typeof value !== 'string') {
-      problems.push(`meta.${field} must be a string.`);
+      problems.push(`${META_NAMES[field]} must be text.`);
       continue;
     }
     const clean = value.trim().slice(0, MAX_META_CHARS);
     // Every one of these is spliced into a spoken sentence. An empty one would
     // leave the trainer saying "the deck is the authority on  policy".
     if (clean.length === 0) {
-      problems.push(`meta.${field} cannot be empty.`);
+      problems.push(`${META_NAMES[field]} cannot be empty.`);
       continue;
     }
     next[field] = clean;

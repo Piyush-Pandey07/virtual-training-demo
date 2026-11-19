@@ -1,10 +1,11 @@
 /**
  * The audit history: who viewed or changed a learner profile, an assessment result, a
  * question bank, the glossary or a deck's approval (BRD v2.3, AI-40); and, as the product
- * owner widened it, consent given and withdrawn, role changes, downloads, deletions of
- * people, decks, banks and sessions, attendance edits, and the administrators' own
- * actions: decks uploaded, edited, analysed, published and withdrawn, assignments, and
- * batches and sessions set up and changed. Only Technavious administrators read it.
+ * owner widened it, consent given and withdrawn, people added and moved, role changes,
+ * downloads, deletions of people, decks, banks and sessions, attendance edits, and the
+ * administrators' own actions: decks uploaded, edited, analysed, published and withdrawn,
+ * assignments, and batches and sessions set up and changed. Only Technavious
+ * administrators read it.
  *
  * Append only. An entry is written once and never changed, and nothing in the app
  * removes one: they go when their retention runs out, or with the customer they belong
@@ -86,7 +87,7 @@ export const AUDIT_SUBJECTS = [
   'deck-approval',
   // Agreeing to and withdrawing from the privacy notice, separately from the profile.
   'consent',
-  // Somebody's place in the customer: a role changed, or removed.
+  // Somebody's place in the customer: added, a role changed, moved, or removed.
   'person',
   'deck',
   'assignment',
@@ -306,6 +307,90 @@ export function recordConsentAudit(
           ? `Agreed to notice ${consent.noticeVersion}${consent.withProfile ? ', with a profile' : ''}`
           : `Withdrew consent given under notice ${consent.noticeVersion}`,
     },
+    options,
+  );
+}
+
+/** The parts of a roster row the history names. See roster/types.ts. */
+export interface PersonRecorded {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+}
+
+/** How somebody came to be in a customer, or left it by being moved, for `recordPersonAudit`. */
+export type PersonChange =
+  /** Added by hand on the people screen, at an address not here before. */
+  | { kind: 'added' }
+  /** The same, at an address already here. `nameBefore` is the name they had until then. */
+  | { kind: 'added-again'; nameBefore: string }
+  /** Created by a row of a participant upload. */
+  | { kind: 'uploaded'; line: number }
+  /** Moved between customers by Technavious, as the customer they arrived in sees it. */
+  | { kind: 'moved-in'; fromOrgId: string }
+  /** The same move, as the customer they left sees it. */
+  | { kind: 'moved-out'; toOrgId: string };
+
+/**
+ * Records that an administrator put somebody on a customer's roster, or took them off it
+ * by moving them (D-02): who it was, the role they have, and how it was done. Who did it
+ * and when come with every entry.
+ *
+ * Adding somebody decides who may sign in and be given training, so it belongs in the
+ * history beside the role changes and removals that were already there. Somebody who
+ * arrives by signing in themselves is not recorded here: that is their own act, not an
+ * administrator's.
+ *
+ * Adding an address that is already here creates nobody and never changes a role, and
+ * the entry says so, because "added again" beside an administrator's address would
+ * otherwise read as a second way of being made one. It can change their name, which the
+ * entry says too.
+ *
+ * `person` is the row as it is after the change. The actor's `orgId` is the customer the
+ * entry is filed in, which for a move is not always the one staff are looking inside.
+ */
+export function recordPersonAudit(
+  actor: AuditActor,
+  person: PersonRecorded,
+  change: PersonChange,
+  options: AuditOptions = {},
+): Promise<void> {
+  const role = `with the role ${person.role}`;
+  let action: AuditAction;
+  let detail: string;
+  switch (change.kind) {
+    case 'added':
+      action = 'created';
+      detail = `Added ${person.email} by hand, ${role}`;
+      break;
+    case 'added-again': {
+      const renamed =
+        change.nameBefore === person.name
+          ? ''
+          : change.nameBefore
+            ? `. Their name was changed from "${change.nameBefore}" to "${person.name}"`
+            : `. Their name was set to "${person.name}"`;
+      action = 'updated';
+      detail = `Added ${person.email} again: already here ${role}, which was not changed${renamed}`;
+      break;
+    }
+    case 'uploaded':
+      action = 'created';
+      detail = `Added ${person.email} from line ${change.line} of a participant upload, ${role}`;
+      break;
+    case 'moved-in':
+      action = 'created';
+      detail = `Moved ${person.email} here from "${change.fromOrgId}", ${role}`;
+      break;
+    case 'moved-out':
+      action = 'deleted';
+      detail = `Moved ${person.email} to "${change.toOrgId}", which removed them from here with their assignments`;
+      break;
+  }
+  return recordAudit(
+    actor,
+    { action, subjectType: 'person', subjectId: person.id, detail },
     options,
   );
 }
