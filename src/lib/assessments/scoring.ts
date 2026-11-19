@@ -321,34 +321,59 @@ export function advancedAbove(bands: LevelBands): number {
 }
 
 /**
+ * The lowest and highest percentage either box of the level bands form takes.
+ *
+ * From 1, so there is a score below Intermediate for Beginner, to 99, so there is a
+ * score above "Advanced above" for Advanced. The form's number fields take these as
+ * their own limits, and `checkBands` holds the server to the same two numbers.
+ */
+export const BAND_LIMITS = { min: 1, max: 99 } as const;
+
+/** A whole percentage either box may hold. */
+function withinBandLimits(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= BAND_LIMITS.min &&
+    value <= BAND_LIMITS.max
+  );
+}
+
+/** Each box is named as the screen labels it, so the message points at the box. */
+function bandLimitsMessage(box: 'Intermediate from' | 'Advanced above'): string {
+  return `"${box}" must be a whole number from ${BAND_LIMITS.min} to ${BAND_LIMITS.max}.`;
+}
+
+/**
  * Level bands somebody typed, if they make sense.
  *
  * Takes the stored shape: a screen that asks for "Advanced above" sends one more than
- * what was typed as `advancedFrom`. Both whole numbers, Intermediate starting above zero
- * so Beginner exists at all, and Advanced above a score no lower than where Intermediate
- * starts and below 100% so all three bands can be reached. Returns the problem in words,
- * for the screen, or the bands.
+ * what was typed as `advancedFrom`. Both boxes hold a whole number from 1 to 99, and
+ * "Advanced above" is no lower than "Intermediate from", so all three bands can be
+ * reached. Returns the problem in words, for the screen, or the bands.
+ *
+ * The one rule for the form, which shows the problem as it is typed, and for the server,
+ * which is what enforces it: the number fields have the same limits, but a browser's own
+ * limits stop nothing that does not come through the form, and its bubble is not this
+ * app's message. So each refusal names its box and its limits in the words on the
+ * screen, and is the same sentence wherever it is met.
  */
 export function checkBands(
   value: unknown,
 ): { ok: true; bands: LevelBands } | { ok: false; error: string } {
   const { intermediateFrom, advancedFrom } = (value ?? {}) as Record<string, unknown>;
-  if (
-    typeof intermediateFrom !== 'number' ||
-    typeof advancedFrom !== 'number' ||
-    !Number.isInteger(intermediateFrom) ||
-    !Number.isInteger(advancedFrom)
-  ) {
-    return { ok: false, error: 'Both band edges must be whole percentages.' };
+  if (!withinBandLimits(intermediateFrom)) {
+    return { ok: false, error: bandLimitsMessage('Intermediate from') };
   }
-  if (intermediateFrom < 1 || intermediateFrom > 99) {
-    return { ok: false, error: 'Intermediate must start somewhere from 1% to 99%.' };
+  // What was typed as "Advanced above" is one less than the stored edge.
+  if (typeof advancedFrom !== 'number' || !withinBandLimits(advancedFrom - 1)) {
+    return { ok: false, error: bandLimitsMessage('Advanced above') };
   }
-  if (advancedFrom <= intermediateFrom || advancedFrom > 100) {
+  if (advancedFrom <= intermediateFrom) {
     return {
       ok: false,
       error:
-        'Advanced must be above a score no lower than where Intermediate starts, and below 100%.',
+        '"Advanced above" cannot be lower than "Intermediate from", because that would leave no score for Intermediate.',
     };
   }
   return { ok: true, bands: { intermediateFrom, advancedFrom } };

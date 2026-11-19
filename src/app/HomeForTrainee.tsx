@@ -16,13 +16,12 @@ import { MainNav } from '@/components/MainNav';
 import { ProgressBar } from '@/components/ProgressBar';
 import { COMPLETION_THRESHOLD } from '@/lib/roster/completion';
 import type { ProgressRow, SignedInPerson } from '@/lib/roster/types';
+import { dayHasPassed, formatDay } from '@/lib/time';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { JourneyStep, SessionJourney } from '@/lib/training/journey';
 
 function formatDate(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'unknown';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDay(iso) || 'unknown';
 }
 
 function dueLabel(
@@ -30,9 +29,11 @@ function dueLabel(
   completed: boolean,
 ): { text: string; late: boolean } | null {
   if (!dueAt || completed) return null;
-  const due = new Date(dueAt);
-  if (Number.isNaN(due.getTime())) return null;
-  const late = due.getTime() < Date.now();
+  if (Number.isNaN(new Date(dueAt).getTime())) return null;
+  // Late once the due day is over in India, which is the day the label names. Set
+  // against the clock, a due date is midnight UTC, so it read "Was due" from half past
+  // five in the morning of the day it was due.
+  const late = dayHasPassed(dueAt);
   return { text: `${late ? 'Was due' : 'Due'} ${formatDate(dueAt)}`, late };
 }
 

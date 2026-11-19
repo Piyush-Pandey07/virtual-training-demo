@@ -101,6 +101,16 @@ describe('what an employee has done', () => {
     assert.equal(stats.nextDueAt, '2026-06-01', 'the soonest outstanding due date is wrong');
   });
 
+  it('counts a deck as overdue only once its due day is over in India (D-04)', () => {
+    const due = [row({ deckId: 'due-on-the-20th', dueAt: '2026-11-20' })];
+    // 08:30 on the 20th in India. The due date read as a moment is midnight UTC, which
+    // had passed, so the deck was counted overdue through the whole of its due day.
+    assert.equal(employeeStats(due, new Date('2026-11-20T03:00:00.000Z')).overdue, 0);
+    // 23:59 that night in India, then midnight, when the 20th is over.
+    assert.equal(employeeStats(due, new Date('2026-11-20T18:29:00.000Z')).overdue, 0);
+    assert.equal(employeeStats(due, new Date('2026-11-20T18:30:00.000Z')).overdue, 1);
+  });
+
   it('survives a deck whose slides carry no time budget', () => {
     // A deck can be uploaded and never analysed, in which case every target is zero.
     // Dividing by that total would put NaN% on somebody's profile.

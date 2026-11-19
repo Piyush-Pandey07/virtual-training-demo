@@ -1,3 +1,4 @@
+import { dayHasPassed } from '../time';
 import type { ProgressRow } from './types';
 
 /**
@@ -11,8 +12,8 @@ import type { ProgressRow } from './types';
  * Derived from rows rather than read from storage, so there is nothing to keep in step
  * and no second source of truth to disagree with the list underneath it.
  *
- * Pure: takes rows, returns numbers. No imports beyond the row type, so the client half
- * of a page can call it too.
+ * Pure: takes rows, returns numbers. No imports beyond the row type and the day
+ * comparison, which is as pure, so the client half of a page can call it too.
  */
 
 export interface EmployeeStats {
@@ -44,8 +45,6 @@ export interface EmployeeStats {
 }
 
 export function employeeStats(rows: ProgressRow[], now = new Date()): EmployeeStats {
-  const today = now.toISOString();
-
   let completed = 0;
   let inProgress = 0;
   let notStarted = 0;
@@ -76,7 +75,11 @@ export function employeeStats(rows: ProgressRow[], now = new Date()): EmployeeSt
     else inProgress += 1;
 
     if (row.dueAt !== null) {
-      if (row.dueAt < today) overdue += 1;
+      // Overdue once the due day is over in India, the same rule the trainee's own home
+      // page uses for "Was due". A due date is a day with no time, so set against the
+      // clock it counted as overdue from half past five in the morning of the day itself
+      // (D-04).
+      if (dayHasPassed(row.dueAt, now)) overdue += 1;
       if (nextDueAt === null || row.dueAt < nextDueAt) nextDueAt = row.dueAt;
     }
   }

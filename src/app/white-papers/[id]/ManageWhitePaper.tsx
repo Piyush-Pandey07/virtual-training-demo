@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { formatDay } from '@/lib/time';
 import { readPaperPdf, sendPaper } from '@/lib/white-papers/send';
 import {
   MAX_WHITE_PAPER_SUMMARY,
@@ -27,13 +28,6 @@ const QUIET_BUTTON =
 const FIELD =
   'border-charcoal-line bg-charcoal text-mist focus:border-teal mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none';
 
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 function describe(
   approval: WhitePaperApprovalView,
   withdrawn: boolean,
@@ -46,7 +40,7 @@ function describe(
   }
   if (approval.state === 'approved') {
     return {
-      heading: `Approved by ${approval.by} on ${onDate(approval.at)}`,
+      heading: `Approved by ${approval.by} on ${formatDay(approval.at)}`,
       body: `Version ${approval.version} is approved, and the decks it is attached to draw on it. A new PDF, a new title or withdrawing it will need a fresh approval.`,
     };
   }
@@ -56,7 +50,7 @@ function describe(
         approval.reason === 'withdrawn'
           ? 'Withdrawn since approval: needs approving again'
           : 'Changed since approval: needs approving again',
-      body: `${approval.by} approved version ${approval.version} on ${onDate(approval.at)}. No deck draws on it until it is approved again.`,
+      body: `${approval.by} approved version ${approval.version} on ${formatDay(approval.at)}. No deck draws on it until it is approved again.`,
     };
   }
   return {

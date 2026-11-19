@@ -17,6 +17,7 @@ import { requireAdminPage } from '@/lib/auth/guard';
 import { isAdministrator } from '@/lib/auth/permissions';
 import { deckApprovalStates } from '@/lib/decks/approval';
 import { deckStore, listDecks } from '@/lib/decks/registry';
+import { formatDay } from '@/lib/time';
 
 // Read at request time. Prerendering this would bake in whichever decks existed
 // when the build ran, so an uploaded deck would never appear.
@@ -30,9 +31,8 @@ const STORE_DESCRIPTION: Record<string, string> = {
 };
 
 function formatDate(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime()) || at.getTime() === 0) return 'unknown';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (new Date(iso).getTime() === 0) return 'unknown';
+  return formatDay(iso) || 'unknown';
 }
 
 export default async function DeckLibraryPage() {

@@ -18,6 +18,7 @@ import {
   MAX_REASON,
   MAX_TERM,
 } from '@/lib/glossary/validate';
+import { formatDay } from '@/lib/time';
 
 /**
  * The administrator's glossary screen: search, add, change, hold and release, delete,
@@ -65,11 +66,7 @@ function draftOf(entry: GlossaryRecord): Draft {
 }
 
 function onDate(iso: string | undefined): string {
-  if (!iso) return '';
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ''
-    : at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return iso ? formatDay(iso) : '';
 }
 
 /** Sends one change, and returns the server's refusal in its own words, or null. */

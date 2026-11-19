@@ -22,6 +22,7 @@ import { detailsOf, displayValue, missingRequired, PROFILE_FIELDS } from '@/lib/
 import { viewProfile } from '@/lib/profiles/view';
 import { deletionDue } from '@/lib/retention/policy';
 import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
+import { formatDayLong } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,7 @@ interface ProfileViewPageProps {
 }
 
 function dateOf(iso: string | undefined): string {
-  return iso ? new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'long' }) : '';
+  return iso ? formatDayLong(iso) : '';
 }
 
 export default async function ProfileViewPage({ params }: ProfileViewPageProps) {

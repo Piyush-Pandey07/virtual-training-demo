@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { LEVEL_LABELS, type ResultSummary } from '@/lib/assessments/types';
+import { formatDayLong } from '@/lib/time';
 
 /**
  * A participant's own result, as they see it straight after submitting and whenever they
@@ -16,12 +17,6 @@ export interface NextLink {
   label: string;
 }
 
-function onDate(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return '';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
 export function ResultCard({
   result,
   next,
@@ -34,7 +29,9 @@ export function ResultCard({
   waiting?: string | null;
 }) {
   const score = `${result.correct} out of ${result.total} (${result.percent}%)`;
-  const date = onDate(result.submittedAt);
+  // The browser draws this card straight after submitting and the server draws it on a
+  // later visit, so the day has to be the one in India both times.
+  const date = formatDayLong(result.submittedAt);
   // Older summaries, sent before blanks were allowed, may lack the counts.
   const wrong = result.wrong ?? result.total - result.correct;
   const notAttempted = result.notAttempted ?? 0;

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { ROLES, type Role } from '@/lib/roster/types';
 import { roleLabel } from '@/lib/auth/labels';
 import { duration } from '@/lib/roster/stats';
+import { formatDay } from '@/lib/time';
 
 export interface PersonLine {
   id: string;
@@ -28,9 +29,7 @@ export interface PersonLine {
 
 function formatDate(iso: string | null): string {
   if (!iso) return 'never';
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return 'unknown';
-  return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatDay(iso) || 'unknown';
 }
 
 export function PeopleList({ people, meId }: { people: PersonLine[]; meId: string }) {

@@ -6,6 +6,7 @@ import { ManageCustomer } from './ManageCustomer';
 import { useState } from 'react';
 
 import type { CustomerOverview } from '@/lib/platform/overview-types';
+import { formatDay } from '@/lib/time';
 
 /**
  * Choosing which customer to look inside.
@@ -92,7 +93,7 @@ function CustomerPeople({ overview }: { overview: CustomerOverview }) {
           {people.trainees} trainee{people.trainees === 1 ? '' : 's'}
           {people.neverSignedIn > 0 && ` · ${people.neverSignedIn} have never signed in`}
           {sessions.lastActivityAt &&
-            ` · last training activity ${new Date(sessions.lastActivityAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+            ` · last training activity ${formatDay(sessions.lastActivityAt)}`}
         </p>
 
         {sessions.open.length > 0 && (
