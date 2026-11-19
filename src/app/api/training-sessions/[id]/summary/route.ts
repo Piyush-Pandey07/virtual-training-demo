@@ -13,6 +13,7 @@ import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { ruleResponse, sessionRunner } from '@/lib/training/route-helpers';
 import { closureSummary, summaryWorkbook } from '@/lib/training/summary';
+import { participantCount } from '@/lib/training/words';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,7 +46,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
       action: 'downloaded',
       subjectType: 'training-session',
       subjectId: summary.session.id,
-      detail: `Downloaded the closure summary of ${summary.session.deckId} (${summary.rows.length} participants)`,
+      detail: `Downloaded the closure summary of ${summary.session.deckId} (${participantCount(summary.rows.length)})`,
     });
     return new Response(new Uint8Array(workbook), {
       headers: {

@@ -5,6 +5,7 @@ import { strFromU8, unzipSync } from 'fflate';
 
 import { safeText, summaryWorkbook, type ClosureSummary } from './summary';
 import type { SummaryRow } from './types';
+import { summaryTotalsLine } from './words';
 
 /**
  * The downloadable closure summary of a trainer-led session (AI-33): an Excel workbook,
@@ -242,5 +243,32 @@ describe('the closure summary download', () => {
     const rows = participants(await rowsOf({ ...summary, rows: fifty }));
     assert.equal(rows.length, 50);
     assert.equal(rows[49]![0], 'Person 49');
+  });
+});
+
+/**
+ * The line above the table on the session page. The UAT checklist quotes it with "(K
+ * joined late)" every time, and the download always has its "Of whom joined late" row,
+ * so the line gives it even when nobody joined late.
+ */
+describe('the closure summary line on the session page', () => {
+  it('says how many joined late', () => {
+    assert.equal(
+      summaryTotalsLine(summary.totals),
+      '2 of 3 present (1 joined late), 1 passed the post-session assessment, 1 gave feedback.',
+    );
+  });
+
+  it('says so when nobody joined late, as the download does', async () => {
+    const onTime: ClosureSummary = {
+      ...summary,
+      rows: summary.rows.map((row) => ({ ...row, joinedLate: false })),
+      totals: { ...summary.totals, joinedLate: 0 },
+    };
+    assert.equal(
+      summaryTotalsLine(onTime.totals),
+      '2 of 3 present (0 joined late), 1 passed the post-session assessment, 1 gave feedback.',
+    );
+    assert.equal(field(await rowsOf(onTime), 'Of whom joined late'), '0');
   });
 });

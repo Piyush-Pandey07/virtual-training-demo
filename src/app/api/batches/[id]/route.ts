@@ -9,6 +9,7 @@
 import { recordAudit } from '@/lib/audit/log';
 import { removeBatch, updateBatch } from '@/lib/training/service';
 import { jsonBody, ruleResponse, sessionRunner } from '@/lib/training/route-helpers';
+import { participantCount } from '@/lib/training/words';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       action: 'updated',
       subjectType: 'batch',
       subjectId: batch.id,
-      detail: `Changed batch "${batch.name}" (${changed.join(', ') || 'nothing'}): now ${batch.participantIds.length} participants, run by ${batch.facilitatorId}`,
+      detail: `Changed batch "${batch.name}" (${changed.join(', ') || 'nothing'}): now ${participantCount(batch.participantIds.length)}, run by ${batch.facilitatorId}`,
     });
     return Response.json(batch);
   } catch (error) {

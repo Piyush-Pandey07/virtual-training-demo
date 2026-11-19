@@ -4,6 +4,7 @@ import { beforeEach, describe, it } from 'node:test';
 
 import type { Role, SignedInPerson } from '../roster/types';
 import { InMemoryDocumentStore } from '../roster/documents';
+import { participantCount } from '../training/words';
 import {
   AUDIT,
   AUDIT_ACTIONS,
@@ -489,6 +490,33 @@ describe('batches and sessions', () => {
       'deleted',
       'training-session',
     );
+  });
+});
+
+/**
+ * A count of participants agrees with its number (D-15). A UAT dry run found "Downloaded
+ * the closure summary of ... (1 participants)", and a batch or session set up for one
+ * person, or a batch emptied, read the same way.
+ */
+describe('counts of participants', () => {
+  it('agree with their number', () => {
+    assert.equal(participantCount(0), '0 participants');
+    assert.equal(participantCount(1), '1 participant');
+    assert.equal(participantCount(2), '2 participants');
+    assert.equal(participantCount(50), '50 participants');
+  });
+
+  it('are worded that way in every entry about a batch or session that counts them', () => {
+    for (const path of [
+      'src/app/api/training-sessions/[id]/summary/route.ts',
+      'src/app/api/training-sessions/route.ts',
+      'src/app/api/batches/route.ts',
+      'src/app/api/batches/[id]/route.ts',
+    ]) {
+      const text = read(path);
+      assert.match(text, /participantCount\(/, path);
+      assert.doesNotMatch(text, /\.length\} participants/, path);
+    }
   });
 });
 
