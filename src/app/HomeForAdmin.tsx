@@ -68,6 +68,22 @@ const ALERT_WORDS: Record<string, string> = {
   not_configured: 'Not set up',
 };
 
+/**
+ * Said in full for one provider and kind, where the general words mislead.
+ *
+ * Resend answers 403 when the key is fine and the sender's domain is not verified there.
+ * "Not set up for Resend" read as "the key is missing", and the UAT dry run of
+ * 18 November reported exactly that while the key was set and every send was being
+ * refused for the domain.
+ */
+const ALERT_SENTENCES: Record<string, string> = {
+  'resend|not_configured':
+    'No email is being sent. Either the Resend key is missing, or the key is set and the sender address is on a domain not yet verified in Resend',
+};
+
+/** Email going unsent is the administrator's problem alone; a trainee sees nothing of it. */
+const BEHIND_THE_SCENES = new Set(['resend']);
+
 export function HomeForAdmin({
   person,
   uploaded,
@@ -95,15 +111,21 @@ export function HomeForAdmin({
             <ul className="mt-2 space-y-1">
               {alerts.map((alert) => (
                 <li key={`${alert.provider}-${alert.kind}`}>
-                  {ALERT_WORDS[alert.kind] ?? alert.kind} for{' '}
-                  {PROVIDER_NAMES[alert.provider] ?? alert.provider}, last at{' '}
-                  {formatMoment(alert.lastAt)} ({alert.count} {alert.count === 1 ? 'time' : 'times'}
-                  ).
+                  {ALERT_SENTENCES[`${alert.provider}|${alert.kind}`] ?? (
+                    <>
+                      {ALERT_WORDS[alert.kind] ?? alert.kind} for{' '}
+                      {PROVIDER_NAMES[alert.provider] ?? alert.provider}
+                    </>
+                  )}
+                  , last at {formatMoment(alert.lastAt)} ({alert.count}{' '}
+                  {alert.count === 1 ? 'time' : 'times'}).
                 </li>
               ))}
             </ul>
             <p className="text-muted mt-2">
-              Trainees see a standard message while this lasts.{' '}
+              {alerts.every((alert) => BEHIND_THE_SCENES.has(alert.provider))
+                ? 'Training is not affected. Each notification is kept for 30 days and can be sent again with Retry now, under Email notifications, once this is put right.'
+                : 'Trainees see a standard message while this lasts.'}{' '}
               <Link href="/platform/errors" className="text-teal hover:underline">
                 Open the developer log
               </Link>{' '}

@@ -16,6 +16,73 @@ Mehar turns each section into UAT test cases.
   confirm that the thing exists.
 - Unit test files are under `src/`. Run them all with `npm test`.
 
+## Fixed after the dev-test dry run of 18 to 19 November
+
+The dry run of the 70-test checklist found ten defects and six things to review. All were
+looked at on 19 November. Each fix was checked in a real browser on a local build, except
+where the table says otherwise.
+
+| ID | What was found | What happens now |
+| --- | --- | --- |
+| D-01 | Course information, Case studies and Completion point showed "Saved." and were back to their old values after a reload. | Fixed. They were saved, then dropped every time the deck was read, so the trainer never saw them and every deck completed at 90%. They now come back, and the trainer uses them. |
+| D-02 | Adding a person on `/people` wrote nothing to the audit history. | Fixed. "Added <email> by hand, with the role trainee" under **People and roles**. Adding an address again, creating people from an upload, and moving somebody between customers are recorded too. (Unit tests only.) |
+| D-03 | The completion point refusal named `meta.completionPercent`. | Fixed: "The completion point must be a whole number from 50 to 100." Every refusal on the deck page names the box as the page does. |
+| D-04 | Dates mixed India time and UTC. | Fixed. Every date is the day in India, on the server and in the browser. Checked with a browser set to Los Angeles: "You agreed to the privacy notice on 19 November 2026." A session's **When** is read as India time too, and the box says so. |
+| D-05 | "One person already has this deck and keep it". | Fixed: "One person already has this deck and keeps it", "N people already have this deck and keep it". |
+| D-06 | A deck unpublished after approval showed only "Draft". | Fixed. The library shows **Draft** and **Needs re-approval**. The assign panel says "Needs re-approval. This deck was withdrawn after <name> approved it on <date>…", and still lists who has it. |
+| D-07 | After **Save this bank** the old version number stayed until a reload. | Fixed. The version, count and date change the moment "Saved N questions." appears, and the history lists the new version. |
+| D-08 | A 51-question file previewed as "50 questions read". | Not a lost row: a bank holds at most 50 questions and the file was already refused. The page now says so where the file is chosen, and the preview reads "51 questions in the file. A bank holds at most 50, so the last 1 was left out and the file cannot be saved as it is." |
+| D-09 | After each typed answer Nova "re-taught slide 3" while the counter stayed on slide 2. | Not heard by a participant. After an answer the app prepares the next slide's narration in the background, so that **Next** starts at once (AI-44); that request is what showed in the network log. Measured in a browser: after each of four typed answers on slide 2, 16 to 25 seconds of audio played, the answer alone, and the counter stayed on slide 2. |
+| D-10 | The privacy notice says "contact Srikant, [CONTACT DETAILS TO BE CONFIRMED]". | Open. It waits for the contact details and for Prashant's approval of the notice (AI-27). |
+
+Reviewed, from the observations:
+
+- **Re-uploading a participant file** cannot overwrite a profile its owner has confirmed; tests
+  now prove it. The wording was misleading and is changed: "Already here. They have confirmed
+  their own profile, so it was left exactly as it is."
+- **The sample lesson plans** were written for a different outline, which is why the gap sample
+  reported seven differences. Both are now written for the Introduction to Data Centers deck
+  (see AI-43).
+- **My profile**: somebody who has already agreed to the notice on screen finds the box ticked
+  and **Save my profile** ready.
+- **Level bands**: the server already refused bad values. The messages now name the box, for
+  example `"Intermediate from" must be a whole number from 1 to 99.`, and the screen shows the
+  app's message, not the browser's.
+- **Referrals**: Nova says "your administrator", with no department in front. Six of six
+  out-of-scope questions did so on a local build. On the ISMS deck Nova may still say "the IT
+  support desk", because that deck's own material names it as the place to ask.
+- **A personal address as a Technavious administrator, and the OpenAI test page in the menu**:
+  both are as set up, and are for Technavious to confirm for R1.
+
+**Two decks need approving once more after this build.** Introduction to Data Centers in
+Technavious and ISMS in UAT Test Company were approved while their course information and case
+studies were being dropped (D-01). Those values now count as part of the deck, so each shows
+"Changed since approval: needs approving again". Check the text is what you want, then approve.
+
+**Setting up, from the dry run's list of blockers:**
+
+- **Test accounts.** An address an administrator has added does not need a verification email.
+  On the sign-in page press **First time here?**, enter the address and a password, and it signs
+  in. That works for `uat.companyadmin`, `uat.facilitator`, `uat.facilitator.b`,
+  `uat.participant1` to `3` and `uat-participant-01` to `49` at example.com, none of which has
+  had a password set yet. The "unverified email address" message came from
+  `uat.participanttest@example.com`, which was not on the roster when it registered, so it was
+  asked to prove its address; it has now been marked as verified.
+- **A second deck in UAT Test Company.** Introduction to Data Centers is there now, published
+  and waiting for approval, with all its slides.
+- **Email (checked on the live site, 19 November).** The Resend key is set and Resend accepts
+  it, but it refuses every send with "The technavious.com domain is not verified. Please, add
+  and verify your domain on https://resend.com/domains". The three notifications of the dry run
+  are listed as **Failed** on `/platform/notifications` with that reason. To finish: verify
+  technavious.com, or a subdomain such as mail.technavious.com, in Resend by adding the DNS
+  records it lists; set `NOTIFY_FROM` to an address on that domain; then press **Retry now** on
+  each failed notification. The home banner used to read "Not set up for Resend", which looked
+  like a missing key; it now says which of the two it can be.
+- **Build and settings.** `/api/health` now shows `build` (the commit the site was built from)
+  and `settings`: whether the daily jobs and email are on, how many deck approvers are listed
+  (0 means every Technavious administrator may approve), and which languages customers are
+  offered. The database plan is a setting of the Firebase project and cannot be shown.
+
 ## The site
 
 - URL: https://virtual-training-demo.vercel.app
