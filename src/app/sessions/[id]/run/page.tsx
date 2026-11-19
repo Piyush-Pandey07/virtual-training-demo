@@ -79,6 +79,8 @@ export default async function RunSessionPage({ params }: Props) {
         <DeckProvider deck={{ ...toClientView(deck), listenFor: keytermsFor(deck, glossary) }}>
           <FacilitatorScreen
             sessionId={session.id}
+            scheduledFor={session.scheduledFor}
+            started={session.status === 'open'}
             attendees={attendees}
             planGaps={lessonPlanGaps(deck)}
           />

@@ -11,6 +11,7 @@ import { recordAudit } from '@/lib/audit/log';
 import { trainingStore } from '@/lib/training/store';
 import { createSession, visibleSessions } from '@/lib/training/service';
 import { jsonBody, ruleResponse, sessionRunner } from '@/lib/training/route-helpers';
+import { participantCount } from '@/lib/training/words';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
       action: 'created',
       subjectType: 'training-session',
       subjectId: session.id,
-      detail: `Set up a session on deck ${session.deckId} for ${session.participantIds.length} participants, run by ${session.facilitatorId}${session.scheduledFor ? `, for ${session.scheduledFor}` : ''}`,
+      detail: `Set up a session on deck ${session.deckId} for ${participantCount(session.participantIds.length)}, run by ${session.facilitatorId}${session.scheduledFor ? `, for ${session.scheduledFor}` : ''}`,
     });
     return Response.json(session, { status: 201 });
   } catch (error) {

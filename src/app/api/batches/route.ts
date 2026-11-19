@@ -10,6 +10,7 @@ import { recordAudit } from '@/lib/audit/log';
 import { trainingStore } from '@/lib/training/store';
 import { createBatch, visibleBatches } from '@/lib/training/service';
 import { jsonBody, ruleResponse, sessionRunner } from '@/lib/training/route-helpers';
+import { participantCount } from '@/lib/training/words';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
       action: 'created',
       subjectType: 'batch',
       subjectId: batch.id,
-      detail: `Set up batch "${batch.name}" with ${batch.participantIds.length} participants, run by ${batch.facilitatorId}`,
+      detail: `Set up batch "${batch.name}" with ${participantCount(batch.participantIds.length)}, run by ${batch.facilitatorId}`,
     });
     return Response.json(batch, { status: 201 });
   } catch (error) {

@@ -51,6 +51,9 @@ export const PLATFORM_AUDIT = 'platformAudit';
 /** How long an entry is kept. Over a year, which is what AI-40 asks for. */
 export const AUDIT_RETENTION_DAYS = 400;
 
+/** The most of an entry's detail that is kept. Anything longer is cut off at this length. */
+export const AUDIT_DETAIL_LENGTH = 300;
+
 export const AUDIT_ACTIONS = [
   'viewed',
   'created',
@@ -264,7 +267,7 @@ export async function recordAudit(
     action: input.action,
     subjectType: input.subjectType,
     subjectId: input.subjectId.slice(0, 200),
-    detail: (input.detail ?? '').slice(0, 300),
+    detail: (input.detail ?? '').slice(0, AUDIT_DETAIL_LENGTH),
     expireAt: new Date(now + AUDIT_RETENTION_DAYS * 86_400_000),
   };
 

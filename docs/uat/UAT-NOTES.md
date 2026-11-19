@@ -800,6 +800,14 @@ facilitator's microphone, and only while the facilitator asks it to listen.
   "Nova is thinking", "Nova is speaking" or "Nova is listening to you".
 - **Take back control** stops Nova at once and returns to "You have the floor".
 - The first hand-over moves the session to "In progress".
+- A session started more than 3 hours before its scheduled time asks first, at the first
+  hand-over (any of the buttons, or **Ask**): "Start this session now? It is scheduled for
+  <time>, about N hours from now. Once started it cannot be cancelled, and anybody marked
+  present from then on is shown as joined late." The time is in India time, for example "Fri 20
+  Nov, 10:00 IST", and from 48 hours ahead it says "about N days". **Cancel** starts nothing and
+  leaves the screen as it was, a typed question included; **OK** starts it, and nothing is asked
+  again. Within 3 hours of its time, or with no time set, nothing is asked. To test it, set up a
+  session for tomorrow.
 - Nova never speaks without a button press. Participants' devices never open a microphone for
   this session (AI-45).
 - A session of 50 can be set up, marked and closed, and the closure summary holds all 50.
@@ -807,7 +815,8 @@ facilitator's microphone, and only while the facilitator asks it to listen.
 **Unit tests.** `src/lib/training/facilitation.test.ts` ("names everybody in a room of fifty, each
 name once (AI-01, AI-28)"), `src/lib/training/training.test.ts` ("can take fifty more once it is
 open"), `src/lib/training/summary.test.ts` ("holds a room of fifty (AI-28)"),
-`src/lib/audio-privacy.test.ts`.
+`src/lib/training/confirmations.test.ts` ("starting a session early"), `src/lib/time.test.ts`
+("how far ahead a moment is"), `src/lib/audio-privacy.test.ts`.
 
 **Known limits.** The facilitator screen teaches in English only. An administrator of either
 kind may also run a session.
@@ -932,7 +941,8 @@ cancelled session cannot be reopened or changed.
 2. Late join: start the session (first hand-over). Then as an administrator, under **Add
    participants**, choose a person and press **Add to the session**. That person signs in, does
    consent, profile and the pre-session assessment, and the facilitator marks them **Present**.
-3. Close: press **Close the session**.
+3. Close: press **Close the session**, press **Cancel** on the question once to see that nothing
+   changes, then press it again and press **OK**.
 4. Cancel: on a different, not yet started session, press **Cancel the session** and confirm.
 5. Try to change the closed or cancelled session.
 
@@ -942,6 +952,11 @@ cancelled session cannot be reopened or changed.
   be closed." and **Close the session** is disabled.
 - The late participant shows "Joined late, <time>" beside their name, and the participant's own
   Home card shows a "Joined late" badge.
+- **Close the session** asks first: "Close this session? A closed session cannot be reopened,
+  and its attendance can no longer be changed. The post-session steps open for everybody marked
+  present." **Cancel** there leaves the session as it was. A session closed without ever being
+  started, more than 3 hours before its scheduled time, adds "It is scheduled for <time>, about
+  N hours from now, and will be recorded as held now."
 - After closing: "A closed session cannot be reopened. To run it again, set up a new one." There
   are no attendance buttons and no run button. The session list shows "Closed".
 - After cancelling: "Cancelled <time>. A cancelled session cannot be run. To run it after all,
@@ -955,7 +970,8 @@ cancelled session cannot be reopened or changed.
 **Unit tests.** `src/lib/training/training.test.ts` ("refuses to close while anybody listed is
 unmarked, and says how many", "cannot be changed in any way once closed", "shows somebody marked
 present after the session opened as joined late", "lets an administrator add people while it is
-open"), `src/lib/training/followups.test.ts`.
+open"), `src/lib/training/confirmations.test.ts` ("closing a session"),
+`src/lib/training/followups.test.ts`.
 
 **Known limits.** The PDF says the facilitator is the only one who can close a session. The code
 also lets any administrator, including a company administrator, close it. Only administrators
@@ -974,7 +990,8 @@ all times in India Standard Time. Company administrators see their own company o
 
 - On screen: "N of M present (K joined late), P passed the post-session assessment, F gave
   feedback." and a table with Participant, Attendance, Pre-session level, Post-session,
-  Feedback.
+  Feedback. "(K joined late)" is there even when nobody joined late, as "(0 joined late)", so
+  the line always agrees with the file's "Of whom joined late" row.
 - The file is `<Deck-title>-summary.xlsx`, sheet "Summary". Top block: Deck, Facilitator,
   Status, Session date (IST), Scheduled for, Opened, Closed, Listed, Present, Of whom joined
   late, Absent, Passed the post-session assessment, Gave feedback, then "All times are India
@@ -983,12 +1000,13 @@ all times in India Standard Time. Company administrators see their own company o
   score (%), Result, Feedback, Post-session wrong, Post-session not attempted, Pre-session bank
   version, Post-session bank version.
 - A session held late in the evening IST is dated by its day in India, not in UTC.
-- The download is recorded in **Audit history**.
+- The download is recorded in **Audit history**: "Downloaded the closure summary of <deck id>
+  (N participants)", or "(1 participant)" for a session of one.
 - For the company administrator, the Feedback column reads "Not shown".
 
 **Unit tests.** `src/lib/training/summary.test.ts` ("gives the session, its date and times in
 India time, with the zone named", "dates the session by the day in India, not in UTC", "holds a
-room of fifty (AI-28)").
+room of fifty (AI-28)", "the closure summary line on the session page").
 
 ## AI-34 AI-led completion point
 
@@ -1095,9 +1113,16 @@ Participant uploads),
 - Each row shows When, Who, Did, To, Detail.
 - After the earlier tests you should find: consent given and withdrawn; a role changed to
   Facilitator; the template and summary downloads; a profile viewed; attendance marks ("Marked
-  ... present, joined late" for the late joiner); a session cancelled; a person removed; a deck
-  approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
+  <email> present, joined late" for the late joiner); a session cancelled; a person removed; a
+  deck approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
   participant upload, with its counts.
+- Under "Trainer-led sessions", people are named by email, as everywhere else in the history
+  (D-13): "Marked <email> present; <email> absent" for up to five marks at once, and "Marked N
+  participants: P present, A absent" for more, or for a few whose addresses are too long to fit
+  in one entry. Somebody removed from the company since is named
+  by their account id. Adding somebody to a session reads "Added <email> to the session", with
+  "after it started" once it has. A count of one reads "1 participant", never "1 participants"
+  (D-15): in setting up a session or batch, changing a batch, and downloading a summary.
 - Adding somebody on `/people` is under "People and roles" (D-02): Did "created", Detail "Added
   <email> by hand, with the role trainee", with who added them under Who. Everybody is added as
   an employee, stored as `trainee`, so making them a facilitator afterwards is a second entry,
@@ -1113,7 +1138,9 @@ Participant uploads),
 - The history shown is for the organisation the administrator is in. To see a customer's
   history, open it from **Customers** with **Look inside** first.
 
-**Unit tests.** `src/lib/audit/actions.test.ts`, `src/lib/audit/log.test.ts`.
+**Unit tests.** `src/lib/audit/actions.test.ts` (including "counts of participants"),
+`src/lib/audit/log.test.ts`, `src/lib/training/training.test.ts` ("naming people in the
+attendance entry (D-13)").
 
 **Known limits / waiting on.** The Firestore TTL policy on `audit` and `platformAudit`
 (`expireAt`), or old entries are never deleted.
