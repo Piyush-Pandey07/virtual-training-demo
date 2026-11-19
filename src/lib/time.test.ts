@@ -11,6 +11,7 @@ import {
   formatDayShort,
   formatMoment,
   formatSessionTime,
+  hoursAhead,
   momentFromTrainingZoneInput,
 } from './time';
 
@@ -131,6 +132,33 @@ describe('days for people', () => {
     assert.equal(dayHasPassed('2026-11-19', early), true);
     assert.equal(dayHasPassed('2026-11-20', early), false);
     assert.equal(dayHasPassed('not a date', early), false);
+  });
+});
+
+/**
+ * How far ahead a session's time is, which decides whether starting it now is early
+ * enough to ask about first. A UAT dry run started a session due on 20 November on the
+ * 19th without being asked.
+ */
+describe('how far ahead a moment is', () => {
+  /** 10:00 on Friday 20 November in India. */
+  const SESSION = '2026-11-20T04:30:00.000Z';
+
+  it('counts the hours to it, fractions included', () => {
+    // Noon on the 19th in India, the day before.
+    assert.equal(hoursAhead(SESSION, new Date('2026-11-19T06:30:00.000Z')), 22);
+    // 09:15 on the day.
+    assert.equal(hoursAhead(SESSION, new Date('2026-11-20T03:45:00.000Z')), 0.75);
+  });
+
+  it('gives nothing once the moment has come, or for no time or one that cannot be read', () => {
+    const at = new Date('2026-11-20T04:30:00.000Z');
+    assert.equal(hoursAhead(SESSION, at), 0);
+    assert.equal(hoursAhead(SESSION, new Date('2026-11-20T06:00:00.000Z')), 0);
+    assert.equal(hoursAhead(null, at), 0);
+    assert.equal(hoursAhead(undefined, at), 0);
+    assert.equal(hoursAhead('', at), 0);
+    assert.equal(hoursAhead('not a date', at), 0);
   });
 });
 

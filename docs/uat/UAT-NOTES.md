@@ -83,6 +83,46 @@ studies were being dropped (D-01). Those values now count as part of the deck, s
   (0 means every Technavious administrator may approve), and which languages customers are
   offered. The database plan is a setting of the Firebase project and cannot be shown.
 
+## Fixed after update 2 of the dry run (19 November)
+
+| ID | What was found | What happens now |
+| --- | --- | --- |
+| D-14 | After a glossary term was released, "What does X mean?" on the run screen got the slide's broader meaning, though Nova quoted the entry when asked how the glossary defines it. | Fixed, in AI-led and trainer-led sessions. When a question names a glossary term, its definition is now given beside the question, not only at the end of the slide's material, and Nova is told to give that meaning first. Checked against the live model, asking about a term on the slide about that term: 14 of 14 trainer-led answers and 4 of 4 AI-led answers gave the glossary's meaning, against 1 of 6 before. |
+| D-12 | With **Who asked** set to "The group", Nova still named the only attendee. | Fixed. A question from the group is marked as such and Nova is told to address nobody by name, however few are in the room. Checked against the live model with one attendee: named in 0 of 14 answers, against 6 of 6 before. |
+| D-11 | No change on screen after **Approve this deck**, or after deleting a glossary term, until a reload. | Could not be reproduced in Chrome on the live site: the approval panel changed 1.1 s after the press and a deleted term left the list in 1.0 s. Both now show their result the moment the server accepts it, without waiting for the page to refresh, so they no longer depend on it in any browser. |
+| D-13 | The attendance audit entry named people by account id. | Fixed. People are named by email, as elsewhere in the audit history: "Marked asha@acme.example present; ben@acme.example absent". Somebody removed since is named by id. Adding people to a session is named the same way. |
+| D-15 | "(1 participants)" in an audit entry. | Fixed in all four entries that counted participants, for example "Downloaded the closure summary of <deck> (1 participant)", and "Saved 1 question." on the question bank page. |
+
+Also from the observations, on trainer-led sessions (see AI-01 and AI-32 for the steps):
+
+- **Closing asks first.** "Close this session? A closed session cannot be reopened, and its attendance can no longer be changed. The post-session steps open for everybody marked present."
+- **Starting early asks first.** Handing over for the first time more than 3 hours before the scheduled time asks: "Start this session now? It is scheduled for <time> IST, about <N> hours from now. ..." Running early is still allowed.
+- **The closure line always counts late joiners**, "(0 joined late)" included, as the Excel file already did.
+
+From the observations:
+
+- **A relayed question answered as if it were a reply.** Nova is now told that a relayed question
+  is a question to answer, even straight after it has asked the group something, that its first
+  sentence is the answer, and not to remark on the question or thank anybody for it. Checked
+  against the live model, straight after an engagement question: before the change 9 of 9
+  answers opened by remarking on the question ("That is a really interesting way to think about
+  it"); after it, 0 of 9 did, and each opened with the answer ("A cloud platform is not the same
+  thing as a data centre").
+- **The white paper.** "Lessons from Data Centre and Cloud Incidents" (55 pages, fifteen anonymised
+  incident case studies) is in the Technavious white paper library, uploaded on 19 November and
+  waiting for approval. Checked before upload: no company, client, brand or place names; the
+  only names are standards bodies (NFPA, Uptime Institute, TIA, ASHRAE) and Benchmark's own.
+  UAT-16, 60 and 61 can use it: approve it, then attach it to Introduction to Data Centers.
+- **Approving decks in UAT Test Company.** `uat.admin` was added to `DECK_APPROVERS` beside
+  Srikant for the UAT period, and can approve inside UAT Test Company through **Customers**,
+  **Look inside**. Test "only the approver may approve" (UAT-13 step 2) with `uat.company`, who
+  is a Technavious administrator but not an approver. Remove `uat.admin` again after UAT.
+- **`uat.participant1` and "unverified email address".** That address has no sign-in account
+  yet, so the message cannot have come from it. Use **First time here?** with it: an address an
+  administrator added is created already verified.
+- **The lesson plan on Technavious Introduction to Data Centers** is still the old sample with
+  seven gaps. Pasting the rewritten sample in clears its approval, which then needs giving again.
+
 ## The site
 
 - URL: https://virtual-training-demo.vercel.app
@@ -766,6 +806,14 @@ facilitator's microphone, and only while the facilitator asks it to listen.
   "Nova is thinking", "Nova is speaking" or "Nova is listening to you".
 - **Take back control** stops Nova at once and returns to "You have the floor".
 - The first hand-over moves the session to "In progress".
+- A session started more than 3 hours before its scheduled time asks first, at the first
+  hand-over (any of the buttons, or **Ask**): "Start this session now? It is scheduled for
+  <time>, about N hours from now. Once started it cannot be cancelled, and anybody marked
+  present from then on is shown as joined late." The time is in India time, for example "Fri 20
+  Nov, 10:00 IST", and from 48 hours ahead it says "about N days". **Cancel** starts nothing and
+  leaves the screen as it was, a typed question included; **OK** starts it, and nothing is asked
+  again. Within 3 hours of its time, or with no time set, nothing is asked. To test it, set up a
+  session for tomorrow.
 - Nova never speaks without a button press. Participants' devices never open a microphone for
   this session (AI-45).
 - A session of 50 can be set up, marked and closed, and the closure summary holds all 50.
@@ -773,7 +821,8 @@ facilitator's microphone, and only while the facilitator asks it to listen.
 **Unit tests.** `src/lib/training/facilitation.test.ts` ("names everybody in a room of fifty, each
 name once (AI-01, AI-28)"), `src/lib/training/training.test.ts` ("can take fifty more once it is
 open"), `src/lib/training/summary.test.ts` ("holds a room of fifty (AI-28)"),
-`src/lib/audio-privacy.test.ts`.
+`src/lib/training/confirmations.test.ts` ("starting a session early"), `src/lib/time.test.ts`
+("how far ahead a moment is"), `src/lib/audio-privacy.test.ts`.
 
 **Known limits.** The facilitator screen teaches in English only. An administrator of either
 kind may also run a session.
@@ -898,7 +947,8 @@ cancelled session cannot be reopened or changed.
 2. Late join: start the session (first hand-over). Then as an administrator, under **Add
    participants**, choose a person and press **Add to the session**. That person signs in, does
    consent, profile and the pre-session assessment, and the facilitator marks them **Present**.
-3. Close: press **Close the session**.
+3. Close: press **Close the session**, press **Cancel** on the question once to see that nothing
+   changes, then press it again and press **OK**.
 4. Cancel: on a different, not yet started session, press **Cancel the session** and confirm.
 5. Try to change the closed or cancelled session.
 
@@ -908,6 +958,11 @@ cancelled session cannot be reopened or changed.
   be closed." and **Close the session** is disabled.
 - The late participant shows "Joined late, <time>" beside their name, and the participant's own
   Home card shows a "Joined late" badge.
+- **Close the session** asks first: "Close this session? A closed session cannot be reopened,
+  and its attendance can no longer be changed. The post-session steps open for everybody marked
+  present." **Cancel** there leaves the session as it was. A session closed without ever being
+  started, more than 3 hours before its scheduled time, adds "It is scheduled for <time>, about
+  N hours from now, and will be recorded as held now."
 - After closing: "A closed session cannot be reopened. To run it again, set up a new one." There
   are no attendance buttons and no run button. The session list shows "Closed".
 - After cancelling: "Cancelled <time>. A cancelled session cannot be run. To run it after all,
@@ -921,7 +976,8 @@ cancelled session cannot be reopened or changed.
 **Unit tests.** `src/lib/training/training.test.ts` ("refuses to close while anybody listed is
 unmarked, and says how many", "cannot be changed in any way once closed", "shows somebody marked
 present after the session opened as joined late", "lets an administrator add people while it is
-open"), `src/lib/training/followups.test.ts`.
+open"), `src/lib/training/confirmations.test.ts` ("closing a session"),
+`src/lib/training/followups.test.ts`.
 
 **Known limits.** The PDF says the facilitator is the only one who can close a session. The code
 also lets any administrator, including a company administrator, close it. Only administrators
@@ -940,7 +996,8 @@ all times in India Standard Time. Company administrators see their own company o
 
 - On screen: "N of M present (K joined late), P passed the post-session assessment, F gave
   feedback." and a table with Participant, Attendance, Pre-session level, Post-session,
-  Feedback.
+  Feedback. "(K joined late)" is there even when nobody joined late, as "(0 joined late)", so
+  the line always agrees with the file's "Of whom joined late" row.
 - The file is `<Deck-title>-summary.xlsx`, sheet "Summary". Top block: Deck, Facilitator,
   Status, Session date (IST), Scheduled for, Opened, Closed, Listed, Present, Of whom joined
   late, Absent, Passed the post-session assessment, Gave feedback, then "All times are India
@@ -949,12 +1006,13 @@ all times in India Standard Time. Company administrators see their own company o
   score (%), Result, Feedback, Post-session wrong, Post-session not attempted, Pre-session bank
   version, Post-session bank version.
 - A session held late in the evening IST is dated by its day in India, not in UTC.
-- The download is recorded in **Audit history**.
+- The download is recorded in **Audit history**: "Downloaded the closure summary of <deck id>
+  (N participants)", or "(1 participant)" for a session of one.
 - For the company administrator, the Feedback column reads "Not shown".
 
 **Unit tests.** `src/lib/training/summary.test.ts` ("gives the session, its date and times in
 India time, with the zone named", "dates the session by the day in India, not in UTC", "holds a
-room of fifty (AI-28)").
+room of fifty (AI-28)", "the closure summary line on the session page").
 
 ## AI-34 AI-led completion point
 
@@ -1061,9 +1119,16 @@ Participant uploads),
 - Each row shows When, Who, Did, To, Detail.
 - After the earlier tests you should find: consent given and withdrawn; a role changed to
   Facilitator; the template and summary downloads; a profile viewed; attendance marks ("Marked
-  ... present, joined late" for the late joiner); a session cancelled; a person removed; a deck
-  approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
+  <email> present, joined late" for the late joiner); a session cancelled; a person removed; a
+  deck approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
   participant upload, with its counts.
+- Under "Trainer-led sessions", people are named by email, as everywhere else in the history
+  (D-13): "Marked <email> present; <email> absent" for up to five marks at once, and "Marked N
+  participants: P present, A absent" for more, or for a few whose addresses are too long to fit
+  in one entry. Somebody removed from the company since is named
+  by their account id. Adding somebody to a session reads "Added <email> to the session", with
+  "after it started" once it has. A count of one reads "1 participant", never "1 participants"
+  (D-15): in setting up a session or batch, changing a batch, and downloading a summary.
 - Adding somebody on `/people` is under "People and roles" (D-02): Did "created", Detail "Added
   <email> by hand, with the role trainee", with who added them under Who. Everybody is added as
   an employee, stored as `trainee`, so making them a facilitator afterwards is a second entry,
@@ -1079,7 +1144,9 @@ Participant uploads),
 - The history shown is for the organisation the administrator is in. To see a customer's
   history, open it from **Customers** with **Look inside** first.
 
-**Unit tests.** `src/lib/audit/actions.test.ts`, `src/lib/audit/log.test.ts`.
+**Unit tests.** `src/lib/audit/actions.test.ts` (including "counts of participants"),
+`src/lib/audit/log.test.ts`, `src/lib/training/training.test.ts` ("naming people in the
+attendance entry (D-13)").
 
 **Known limits / waiting on.** The Firestore TTL policy on `audit` and `platformAudit`
 (`expireAt`), or old entries are never deleted.

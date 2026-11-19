@@ -1017,7 +1017,112 @@ describe('timing attendance (AI-26)', () => {
     await changeSession(fran, 's-room1', { attendance: { [asha.id]: 'present' } }, options());
     const entries = (await sessionAudit()).filter((entry) => entry.action === 'updated');
     assert.equal(entries.length, 1);
-    assert.equal(entries[0]?.detail, 'Marked asha present, joined late');
+    assert.equal(entries[0]?.detail, 'Marked asha@acme.example present, joined late');
+  });
+});
+
+/**
+ * The attendance entry names people as the rest of the audit history does, by email
+ * (D-13). A UAT dry run found "Marked 7CWNevLC08N3sC3qIUQt605AUYW2 present".
+ */
+describe('naming people in the attendance entry (D-13)', () => {
+  /** The roster as the service reaches it, counting how it is read. */
+  function countedRoster(changes: Record<string, unknown> = {}) {
+    const reads = { listings: 0, lookups: 0 };
+    const counted = Object.assign(Object.create(roster) as DocumentRosterStore, {
+      listPeople: () => {
+        reads.listings += 1;
+        return roster.listPeople();
+      },
+      getPerson: (id: string) => {
+        reads.lookups += 1;
+        return roster.getPerson(id);
+      },
+      ...changes,
+    });
+    resetRosterStore(counted, ORG);
+    return reads;
+  }
+
+  async function attendanceEntries(): Promise<string[]> {
+    return (await sessionAudit())
+      .filter((entry) => entry.action === 'updated')
+      .map((entry) => entry.detail);
+  }
+
+  it('names each by email from one listing, and somebody removed since by their id', async () => {
+    // "gone" was listed and has since left the company, so is on no roster.
+    await saved({ participantIds: [asha.id, ben.id, 'gone'] });
+    const reads = countedRoster();
+    await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present', [ben.id]: 'absent', gone: 'absent' } },
+      options(),
+    );
+    assert.deepEqual(await attendanceEntries(), [
+      'Marked asha@acme.example present; ben@acme.example absent; gone absent',
+    ]);
+    assert.deepEqual(reads, { listings: 1, lookups: 0 });
+  });
+
+  it('still saves the marks, named by id, when the roster cannot be read', async () => {
+    await saved();
+    countedRoster({
+      listPeople: async () => {
+        throw new Error('The roster is unavailable.');
+      },
+    });
+    const next = await changeSession(
+      fran,
+      's-room1',
+      { attendance: { [asha.id]: 'present' } },
+      options(),
+    );
+    assert.equal(next.attendance[asha.id], 'present');
+    assert.equal((await stored('s-room1'))?.attendance[asha.id], 'present');
+    assert.deepEqual(await attendanceEntries(), ['Marked asha present']);
+  });
+
+  it('counts more than five, reading no roster to do it', async () => {
+    const six = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+    await saved({ participantIds: six });
+    const reads = countedRoster();
+    await changeSession(
+      fran,
+      's-room1',
+      { attendance: Object.fromEntries(six.map((id) => [id, id === 'p6' ? 'absent' : 'present'])) },
+      options(),
+    );
+    assert.deepEqual(await attendanceEntries(), ['Marked 6 participants: 5 present, 1 absent']);
+    assert.deepEqual(reads, { listings: 0, lookups: 0 });
+  });
+
+  it('counts a few whose addresses are too long to name in one entry, rather than cut one off', async () => {
+    const long = ['l1', 'l2', 'l3', 'l4', 'l5'];
+    for (const id of long) {
+      await roster.upsertPerson({
+        id,
+        email: `${id}.with-a-very-long-address-indeed@training.acme-holdings.example`,
+        name: id,
+        role: 'trainee',
+        orgId: ORG,
+      });
+    }
+    await saved({ participantIds: long });
+    await changeSession(
+      fran,
+      's-room1',
+      { attendance: Object.fromEntries(long.map((id) => [id, 'present'])) },
+      options(),
+    );
+    // One alone fits, and is named.
+    await saved({ id: 's-room2', participantIds: ['l1'] });
+    await changeSession(fran, 's-room2', { attendance: { l1: 'present' } }, options());
+    assert.deepEqual((await attendanceEntries()).sort(), [
+      'Marked 5 participants: 5 present, 0 absent',
+      'Marked l1.with-a-very-long-address-indeed@training.acme-holdings.example present',
+    ]);
   });
 });
 
@@ -1040,7 +1145,9 @@ describe('adding participants to a session', () => {
     assert.equal(await roster.isAssigned(asha.id, DECK_ID), false, 'already listed, not assigned');
     const entries = await sessionAudit();
     assert.ok(
-      entries.some((entry) => /Added cara to the session after it started/.test(entry.detail)),
+      entries.some(
+        (entry) => entry.detail === 'Added cara@acme.example to the session after it started',
+      ),
     );
   });
 

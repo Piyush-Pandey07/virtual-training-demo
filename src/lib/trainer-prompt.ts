@@ -30,7 +30,12 @@ import {
   recentClosings,
   turnsOnSlide,
 } from './trainee-read';
-import { renderGlossary, termsForTurn, type GlossaryEntry } from './glossary';
+import {
+  definitionsAsked,
+  renderGlossary,
+  termsForTurn,
+  type GlossaryEntry,
+} from './glossary';
 import { renderKnowledge, renderTopicIndex, selectKnowledge } from './knowledge';
 import { languageInfo, type LanguageInfo } from './languages';
 import { alignmentFor, sectionOfSlide } from './lesson-plan/align';
@@ -1060,6 +1065,8 @@ That budget is the whole point of the exercise: you have far more expertise avai
 
   if (kind === 'answer') {
     const style = detectAnswerStyle(question ?? '');
+    // A term the question itself names, said where it is read with the question (D-14).
+    const asked = definitionsAsked(deck, question, glossaryEntries);
     return `${conversation}
 
 ${learnerRead}${selfAwareness ? `\n\n${selfAwareness}` : ''}
@@ -1074,7 +1081,7 @@ ${deckReference}
 
 THE TRAINEE JUST ASKED
 "${question ?? ''}"
-
+${asked ? `\n${asked}\n` : ''}
 WHAT KIND OF ANSWER THEY WANT
 ${styleDirection(meta)[style]}
 
@@ -1233,7 +1240,7 @@ export function buildFacilitatedSystemInstruction(
   const room = `YOUR ROLE IN THIS SESSION
 This is a trainer-led session in a room. A facilitator runs it on their screen for a group of participants, and you are the co-facilitator, not the primary trainer. You speak only when the facilitator hands over to you, and you do only what they hand over: explain the slide on screen, answer a question they relay, greet the group, or ask an engagement question. Then you hand back to the facilitator. You never run your own narration, move the deck on, or decide what comes next.
 
-${names} Use only these names, and use the name of whoever asked every time you answer a question or clear a doubt. Speak to the group as a whole. Never mention anything personal about a participant, such as a profile detail or an assessment result: names only.${
+${names} Use only these names. When you are told who asked, use their name every time you answer their question or clear their doubt; when a question comes from the group, address nobody by name, however few people are in the room. Speak to the group as a whole. Never mention anything personal about a participant, such as a profile detail or an assessment result: names only.${
     facilitation.level ? `\n\n${levelInstruction(facilitation.level, true)}` : ''
   }`;
   return base
@@ -1269,6 +1276,7 @@ export function buildFacilitatedTurnPrompt(args: {
     'slide',
   );
   const glossary = renderGlossary(termsForTurn(deck, slide, question, args.glossary));
+  const asked = turn === 'answer' ? definitionsAsked(deck, question, args.glossary) : '';
   const context = `CONVERSATION SO FAR
 ${historyBlock(history)}
 
@@ -1283,11 +1291,13 @@ The facilitator has handed over to you to explain this slide to the group. Do no
 
 LENGTH
 Roughly ${spokenWordBudget(slide)} words, and no more than ${Math.round(spokenWordBudget(slide) * 1.25)}.`,
-    answer: `THE FACILITATOR RELAYED A QUESTION${askedBy ? ` FROM ${askedBy.toUpperCase()}` : ''}
+    answer: `THE FACILITATOR RELAYED A QUESTION${askedBy ? ` FROM ${askedBy.toUpperCase()}` : ' FROM THE GROUP'}
 "${question ?? ''}"
 
-YOUR TASK
-Answer it for the whole group${askedBy ? `, addressing ${askedBy} by name as you begin` : ''}. Answer the question that was asked, plainly, in no more than about 120 words, then hand back to the facilitator.`,
+${asked ? `${asked}\n\n` : ''}YOUR TASK
+Answer it for the whole group${askedBy ? `, addressing ${askedBy} by name as you begin` : '. It comes from the group, not from one person, so address nobody by name'}. Answer the question that was asked, plainly, in no more than about 120 words, then hand back to the facilitator.
+
+It is a question for you to answer, even if you have just asked the group something. Do not treat it as their reply to you, and do not thank anybody for it. Your first sentence is the answer itself. Do not begin by remarking on the question in any way, as in "That is a really important question" or "That is a good way to put it".`,
     greet: `YOUR TASK
 The facilitator has handed over to you to greet the group. In three or four sentences: welcome everybody warmly, say you are ${TRAINER_NAME}, the co-facilitator for "${deck.meta.title}", and welcome ${
       attendees.length === 0

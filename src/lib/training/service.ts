@@ -11,17 +11,17 @@ import 'server-only';
 
 import { bandsOf, checkBands } from '../assessments/scoring';
 import { assessmentStore } from '../assessments/store';
-import { recordAudit } from '../audit/log';
+import { AUDIT_DETAIL_LENGTH, recordAudit } from '../audit/log';
 import { assignmentRefusal } from '../decks/approval';
 import { listDecks } from '../decks/registry';
 import { notifySessionSetUp } from '../notifications/events';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
-import type { SignedInPerson } from '../roster/types';
+import type { Person, SignedInPerson } from '../roster/types';
 import { mayManageSession } from './access';
 import { newTrainingId, trainingStore } from './store';
 import type { AttendanceMark, Batch, TrainingSession } from './types';
-import { joinedLate } from './words';
+import { joinedLate, participantCount } from './words';
 
 export class TrainingRuleError extends Error {
   constructor(
@@ -54,10 +54,18 @@ function refuseUnlessOrganiser(person: SignedInPerson): void {
   }
 }
 
-/** The ids in a list that are real people in this company, in their given order, once. */
-async function knownPeople(person: SignedInPerson, ids: unknown): Promise<string[]> {
+/**
+ * The ids in a list that are real people in this company, in their given order, once.
+ *
+ * Reads the roster, unless the caller has already listed it and passes it in.
+ */
+async function knownPeople(
+  person: SignedInPerson,
+  ids: unknown,
+  listed?: readonly Person[],
+): Promise<string[]> {
   if (!Array.isArray(ids)) return [];
-  const roster = await rosterStore(person.orgId).listPeople();
+  const roster = listed ?? (await rosterStore(person.orgId).listPeople());
   const known = new Set(roster.map((entry) => entry.id));
   return [...new Set(ids.filter((id): id is string => typeof id === 'string'))].filter((id) =>
     known.has(id),
@@ -81,6 +89,22 @@ async function chosenFacilitator(person: SignedInPerson, requested: unknown): Pr
   }
   return facilitator.id;
 }
+
+/**
+ * How the audit history names somebody: by their email address, as every other entry
+ * about a person does ("Added <email> by hand", "Changed <email> from trainee to
+ * facilitator"). An account id means nothing to whoever reads the history (D-13).
+ *
+ * Somebody no longer on the roster, removed since, is named by their id, which is all
+ * that is left of them here, rather than the entry, or the change it records, failing.
+ */
+function auditNames(people: readonly Person[]): (personId: string) => string {
+  const emails = new Map(people.map((entry) => [entry.id, entry.email]));
+  return (personId) => emails.get(personId) || personId;
+}
+
+/** How many people an audit entry names one by one. A larger number is counted instead. */
+const NAMED_AT_MOST = 5;
 
 function cleanName(raw: unknown): string {
   const name = typeof raw === 'string' ? raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim() : '';
@@ -381,13 +405,22 @@ export async function changeSession(
     );
   }
   if (marked.length > 0) {
+    // One listing of the roster names everybody the entry names, rather than a read for
+    // each, and none is made for a room that is only counted. The marks are saved by now,
+    // so a roster that cannot be read leaves the ids in the entry rather than losing it.
+    const people =
+      marked.length <= NAMED_AT_MOST
+        ? await rosterStore(person.orgId)
+            .listPeople()
+            .catch(() => [] as Person[])
+        : [];
     await recordAudit(
       person,
       {
         action: 'updated',
         subjectType: 'training-session',
         subjectId: id,
-        detail: attendanceDetail(saved, marked),
+        detail: attendanceDetail(saved, marked, auditNames(people)),
       },
       { store: options.store },
     );
@@ -408,15 +441,25 @@ export async function changeSession(
   return saved;
 }
 
-/** The audit line for some attendance marks: names a few, and counts a whole room. */
-function attendanceDetail(session: TrainingSession, marked: [string, AttendanceMark][]): string {
+/**
+ * The audit line for some attendance marks: names a few, and counts a whole room.
+ *
+ * A few long addresses can make the named line longer than an entry keeps. It is counted
+ * then too, since an entry cut off part way through an address could name somebody else.
+ */
+function attendanceDetail(
+  session: TrainingSession,
+  marked: [string, AttendanceMark][],
+  nameOf: (personId: string) => string,
+): string {
   const word = (personId: string, mark: AttendanceMark) =>
     mark === 'present' && joinedLate(session, personId) ? 'present, joined late' : mark;
-  if (marked.length <= 5) {
-    return `Marked ${marked.map(([personId, mark]) => `${personId} ${word(personId, mark)}`).join('; ')}`;
+  if (marked.length <= NAMED_AT_MOST) {
+    const named = `Marked ${marked.map(([personId, mark]) => `${nameOf(personId)} ${word(personId, mark)}`).join('; ')}`;
+    if (named.length <= AUDIT_DETAIL_LENGTH) return named;
   }
   const present = marked.filter(([, mark]) => mark === 'present').length;
-  return `Marked ${marked.length} participants: ${present} present, ${marked.length - present} absent`;
+  return `Marked ${participantCount(marked.length)}: ${present} present, ${marked.length - present} absent`;
 }
 
 /**
@@ -444,7 +487,9 @@ export async function addParticipants(
         : 'This session was cancelled, so nobody can be added. Set up a new one instead.',
     );
   }
-  const wanted = await knownPeople(person, input.participantIds);
+  // Listed once, for both whom to add and how the audit history names them.
+  const people = await rosterStore(person.orgId).listPeople();
+  const wanted = await knownPeople(person, input.participantIds, people);
   if (wanted.length === 0) throw new TrainingRuleError(400, 'Choose somebody to add.');
   const refusal = await assignmentRefusal(person.orgId, session.deckId, { store: options.store });
   if (refusal) throw new TrainingRuleError(409, refusal);
@@ -467,7 +512,7 @@ export async function addParticipants(
         action: 'updated',
         subjectType: 'training-session',
         subjectId: id,
-        detail: `Added ${added.length <= 5 ? added.join(', ') : `${added.length} participants`} to the session${saved.status === 'open' ? ' after it started' : ''}`,
+        detail: `Added ${added.length <= NAMED_AT_MOST ? added.map(auditNames(people)).join(', ') : participantCount(added.length)} to the session${saved.status === 'open' ? ' after it started' : ''}`,
       },
       { store: options.store },
     );

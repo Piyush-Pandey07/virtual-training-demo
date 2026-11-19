@@ -4,10 +4,11 @@ import { describe, it } from 'node:test';
 
 import type { DeckRecord, DeckSlide } from '../deck-types';
 import { ISMS_DECK } from '../decks/isms';
-import { buildTurnPrompt } from '../trainer-prompt';
+import { buildFacilitatedTurnPrompt, buildTurnPrompt } from '../trainer-prompt';
 import { GLOSSARY } from './entries';
 import {
   MAX_TERMS_PER_TURN,
+  definitionsAsked,
   keytermsFor,
   renderGlossary,
   termsForTurn,
@@ -224,5 +225,107 @@ describe("listening for the deck's acronyms", () => {
     const route = readFileSync('src/app/api/stt/route.ts', 'utf8');
     assert.match(route, /getAll\('keyterm'\)\.slice\(0, 40\)/);
     assert.match(route, /\/\^\[A-Za-z0-9&\+-\]\{2,12\}\$\/\.test\(term\)/);
+  });
+});
+
+/**
+ * A question that asks what a term means gets the glossary's meaning (D-14).
+ *
+ * The UAT dry run asked "What does X mean?" on a trainer-led run screen and heard the
+ * slide's broader meaning, though the trainer had the entry: it sat at the end of the
+ * material. The definition is now said again beside the question, in the task.
+ */
+describe('a question that names a glossary term', () => {
+  const named = {
+    ...POWER,
+    meta: { ...POWER.meta, id: 'named-asked', title: 'Data Centre Power' },
+  };
+
+  it('puts the definition beside the question, in both kinds of session', () => {
+    const asked = definitionsAsked(named, 'What does ATS mean?');
+    assert.match(asked, /^The question names a term the Technavious glossary defines/);
+    assert.match(asked, /Automatic Transfer Switch \(ATS\)/);
+
+    const oneToOne = buildTurnPrompt({
+      deck: named,
+      kind: 'answer',
+      slide: named.slides[0]!,
+      history: [],
+      question: 'What does ATS mean?',
+      coveredSlideIds: [],
+    });
+    const question = oneToOne.indexOf('THE TRAINEE JUST ASKED');
+    const definition = oneToOne.indexOf('The question names a term');
+    assert.ok(question >= 0 && definition > question, 'the definition follows the question');
+    assert.ok(definition < oneToOne.indexOf('YOUR TASK'), 'and comes before the task');
+
+    const room = buildFacilitatedTurnPrompt({
+      deck: named,
+      slide: named.slides[0]!,
+      history: [],
+      turn: 'answer',
+      question: 'What does ATS mean?',
+      attendees: ['Asha'],
+    });
+    assert.ok(
+      room.indexOf('The question names a term') >
+        room.indexOf('THE FACILITATOR RELAYED A QUESTION'),
+    );
+  });
+
+  it('says nothing for a question that names no term, for another kind of turn, or on a deck without the glossary', () => {
+    assert.equal(definitionsAsked(named, 'How long does this take?'), '');
+    assert.equal(definitionsAsked(named, undefined), '');
+    assert.equal(definitionsAsked(ISMS_DECK, 'What does ATS mean?'), '');
+    const explain = buildFacilitatedTurnPrompt({
+      deck: named,
+      slide: named.slides[0]!,
+      history: [],
+      turn: 'explain',
+      question: 'What does ATS mean?',
+      attendees: [],
+    });
+    assert.doesNotMatch(explain, /The question names a term/);
+  });
+
+  it('never gives a term that is held back from the trainer', () => {
+    const held = GLOSSARY.map((entry) =>
+      entry.acronym === 'ATS' ? { ...entry, held: 'Being checked' } : entry,
+    );
+    assert.equal(definitionsAsked(named, 'What does ATS mean?', held), '');
+  });
+});
+
+/**
+ * Who a trainer-led answer is addressed to (D-12), and that a relayed question is
+ * answered rather than thanked for (UAT dry run).
+ */
+describe('a question relayed in a trainer-led session', () => {
+  const relay = (askedBy?: string) =>
+    buildFacilitatedTurnPrompt({
+      deck: ISMS_DECK,
+      slide: ISMS_DECK.slides[1]!,
+      history: [],
+      turn: 'answer',
+      question: 'What is a phishing email?',
+      askedBy,
+      attendees: ['UAT'],
+    });
+
+  it('from the group, addresses nobody by name, however few are in the room', () => {
+    const prompt = relay();
+    assert.match(prompt, /RELAYED A QUESTION FROM THE GROUP/);
+    assert.match(prompt, /address nobody by name/);
+    assert.doesNotMatch(prompt, /addressing UAT by name/);
+  });
+
+  it('from one person, addresses them by name', () => {
+    const prompt = relay('UAT');
+    assert.match(prompt, /RELAYED A QUESTION FROM UAT/);
+    assert.match(prompt, /addressing UAT by name as you begin/);
+  });
+
+  it('is answered as a question, never thanked for as a reply', () => {
+    assert.match(relay(), /Do not treat it as their reply to you, and do not thank anybody for it/);
   });
 });

@@ -9,6 +9,11 @@
  * back control. The microphone is open only while the facilitator is asking the trainer
  * something, so nothing anybody else says in the room can set it off.
  *
+ * The first hand-over starts the session. More than a few hours before its scheduled time
+ * the facilitator is asked first, since a session started the day before it is due
+ * cannot be cancelled and marks everybody arriving on the day as late. Closing is not
+ * done here: it is on the session page, which asks before it too.
+ *
  * This is the only device in a trainer-led session that uses a microphone (AI-45).
  * Participants never come here, and nothing on their own pages asks for one. While it is
  * open the screen says so, and it is closed, track and all, as soon as the question has
@@ -27,6 +32,7 @@ import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { FAILURE_MESSAGES, describeFailure, readFailure } from '@/lib/failures/codes';
 import { TRAINER_NAME } from '@/lib/trainer';
+import { earlyStartQuestion } from '@/lib/training/confirmations';
 import type { ChatEvent, HistoryTurn } from '@/lib/types';
 
 type Turn = 'explain' | 'answer' | 'greet' | 'engage';
@@ -34,6 +40,10 @@ type Floor = 'facilitator' | 'listening' | 'thinking' | 'speaking';
 
 interface Props {
   sessionId: string;
+  /** When the session is due, for asking before it is started well ahead of that. */
+  scheduledFor: string | null;
+  /** Whether it has started already, in which case nothing is asked. */
+  started: boolean;
   attendees: string[];
   /**
    * Where the deck differs from its lesson plan, in words (AI-43). Shown for the whole
@@ -54,7 +64,13 @@ const FLOOR_LABEL: Record<Floor, string> = {
   speaking: `${TRAINER_NAME} is speaking`,
 };
 
-export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props) {
+export function FacilitatorScreen({
+  sessionId,
+  scheduledFor,
+  started,
+  attendees,
+  planGaps = [],
+}: Props) {
   const deck = useDeck();
   const [slideId, setSlideId] = useState(deck.slides[0]?.id ?? 1);
   const [floor, setFloor] = useState<Floor>('facilitator');
@@ -69,6 +85,22 @@ export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props
   useEffect(() => {
     slideRef.current = slideId;
   }, [slideId]);
+
+  /**
+   * Whether to go ahead with what the facilitator pressed. The first hand-over starts the
+   * session, so if that is more than a few hours before its time they are asked first,
+   * naming the time. Asked once: after a yes, or once it has started, nothing is asked
+   * again. Called before anything on the screen changes, so a no leaves it as it was,
+   * and with the time at the press, since the screen may have been open for hours.
+   */
+  const startConfirmedRef = useRef(started);
+  const goAhead = useCallback(() => {
+    if (startConfirmedRef.current) return true;
+    const question = earlyStartQuestion(scheduledFor, new Date());
+    if (question && !window.confirm(question)) return false;
+    startConfirmedRef.current = true;
+    return true;
+  }, [scheduledFor]);
 
   const tts = useTtsPlayer({ deckId: deck.meta.id });
   const ttsRef = useRef(tts);
@@ -175,6 +207,8 @@ export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props
   }, [stt]);
 
   const listen = async () => {
+    // Asked before the microphone opens: what it hears is handed over at once.
+    if (!goAhead()) return;
     takeBack();
     await ttsRef.current.unlock();
     stt.setLanguage('en');
@@ -272,6 +306,7 @@ export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props
                   type="button"
                   className={PRIMARY}
                   onClick={() => {
+                    if (!goAhead()) return;
                     setGreeted(true);
                     void handOver('greet');
                   }}
@@ -279,10 +314,22 @@ export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props
                   Greet the group
                 </button>
               )}
-              <button type="button" className={PRIMARY} onClick={() => void handOver('explain')}>
+              <button
+                type="button"
+                className={PRIMARY}
+                onClick={() => {
+                  if (goAhead()) void handOver('explain');
+                }}
+              >
                 Explain this slide
               </button>
-              <button type="button" className={SECONDARY} onClick={() => void handOver('engage')}>
+              <button
+                type="button"
+                className={SECONDARY}
+                onClick={() => {
+                  if (goAhead()) void handOver('engage');
+                }}
+              >
                 Ask the group an engagement question
               </button>
             </div>
@@ -318,7 +365,8 @@ export function FacilitatorScreen({ sessionId, attendees, planGaps = [] }: Props
               onSubmit={(event) => {
                 event.preventDefault();
                 const question = typed.trim();
-                if (!question) return;
+                // A no keeps the typed question, to send once it is time.
+                if (!question || !goAhead()) return;
                 setTyped('');
                 void handOver('answer', question);
               }}

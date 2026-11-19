@@ -45,6 +45,33 @@ export const NO_REOPENING =
 export const NO_RUNNING_CANCELLED =
   'A cancelled session cannot be run. To run it after all, set up a new one.';
 
+/**
+ * "1 participant", "3 participants": a count of participants that agrees with its number.
+ *
+ * A UAT dry run found "(1 participants)" in the audit history (D-15). A batch can hold
+ * nobody and a session one person, so every count that may be small goes through here.
+ */
+export function participantCount(count: number): string {
+  return `${count} ${count === 1 ? 'participant' : 'participants'}`;
+}
+
+/**
+ * The closure summary's totals as one sentence, for the session page.
+ *
+ * How many joined late is given every time, nought included, so the line has the same
+ * shape for every session, as the UAT checklist quotes it, and agrees with the download,
+ * whose "Of whom joined late" row is always there.
+ */
+export function summaryTotalsLine(totals: {
+  listed: number;
+  present: number;
+  joinedLate: number;
+  passed: number;
+  feedbackGiven: number;
+}): string {
+  return `${totals.present} of ${totals.listed} present (${totals.joinedLate} joined late), ${totals.passed} passed the post-session assessment, ${totals.feedbackGiven} gave feedback.`;
+}
+
 export function feedbackWord(feedback: SummaryRow['feedback']): string {
   if (feedback === 'submitted') return 'Given';
   if (feedback === 'pending') return 'Pending';

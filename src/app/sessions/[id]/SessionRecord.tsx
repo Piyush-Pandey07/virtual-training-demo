@@ -6,10 +6,10 @@
  * The facilitator marks each listed participant present or absent, and only they, or an
  * administrator, can close the session. Closing asks for everybody to be marked first,
  * so an absence is a decision rather than an omission; a closed session cannot be
- * changed or reopened. Before it starts, the same people may cancel it instead, which
- * keeps it on record as cancelled. Somebody marked present after it opened is shown as
- * having joined late (AI-26). There is no slide-by-slide progress for a trainer-led
- * session.
+ * changed or reopened, so closing is confirmed first. Before it starts, the same people
+ * may cancel it instead, also once confirmed, which keeps it on record as cancelled.
+ * Somebody marked present after it opened is shown as having joined late (AI-26). There
+ * is no slide-by-slide progress for a trainer-led session.
  *
  * The session's level bands are here too: filled from the deck when it was set up, and
  * changed by the same people until it closes. They decide each participant's level for
@@ -24,6 +24,7 @@ import { LevelBandsForm } from '@/components/LevelBandsForm';
 import { describeBands } from '@/lib/assessments/scoring';
 import { DEFAULT_LEVEL_BANDS, type LevelBands } from '@/lib/assessments/types';
 import { formatMoment } from '@/lib/time';
+import { closeQuestion } from '@/lib/training/confirmations';
 import type { AttendanceMark, SummaryRow, TrainingSession } from '@/lib/training/types';
 import {
   attendanceWord,
@@ -32,6 +33,7 @@ import {
   NO_REOPENING,
   NO_RUNNING_CANCELLED,
   resultWord,
+  summaryTotalsLine,
 } from '@/lib/training/words';
 
 interface Props {
@@ -129,6 +131,13 @@ export function SessionRecord({
       return;
     }
     void change({ status: 'cancelled' });
+  }
+
+  // Asked as cancelling is, because closing cannot be undone either. The time is read at
+  // the click, not when the page was drawn, since a page can be left open for hours.
+  function close() {
+    if (!window.confirm(closeQuestion(session, new Date()))) return;
+    void change({ status: 'closed' });
   }
 
   return (
@@ -286,13 +295,7 @@ export function SessionRecord({
           <h2 id="summary-heading" className="text-xl font-bold">
             Closure summary
           </h2>
-          <p className="text-muted mt-1 text-sm">
-            {summary.totals.present} of {summary.totals.listed} present
-            {summary.totals.joinedLate > 0
-              ? ` (${summary.totals.joinedLate} joined late)`
-              : ''}, {summary.totals.passed} passed the post-session assessment,{' '}
-            {summary.totals.feedbackGiven} gave feedback.
-          </p>
+          <p className="text-muted mt-1 text-sm">{summaryTotalsLine(summary.totals)}</p>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="text-muted border-charcoal-line border-b">
@@ -337,12 +340,7 @@ export function SessionRecord({
 
       {!finished && (
         <div className="flex flex-wrap items-center gap-4">
-          <button
-            type="button"
-            disabled={busy || unmarked > 0}
-            onClick={() => void change({ status: 'closed' })}
-            className={BUTTON}
-          >
+          <button type="button" disabled={busy || unmarked > 0} onClick={close} className={BUTTON}>
             Close the session
           </button>
           {session.status === 'scheduled' && (

@@ -256,6 +256,14 @@ function ReasonForm({
 type Mode = 'view' | 'edit' | 'hold' | 'release' | 'delete';
 
 function EntryRow({ entry, onChanged }: { entry: GlossaryRecord; onChanged: () => void }) {
+  /**
+   * Set once the server has deleted the entry, so the row goes at once.
+   *
+   * The list is refreshed from the server as well. The UAT dry run saw a deleted term stay
+   * until a reload (D-11), which could not be reproduced in Chrome; this way the row never
+   * waits on the refresh.
+   */
+  const [deleted, setDeleted] = useState(false);
   const [mode, setMode] = useState<Mode>('view');
   const [error, setError] = useState<string | null>(null);
   const url = `/api/glossary/${encodeURIComponent(entry.id)}`;
@@ -267,6 +275,8 @@ function EntryRow({ entry, onChanged }: { entry: GlossaryRecord; onChanged: () =
     }
     return refused;
   };
+
+  if (deleted) return null;
 
   return (
     <li className="border-charcoal-line border-t px-5 py-4">
@@ -344,7 +354,11 @@ function EntryRow({ entry, onChanged }: { entry: GlossaryRecord; onChanged: () =
               <button
                 type="button"
                 className={BUTTON}
-                onClick={async () => setError(done(await send(url, 'DELETE')))}
+                onClick={async () => {
+                  const refused = await send(url, 'DELETE');
+                  if (!refused) setDeleted(true);
+                  setError(done(refused));
+                }}
               >
                 Delete it
               </button>

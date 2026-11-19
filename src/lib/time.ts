@@ -101,6 +101,22 @@ function dayText(iso: string, parts: Intl.DateTimeFormatOptions): string {
 }
 
 /**
+ * How many hours from now a moment is: 0 once it has come, and for no time or one that
+ * cannot be read.
+ *
+ * Asked of a session's scheduled time, to tell a session started a little ahead of time
+ * from one started the day before (see training/confirmations.ts). It is the difference
+ * between two moments, which is the same in every zone, so unlike the rest of this file
+ * it has no zone to name.
+ */
+export function hoursAhead(iso: string | null | undefined, now: Date = new Date()): number {
+  if (!iso) return 0;
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) return 0;
+  return Math.max(0, (at - now.getTime()) / 3_600_000);
+}
+
+/**
  * The moment a "date and time" box names, read as India time whatever zone the browser
  * is in, or undefined for an empty or unreadable value.
  *
