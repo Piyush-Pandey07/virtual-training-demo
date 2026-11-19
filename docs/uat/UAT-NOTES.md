@@ -336,16 +336,46 @@ November:
 - **Duplicates (1)**: row 51, `uat-participant-10@example.com`, "Duplicate of row 11, which is
   the one kept."
 - No **Failed** table, because no row fails.
-- Uploading the same file a second time gives "49 imported (0 new, 49 already here), 1
-  duplicate, 0 failed. 2 will be asked to complete required fields on their first visit."
 - The 49 people appear on `/people` with the role Employee.
 - An incomplete-profile notification is written on `/platform/notifications` (AI-35).
 - Each prefilled profile is recorded in **Audit history** under "Learner profiles".
+- Each person the upload adds is recorded in **Audit history** under "People and roles", Did
+  "created", with the detail "Added uat-participant-01@example.com from line 2 of a participant
+  upload, with the role trainee" (D-02). Somebody the upload only found is not recorded there.
 - The upload as a whole is recorded once in **Audit history** under "Participant uploads"
   (AI-60), Did "uploaded", with the detail "Uploaded a file of 50 rows: 49 imported (49 new, 0
   already here), 1 duplicate, 0 failed or refused, 2 to complete".
 
 Rows are numbered as a spreadsheet shows them: the header is row 1.
+
+**Uploading the same file a second time.** A second upload never overwrites a profile its owner
+has confirmed. What it does to somebody already here depends only on that:
+
+- Nobody has confirmed the profile yet, so what is stored is the earlier upload. The newer file
+  replaces it whole: a field the newer file leaves empty becomes empty. It stays unconfirmed and
+  is still not given to the trainer. The row reads "Already here. They have not confirmed a
+  profile yet, so it was prefilled from this file. They will confirm it when they next sign
+  in." (or "... They will be asked for: current department." when a required field is empty).
+- The participant has confirmed their profile, whether it began as an upload or they wrote it
+  themselves, and however often they have edited it since. The profile is left exactly as it
+  is, nothing is recorded as written, and the row reads "Already here. They have confirmed
+  their own profile, so it was left exactly as it is." The summary line then ends "1 already
+  here has confirmed their own profile, which was left as it is." (or "N already here have
+  confirmed their own profiles, which were left as they are.").
+- Either way their row on `/people` is not changed: an upload never renames somebody already
+  here, changes their role, or marks them as having signed in.
+
+Expected for `sample-participants-50.csv` uploaded again before anybody has signed in: "49
+imported (0 new, 49 already here), 1 duplicate, 0 failed. 2 will be asked to complete required
+fields on their first visit.", and every row in **Imported (49)** begins "Already here. They
+have not confirmed a profile yet, so it was prefilled from this file." To see the other case,
+sign in as one of the 49, confirm the profile on the consent page, and upload the file again:
+that row reads "Already here. They have confirmed their own profile, so it was left exactly as
+it is.", and **My profile** for that participant is unchanged. A confirmed participant is no
+longer counted in "will be asked to complete required fields", whatever the file leaves empty
+for them. The upload page says the same under **How to fill in the template**: "A file can be
+uploaded again. Somebody who has confirmed their own profile keeps it exactly as it is. A
+profile nobody has confirmed yet is filled in again from the newer file."
 
 **To see a failed row**, copy the file and change one row's proficiency to "Expert", or its
 email to "not an address". Expected reasons: "How you rate your own proficiency must be
@@ -360,8 +390,9 @@ either, because sign-in finds them by their account rather than by their domain.
 
 **Unit tests.** `src/lib/profiles/upload.test.ts` (including "has no cap on how many participants
 a file holds (AI-28)", "imports the valid rows of fifty and lists the failed ones with the
-reason (AI-28)", "refusing addresses the company has not claimed (AI-59)" and "recording an
-upload (AI-60)"), and `src/lib/audit/actions.test.ts` ("participant uploads").
+reason (AI-28)", "refusing addresses the company has not claimed (AI-59)", "recording an
+upload (AI-60)" and "uploading a file again", which holds both cases above and the wording of
+each row), and `src/lib/audit/actions.test.ts` ("participant uploads", "people added (D-02)").
 
 **Known limits / waiting on.** Upload is into the organisation you are in, and only addresses
 on the domains it claims are imported (see Test accounts).
@@ -435,7 +466,8 @@ shuffled for each participant and stays the same on reload. Every version of a b
 each result records the version it was taken on. Nobody fails the pre-session assessment: it
 only places the participant. Default bands: below 40% Beginner, 40% to 70% Intermediate, above
 70% Advanced. A new session copies the deck's bands, and its facilitator or an administrator
-can change them for that session.
+can change them for that session. A bank holds at most 50 questions, on purpose: a file with
+more is refused whole rather than saved as its first 50.
 
 **Where to click (Technavious administrator).**
 
@@ -457,11 +489,24 @@ session (`/sessions/<id>`), section **Level bands**, change the values, **Save t
 
 **Expected result.**
 
-- After saving: "Saved 10 questions." The badge reads **Uploaded**.
+- After saving: "Saved 10 questions." The badge reads **Uploaded**. The line at the top of the
+  panel reads "Version 1: 10 questions, saved <date>. Show them with their answers." at once,
+  without reloading the page (D-07).
 - The bands text reads "Below 40% is Beginner, 40% to 70% is Intermediate, and above 70% is
   Advanced."
-- After a second upload: "2 versions kept. Every result is marked against the version it was
-  taken on." and the list shows "Version 2: 10 questions, uploaded <date>".
+- After a second upload: the same line changes to "Version 2: ..." in the same moment as "Saved
+  10 questions.", and beneath it "2 versions kept. Every result is marked against the version it
+  was taken on." appears, whose list shows "Version 2: 10 questions, uploaded <date>". None of
+  this needs a reload.
+- Under **Upload a CSV** the text ends "A bank holds at most 50 questions, and a file with more
+  cannot be saved." A file of 51 questions previews as "Preview of <file>: 51 questions in the
+  file. A bank holds at most 50, so the last 1 was left out and the file cannot be saved as it
+  is.", lists "Row 52: A bank holds at most 50 questions and this file has 51. Take 1 out and
+  choose the file again." under "This file cannot be saved until these are fixed. Nothing has
+  been changed.", shows the first 50, and **Save this bank** is disabled (D-08). A file of
+  exactly 50 previews as "50 questions read" and saves.
+- A file with bad rows says how many it read of how many it holds, such as "Preview of <file>:
+  8 of 10 questions read", above the list of problems.
 - Leaving a question blank warns "Question N has not been answered. It will be marked Not
   attempted and score nothing. Submit anyway?"
 - With the 10-question samples: 3 correct gives 30%, Beginner; 4 correct gives 40%,
@@ -480,9 +525,11 @@ session (`/sessions/<id>`), section **Level bands**, change the values, **Save t
 - The closure summary (AI-33) shows each participant's pre-session level and the bank version.
 
 **Unit tests.** `src/lib/assessments/scoring.test.ts` (marking, rounding down, blanks, bands,
-shuffle "is the same every time for the same person and version"), `src/lib/assessments/service.test.ts`
+shuffle "is the same every time for the same person and version", and "the most questions a bank
+holds (D-08)"), `src/lib/assessments/service.test.ts`
 ("places 40% and 70% at Intermediate, below 40% at Beginner and above 70% at Advanced", "keeps
-every version, numbered", "records the version on each result"), `src/lib/training/level-bands.test.ts`.
+every version, numbered", "records the version on each result", "what a save answers with
+(D-07)"), `src/lib/training/level-bands.test.ts`.
 
 **Known limits / waiting on.** The user team's real banks. The samples are drafted, not reviewed
 by the content owner.
@@ -877,9 +924,10 @@ Technavious administrator can approve.
 ## AI-40 Audit history (and item 13)
 
 **What was built.** A history of who viewed or changed profiles, assessment results, question
-banks, the glossary and deck approvals, plus consent given and withdrawn, role changes, downloads
-(participant template, session summary), deletions, attendance edits and administrators' own
-actions. Entries are kept 400 days. Only the Technavious administrator can view it.
+banks, the glossary and deck approvals, plus consent given and withdrawn, people added, role
+changes, downloads (participant template, session summary), deletions, attendance edits and
+administrators' own actions. Entries are kept 400 days. Only the Technavious administrator can
+view it.
 
 **Where to click.** Technavious administrator: **Audit history** (`/audit`). Use **What**
 (Everything, Learner profiles, Assessment results, Question banks, Glossary, Deck approvals,
@@ -895,6 +943,17 @@ Participant uploads),
   ... present, joined late" for the late joiner); a session cancelled; a person removed; a deck
   approved; a bank uploaded "as version 2"; and one "Participant uploads" entry for each
   participant upload, with its counts.
+- Adding somebody on `/people` is under "People and roles" (D-02): Did "created", Detail "Added
+  <email> by hand, with the role trainee", with who added them under Who. Everybody is added as
+  an employee, stored as `trainee`, so making them a facilitator afterwards is a second entry,
+  Did "role-changed", "Changed <email> from trainee to facilitator". Adding an address that is
+  already there adds nobody: Did "updated", "Added <email> again: already here with the role
+  <role>, which was not changed", followed by "Their name was changed from "<old>" to "<new>""
+  if a different name was typed. Each person a participant upload adds has an entry of their
+  own there too (see AI-28). Moving somebody between customers from **Customers** is recorded
+  in both: Did "deleted", "Moved <email> to "<customer>", which removed them from here with
+  their assignments" in the one they left, and Did "created", "Moved <email> here from
+  "<customer>", with the role trainee" in the one they joined.
 - Company administrator, facilitator, participant: `/audit` is a 404 and there is no nav link.
 - The history shown is for the organisation the administrator is in. To see a customer's
   history, open it from **Customers** with **Look inside** first.

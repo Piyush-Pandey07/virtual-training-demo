@@ -6,13 +6,22 @@ import { useState } from 'react';
 import {
   CSV_TEMPLATE,
   CSV_TEMPLATE_FILENAME,
+  describeRead,
   parseBankCsv,
   type ParsedBank,
 } from '@/lib/assessments/csv';
+import {
+  bankOnScreen,
+  savedOver,
+  type BankOnScreen,
+  type SavedBank,
+  type SavedBankReply,
+} from '@/lib/assessments/saved';
 import { bandsOf, describeBands } from '@/lib/assessments/scoring';
 import {
   BANK_KIND_LABELS,
   MAX_OPTIONS,
+  MAX_QUESTIONS,
   PASS_MARK,
   SAMPLE_LABEL,
   type BankKind,
@@ -31,6 +40,10 @@ import { describeFailure, readFailure } from '@/lib/failures/codes';
  * anything is saved: every question, its options, which one is marked correct, and every
  * problem with the row it is on. A file with any problem cannot be saved, so the preview
  * is never a promise the save then breaks.
+ *
+ * A save answers with the bank as saved, and the panel shows that at once: the new
+ * version number, count and date in the same moment as "Saved" (D-07). The page is
+ * fetched again as before, and takes over as soon as it arrives. See assessments/saved.ts.
  */
 
 const BUTTON =
@@ -140,8 +153,8 @@ function VersionHistory({ versions }: { versions: BankVersionSummary[] }) {
 function BankPanel({
   deckId,
   kind,
-  bank,
-  versions,
+  bank: pageBank,
+  versions: pageVersions,
 }: {
   deckId: string;
   kind: BankKind;
@@ -149,6 +162,12 @@ function BankPanel({
   versions: BankVersionSummary[];
 }) {
   const router = useRouter();
+  // What the last save here answered with. Shown only while the page still holds the
+  // copy that save replaced, so the panel never says "Saved" beside the old version, and
+  // the page's own copy takes over the moment it arrives (D-07).
+  const [saved, setSaved] = useState<SavedBank | null>(null);
+  const page: BankOnScreen = { bank: pageBank, versions: pageVersions };
+  const { bank, versions } = bankOnScreen(page, saved);
   const [preview, setPreview] = useState<{ name: string; text: string; parsed: ParsedBank } | null>(
     null,
   );
@@ -187,15 +206,16 @@ function BankPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: preview.text }),
       });
-      const body = (await response.json().catch(() => ({}))) as {
+      const body = (await response.json().catch(() => ({}))) as Partial<SavedBankReply> & {
         error?: string;
         problems?: ParsedBank['problems'];
-        questions?: number;
       };
       if (!response.ok) {
         setProblems(body.problems ?? []);
         throw new Error(body.error ?? 'The bank could not be saved.');
       }
+      // The bank as saved, shown now. The refresh below brings the page's own copy.
+      setSaved(savedOver(page, body));
       setNotice(`Saved ${body.questions} questions.`);
       reset();
       router.refresh();
@@ -218,7 +238,8 @@ function BankPanel({
     try {
       const response = await fetch(`${base}/sample`, { method: 'POST' });
       if (!response.ok) throw new Error(describeFailure(await readFailure(response)));
-      const body = (await response.json()) as { questions: number };
+      const body = (await response.json()) as Partial<SavedBankReply> & { questions: number };
+      setSaved(savedOver(page, body));
       setNotice(
         `Generated ${body.questions} sample questions. Read them before anybody takes them.`,
       );
@@ -249,6 +270,9 @@ function BankPanel({
       const response = await fetch(base, { method: 'DELETE' });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? 'The bank could not be removed.');
+      // What a save answered with must not outlast the bank it was about, in the moment
+      // before the page arrives without it.
+      setSaved(null);
       router.refresh();
     } catch (cause) {
       setError((cause as Error).message);
@@ -306,7 +330,8 @@ function BankPanel({
         <h3 className="font-semibold">{bank ? 'Replace with a CSV' : 'Upload a CSV'}</h3>
         <p className="text-muted mt-1 text-sm leading-relaxed">
           One question per row: the question, two to {MAX_OPTIONS} options, and which option is
-          correct as a number (1 to {MAX_OPTIONS}) or a letter (A to F).{' '}
+          correct as a number (1 to {MAX_OPTIONS}) or a letter (A to F). A bank holds at most{' '}
+          {MAX_QUESTIONS} questions, and a file with more cannot be saved.{' '}
           <a
             href={TEMPLATE_HREF}
             download={CSV_TEMPLATE_FILENAME}
@@ -330,8 +355,7 @@ function BankPanel({
         {preview && (
           <div className="mt-5">
             <h4 className="text-sm font-semibold">
-              Preview of {preview.name}: {preview.parsed.questions.length}{' '}
-              {preview.parsed.questions.length === 1 ? 'question' : 'questions'} read
+              Preview of {preview.name}: {describeRead(preview.parsed)}
             </h4>
             {preview.parsed.problems.length > 0 ? (
               <div role="alert" className="border-logo-red/50 mt-3 rounded-md border p-4 text-sm">

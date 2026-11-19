@@ -8,7 +8,11 @@
  *
  * The CSV is sent as text and parsed here with the same parser the screen used for its
  * preview, so what is saved is exactly what was previewed, and a file with any bad row
- * is refused whole with every problem listed.
+ * is refused whole with every problem listed. So is a file with more questions than a
+ * bank holds: the limit is deliberate, and nothing is saved from a file over it.
+ *
+ * A save answers with the bank as saved and the versions kept of it, so the screen shows
+ * the new version at once rather than the old one until it is fetched again (D-07).
  */
 
 import { checkUser } from '@/lib/auth/guard';
@@ -16,7 +20,7 @@ import { mayManageBanks } from '@/lib/assessments/access';
 import { bankFromCsv } from '@/lib/assessments/csv';
 import { refusalResponse } from '@/lib/assessments/responses';
 import { checkBands } from '@/lib/assessments/scoring';
-import { removeBank, saveBank, setLevelBands } from '@/lib/assessments/service';
+import { bankAsSaved, removeBank, saveBank, setLevelBands } from '@/lib/assessments/service';
 import { isBankKind, type BankKind } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import type { SignedInPerson } from '@/lib/roster/types';
@@ -96,7 +100,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       parsed.questions,
       'upload',
     );
-    return Response.json({ questions: bank.questions.length, savedAt: bank.savedAt });
+    return Response.json(await bankAsSaved(resolved.person, bank));
   } catch (error) {
     const refused = refusalResponse(error);
     if (refused) return refused;

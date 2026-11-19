@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { bankFromCsv, CSV_TEMPLATE, parseBankCsv, splitCsv } from './csv';
+import { bankFromCsv, CSV_HEADER, CSV_TEMPLATE, describeRead, parseBankCsv, splitCsv } from './csv';
 import {
   advancedAbove,
   AnswersRejected,
@@ -25,6 +25,7 @@ import { cleanSample, generateSampleQuestions, SampleUnusable, shuffleOptions } 
 import type { DeckRecord } from '../deck-types';
 import {
   DEFAULT_LEVEL_BANDS,
+  MAX_QUESTIONS,
   type AssessmentResult,
   type BankQuestion,
   type QuestionBank,
@@ -429,6 +430,143 @@ describe('reading a CSV', () => {
 
   it('splits rows without losing an empty last field', () => {
     assert.deepEqual(splitCsv('a,b,\n'), [{ line: 1, fields: ['a', 'b', ''] }]);
+  });
+});
+
+/**
+ * D-08: the preview of a 51-question file said "50 questions read". No row was being
+ * lost. Fifty is the most a bank holds, on purpose, and the preview said so only in the
+ * list of problems underneath. These hold both halves: every row is read up to the limit,
+ * however the file was saved, and a file over it says so in the count itself.
+ */
+describe('the most questions a bank holds (D-08)', () => {
+  /** Every way a spreadsheet saves the same file. */
+  const SHAPES = [
+    { name: 'line feeds', eol: '\n', lastBreak: true, header: true, bom: false },
+    {
+      name: 'no line break after the last row',
+      eol: '\n',
+      lastBreak: false,
+      header: true,
+      bom: false,
+    },
+    { name: 'Windows line ends', eol: '\r\n', lastBreak: true, header: true, bom: false },
+    {
+      name: 'Windows line ends, none after the last row',
+      eol: '\r\n',
+      lastBreak: false,
+      header: true,
+      bom: false,
+    },
+    {
+      name: 'Excel CSV UTF-8, with a byte order mark',
+      eol: '\r\n',
+      lastBreak: true,
+      header: true,
+      bom: true,
+    },
+    { name: 'no header row', eol: '\n', lastBreak: false, header: false, bom: false },
+  ] as const;
+
+  function fileOf(count: number, shape: (typeof SHAPES)[number]): string {
+    const rows = Array.from(
+      { length: count },
+      (_, index) => `Question ${index + 1},Yes,No,Maybe,,,,${(index % 3) + 1}`,
+    );
+    const lines = shape.header ? [CSV_HEADER.join(','), ...rows] : rows;
+    return (
+      (shape.bom ? String.fromCharCode(0xfeff) : '') +
+      lines.join(shape.eol) +
+      (shape.lastBreak ? shape.eol : '')
+    );
+  }
+
+  it('is fifty', () => {
+    assert.equal(MAX_QUESTIONS, 50);
+  });
+
+  it('reads every row of a fifty-question file, the first and the last, however it was saved', () => {
+    for (const shape of SHAPES) {
+      const text = fileOf(50, shape);
+      const parsed = parseBankCsv(text);
+      assert.deepEqual(parsed.problems, [], shape.name);
+      assert.equal(parsed.total, 50, shape.name);
+      assert.equal(parsed.questions.length, 50, shape.name);
+      assert.equal(parsed.questions[0]!.question, 'Question 1', shape.name);
+      assert.equal(parsed.questions[49]!.question, 'Question 50', shape.name);
+      assert.equal(parsed.questions[49]!.correctIndex, 1, shape.name);
+      assert.equal(describeRead(parsed), '50 questions read', shape.name);
+      assert.equal(bankFromCsv(text).ok, true, shape.name);
+    }
+  });
+
+  it('counts all fifty-one of a file one over, and says a bank holds fifty', () => {
+    for (const shape of SHAPES) {
+      const text = fileOf(51, shape);
+      const parsed = parseBankCsv(text);
+      // Every row was counted. None was lost on the way in.
+      assert.equal(parsed.total, 51, shape.name);
+      // The first fifty are shown, in order, and the fifty-first is the one named.
+      assert.equal(parsed.questions.length, 50, shape.name);
+      assert.equal(parsed.questions[49]!.question, 'Question 50', shape.name);
+      assert.deepEqual(
+        parsed.problems,
+        [
+          {
+            row: shape.header ? 52 : 51,
+            message:
+              'A bank holds at most 50 questions and this file has 51. Take 1 out and choose the file again.',
+          },
+        ],
+        shape.name,
+      );
+      assert.equal(
+        describeRead(parsed),
+        '51 questions in the file. A bank holds at most 50, so the last 1 was left out and the file cannot be saved as it is.',
+        shape.name,
+      );
+      // Refused whole, never saved as the first fifty with nobody told.
+      assert.equal(bankFromCsv(text).ok, false, shape.name);
+    }
+  });
+
+  it('says how many were left out of a longer file', () => {
+    const parsed = parseBankCsv(fileOf(53, SHAPES[0]));
+    assert.equal(parsed.total, 53);
+    assert.equal(
+      describeRead(parsed),
+      '53 questions in the file. A bank holds at most 50, so the last 3 were left out and the file cannot be saved as it is.',
+    );
+    assert.match(parsed.problems[0]!.message, /this file has 53\. Take 3 out/);
+  });
+
+  it('says how many of the rows it read when some are bad, and counts one as one', () => {
+    assert.equal(
+      describeRead(parseBankCsv('Good,Yes,No,1\nBad,Yes,No,9\n')),
+      '1 of 2 questions read',
+    );
+    assert.equal(describeRead(parseBankCsv('Good,Yes,No,1\n')), '1 question read');
+    assert.equal(describeRead(parseBankCsv(CSV_TEMPLATE)), '2 questions read');
+    assert.equal(describeRead(parseBankCsv('')), '0 questions read');
+  });
+
+  it('still reads ten from each UAT sample, as the notes say', () => {
+    for (const name of ['cdfa-pre', 'cdfa-post', 'isms-pre', 'isms-post']) {
+      const parsed = parseBankCsv(
+        readFileSync(`docs/uat/samples/sample-questions-${name}.csv`, 'utf8'),
+      );
+      assert.deepEqual(parsed.problems, [], name);
+      assert.equal(describeRead(parsed), '10 questions read', name);
+    }
+  });
+
+  it('is stated where the file is chosen, and the preview uses the same count', () => {
+    const panel = readFileSync('src/app/decks/[id]/questions/QuestionBanks.tsx', 'utf8');
+    assert.match(
+      panel,
+      /A bank holds at most[^.]*\{MAX_QUESTIONS\} questions, and a file with more cannot be saved\./,
+    );
+    assert.match(panel, /Preview of \{preview\.name\}: \{describeRead\(preview\.parsed\)\}/);
   });
 });
 

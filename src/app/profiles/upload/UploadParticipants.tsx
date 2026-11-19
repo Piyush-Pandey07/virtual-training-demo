@@ -5,21 +5,18 @@
  *
  * The file goes to the server as it is. The size is checked here only to save somebody
  * the wait for a refusal; everything that matters is checked on the server.
+ *
+ * What each imported row says is in profiles/upload-wording.ts, so that a file uploaded
+ * a second time says plainly whose profile it refilled and whose it left alone.
  */
 
 import { useId, useState } from 'react';
 
 import { uploadParticipants, type UploadReply } from '@/lib/profiles/client';
+import { describeImported, describeUpload } from '@/lib/profiles/upload-wording';
 
 /** One row's outcome, reached through the client module rather than the server-only one. */
 type UploadResult = Extract<UploadReply, { ok: true }>['results'][number];
-
-const STATUS_LABEL: Record<UploadResult['status'], string> = {
-  created: 'Created',
-  updated: 'Updated',
-  duplicate: 'Duplicate',
-  rejected: 'Failed',
-};
 
 /** One of the three lists AI-28 asks for: imported, duplicates, and failed with why. */
 function ResultTable({
@@ -128,28 +125,13 @@ export function UploadParticipants({ maxBytes }: { maxBytes: number }) {
 
       {reply?.ok && (
         <div className="mt-6 space-y-8" role="status">
-          <p className="text-sm">
-            {imported.length} imported ({reply.summary.created} new, {reply.summary.updated} already
-            here), {reply.summary.duplicates}{' '}
-            {reply.summary.duplicates === 1 ? 'duplicate' : 'duplicates'}, {reply.summary.rejected}{' '}
-            failed.
-            {reply.summary.incomplete > 0 &&
-              ` ${reply.summary.incomplete} will be asked to complete required fields on their first visit.`}
-          </p>
+          <p className="text-sm">{describeUpload(results, reply.summary)}</p>
 
           <ResultTable
             title={`Imported (${imported.length})`}
             empty="Nobody was imported."
             rows={imported}
-            detail={(result) =>
-              `${STATUS_LABEL[result.status]}. ${
-                result.profile === 'kept'
-                  ? 'They have already confirmed their own profile, so it was left as it is.'
-                  : result.missing && result.missing.length > 0
-                    ? `Profile prefilled. They will be asked for: ${result.missing.join(', ').toLowerCase()}.`
-                    : 'Profile prefilled. They will confirm it on their first visit.'
-              }`
-            }
+            detail={describeImported}
           />
           {duplicates.length > 0 && (
             <ResultTable

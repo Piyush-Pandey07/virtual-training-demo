@@ -9,9 +9,12 @@
  *
  * Their training records stay with the customer that delivered the training. See
  * `movePerson` for why that is the right way round.
+ *
+ * The move is in the audit history of both customers (AI-40, D-02): the one they left,
+ * and the one they now belong to, where it is how they came to be on the roster.
  */
 
-import { recordAudit } from '@/lib/audit/log';
+import { recordAudit, recordPersonAudit } from '@/lib/audit/log';
 import { requireUser, unauthorisedResponse } from '@/lib/auth/guard';
 import { isPlatformAdmin } from '@/lib/auth/roles';
 import { movePerson } from '@/lib/orgs/lifecycle';
@@ -79,6 +82,22 @@ export async function POST(request: Request) {
         subjectId: person.id,
         detail: `Moved ${email} to "${toOrgId}", which deleted any profile they had here`,
       },
+    );
+    // And the person themselves, in each customer's own history (D-02). Where they
+    // arrived, this is the only record of how they came to be on the roster, since
+    // nobody there added them. Read back for the role they were given, which a move
+    // decides and the row they left does not say.
+    const arrived = await rosterStore(toOrgId)
+      .getPerson(person.id)
+      .catch(() => undefined);
+    await recordPersonAudit({ ...staff, orgId: fromOrgId }, person, {
+      kind: 'moved-out',
+      toOrgId,
+    });
+    await recordPersonAudit(
+      { ...staff, orgId: toOrgId },
+      arrived ?? { ...person, role: 'trainee' },
+      { kind: 'moved-in', fromOrgId },
     );
 
     return Response.json({ email, from: fromOrgId, to: toOrgId });

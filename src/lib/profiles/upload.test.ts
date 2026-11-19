@@ -23,6 +23,7 @@ import {
   summarise,
   uploadAuditDetail,
 } from './upload';
+import { describeImported, describeUpload } from './upload-wording';
 
 /**
  * The bulk participant upload (BRD v2.3, AI-28): the template, reading a file nobody
@@ -581,5 +582,297 @@ describe('recording an upload (AI-60)', () => {
         '0 failed or refused, 0 to complete',
     );
     assert.deepEqual(await store.all(`orgs/globex/${AUDIT}`), []);
+  });
+});
+
+/**
+ * A company whose roster and profiles outlive one upload, so a second can follow the
+ * first, with somebody signing in and confirming their profile in between.
+ */
+function company() {
+  const store = new InMemoryDocumentStore();
+  const roster = new DocumentRosterStore(store);
+  const upload = async (csv: string, at: string, domains?: readonly string[]) => {
+    const read = readUpload(csv);
+    assert.ok(read.ok, read.ok ? '' : read.error);
+    return importParticipants(uploader, read.rows, { roster, store, domains, now: new Date(at) });
+  };
+  const profiles = () => store.all<LearnerProfileRecord>(`orgs/acme/${PROFILES}`);
+  /** The audit entries about one kind of thing, once the queued ones have been written. */
+  const audited = async (subjectType: AuditEntry['subjectType']) => {
+    await new Promise((resolve) => setImmediate(resolve));
+    return (await store.all<AuditEntry>(`orgs/acme/${AUDIT}`)).filter(
+      (entry) => entry.subjectType === subjectType,
+    );
+  };
+  return { store, roster, upload, profiles, audited };
+}
+
+const MONDAY = '2026-11-16T09:00:00.000Z';
+const TUESDAY = '2026-11-17T09:00:00.000Z';
+const WEDNESDAY = '2026-11-18T09:00:00.000Z';
+
+const LEFT_ALONE =
+  'Already here. They have confirmed their own profile, so it was left exactly as it is.';
+const REFILLED =
+  'Already here. They have not confirmed a profile yet, so it was prefilled from this file.';
+
+describe('uploading a file again', () => {
+  it('refills a profile an earlier upload prefilled, while nobody has confirmed it', async () => {
+    const { roster, upload, profiles } = company();
+    await upload(
+      [HEADER, row('asha@acme.com', { department: 'First', hobbies: 'Cricket' })].join('\n'),
+      MONDAY,
+    );
+    const person = await roster.getPersonByEmail('asha@acme.com');
+    assert.equal((await profiles())[0]!.confirmed, false);
+
+    const results = await upload(
+      [HEADER, row('asha@acme.com', { department: 'Second', hobbies: '' })].join('\n'),
+      WEDNESDAY,
+    );
+    assert.deepEqual(
+      results.map((result) => [result.status, result.profile]),
+      [['updated', 'prefilled']],
+    );
+
+    const stored = await profiles();
+    assert.equal(stored.length, 1);
+    const [profile] = stored;
+    // Replaced whole by the newer file rather than merged with the older one, so a
+    // field the newer file leaves empty is empty.
+    assert.equal(profile!.department, 'Second');
+    assert.equal(profile!.hobbies, undefined);
+    assert.equal(profile!.uploadedAt, WEDNESDAY);
+    // And still only what their organisation said about them: nothing the trainer is given.
+    assert.equal(profile!.source, 'upload');
+    assert.equal(profile!.confirmed, false);
+    // Their row on the roster is not touched by either upload.
+    assert.deepEqual(await roster.getPersonByEmail('asha@acme.com'), person);
+    assert.equal(
+      describeImported(results[0]!),
+      `${REFILLED} They will confirm it when they next sign in.`,
+    );
+  });
+
+  it('refills it under their real id when they have signed in but not confirmed it', async () => {
+    const { roster, upload, profiles } = company();
+    await upload([HEADER, row('asha@acme.com', { department: 'First' })].join('\n'), MONDAY);
+    // Signing in replaces the placeholder id. The profile is still the uploaded one.
+    await roster.upsertPerson({ id: 'asha-uid', email: 'asha@acme.com' });
+
+    const results = await upload(
+      [HEADER, row('asha@acme.com', { department: 'Second' })].join('\n'),
+      WEDNESDAY,
+    );
+    assert.deepEqual([results[0]!.status, results[0]!.profile], ['updated', 'prefilled']);
+    const stored = await profiles();
+    assert.deepEqual(
+      stored.map((profile) => [profile.personId, profile.department, profile.confirmed]),
+      [['asha-uid', 'Second', false]],
+    );
+  });
+
+  it('leaves a profile exactly as it is once the participant has confirmed it', async () => {
+    const { store, roster, upload, profiles, audited } = company();
+    await upload([HEADER, row('asha@acme.com', { department: 'Facilities' })].join('\n'), MONDAY);
+    // They sign in, correct what their organisation said about them, and confirm it.
+    const asha = await roster.upsertPerson({ id: 'asha-uid', email: 'asha@acme.com' });
+    await saveProfile(
+      { id: asha.id, orgId: 'acme', emailKey: asha.emailKey },
+      {
+        name: 'Asha P.',
+        education: 'B.E., Electrical',
+        yearsExperience: 7,
+        department: 'Operations',
+        proficiency: 'advanced',
+      },
+      { store },
+      new Date(TUESDAY),
+    );
+    const person = await roster.getPerson('asha-uid');
+    const confirmed = await profiles();
+    assert.equal(confirmed.length, 1);
+    assert.deepEqual(
+      [confirmed[0]!.source, confirmed[0]!.confirmed, confirmed[0]!.department],
+      ['upload', true, 'Operations'],
+    );
+    const prefills = (await audited('profile')).length;
+
+    // The same address again, with different answers, a field they did not give and a
+    // required one left empty.
+    const results = await upload(
+      [
+        HEADER,
+        row('asha@acme.com', { department: 'Overwritten', city: 'Mumbai', education: '' }),
+      ].join('\n'),
+      WEDNESDAY,
+    );
+
+    assert.deepEqual(
+      results.map((result) => [result.status, result.profile, result.missing]),
+      [['updated', 'kept', []]],
+    );
+    // Not one field, date or mark of it is different, and no second copy was written.
+    assert.deepEqual(await profiles(), confirmed);
+    assert.deepEqual(await roster.getPerson('asha-uid'), person);
+    // Nothing was written, so nothing is recorded as written, and nobody is told they
+    // have a profile to complete.
+    assert.equal((await audited('profile')).length, prefills);
+    assert.equal(summarise(results).incomplete, 0);
+    assert.equal(describeImported(results[0]!), LEFT_ALONE);
+  });
+
+  it('leaves a profile the participant gave themselves, however often they edited it', async () => {
+    const { store, roster, upload, profiles } = company();
+    // Never uploaded: they signed in and filled it in, then changed it the next day.
+    const asha = await roster.upsertPerson({ id: 'asha-uid', email: 'asha@acme.com' });
+    const owner = { id: asha.id, orgId: 'acme', emailKey: asha.emailKey };
+    const theirs = {
+      name: 'Asha',
+      education: 'B.Sc.',
+      yearsExperience: 2,
+      department: 'Mine',
+      proficiency: 'beginner' as const,
+    };
+    await saveProfile(owner, theirs, { store }, new Date(MONDAY));
+    await saveProfile(owner, { ...theirs, department: 'Still mine' }, { store }, new Date(TUESDAY));
+    const own = await profiles();
+    assert.deepEqual(
+      [own[0]!.source, own[0]!.confirmed, own[0]!.department],
+      ['self', true, 'Still mine'],
+    );
+
+    const results = await upload(
+      [HEADER, row('asha@acme.com', { department: 'Overwritten' })].join('\n'),
+      WEDNESDAY,
+    );
+    assert.deepEqual([results[0]!.status, results[0]!.profile], ['updated', 'kept']);
+    assert.deepEqual(await profiles(), own);
+    assert.equal(describeImported(results[0]!), LEFT_ALONE);
+  });
+
+  it('says for each row which of the two it was, and counts those left alone', async () => {
+    const { store, roster, upload } = company();
+    await upload([HEADER, row('asha@acme.com'), row('bina@acme.com')].join('\n'), MONDAY);
+    const asha = await roster.upsertPerson({ id: 'asha-uid', email: 'asha@acme.com' });
+    await saveProfile(
+      { id: asha.id, orgId: 'acme', emailKey: asha.emailKey },
+      {
+        name: 'Asha',
+        education: 'B.E.',
+        yearsExperience: 6,
+        department: 'Facilities',
+        proficiency: 'intermediate',
+      },
+      { store },
+      new Date(TUESDAY),
+    );
+
+    const results = await upload(
+      [
+        HEADER,
+        row('asha@acme.com'),
+        row('bina@acme.com', { department: '' }),
+        row('chen@acme.com'),
+      ].join('\n'),
+      WEDNESDAY,
+    );
+    assert.deepEqual(results.map(describeImported), [
+      LEFT_ALONE,
+      `${REFILLED} They will be asked for: current department.`,
+      'Created. Profile prefilled. They will confirm it on their first visit.',
+    ]);
+    assert.equal(
+      describeUpload(results, summarise(results)),
+      '3 imported (1 new, 2 already here), 0 duplicates, 0 failed. 1 will be asked to ' +
+        'complete required fields on their first visit. 1 already here has confirmed ' +
+        'their own profile, which was left as it is.',
+    );
+  });
+
+  it('counts several left alone in the plural, and says nothing when there are none', () => {
+    const summary = { created: 0, updated: 2, duplicates: 1, rejected: 0, incomplete: 0 };
+    assert.equal(
+      describeUpload(
+        [
+          { status: 'updated', profile: 'kept' },
+          { status: 'updated', profile: 'kept' },
+          { status: 'duplicate' },
+        ],
+        summary,
+      ),
+      '2 imported (0 new, 2 already here), 1 duplicate, 0 failed. 2 already here have ' +
+        'confirmed their own profiles, which were left as they are.',
+    );
+    assert.equal(
+      describeUpload([{ status: 'updated', profile: 'prefilled' }], { ...summary, updated: 1 }),
+      '1 imported (0 new, 1 already here), 1 duplicate, 0 failed.',
+    );
+  });
+
+  it('gives the documented wording for the 50-row sample, the first time and the second', async () => {
+    const { upload } = company();
+    const sample = readFileSync('docs/uat/samples/sample-participants-50.csv', 'utf8');
+    const asked = ' 2 will be asked to complete required fields on their first visit.';
+
+    const first = await upload(sample, MONDAY, ['example.com']);
+    assert.equal(
+      describeUpload(first, summarise(first)),
+      `49 imported (49 new, 0 already here), 1 duplicate, 0 failed.${asked}`,
+    );
+    const firstRow = (line: number) => describeImported(first.find((each) => each.line === line)!);
+    assert.equal(
+      firstRow(2),
+      'Created. Profile prefilled. They will confirm it on their first visit.',
+    );
+    assert.equal(
+      firstRow(18),
+      'Created. Profile prefilled. They will be asked for: current department.',
+    );
+    assert.equal(
+      firstRow(27),
+      'Created. Profile prefilled. They will be asked for: total years of experience.',
+    );
+
+    // Nobody has signed in or confirmed anything, so the second upload refills all 49.
+    const second = await upload(sample, WEDNESDAY, ['example.com']);
+    assert.equal(
+      describeUpload(second, summarise(second)),
+      `49 imported (0 new, 49 already here), 1 duplicate, 0 failed.${asked}`,
+    );
+    const again = (line: number) => describeImported(second.find((each) => each.line === line)!);
+    assert.equal(again(2), `${REFILLED} They will confirm it when they next sign in.`);
+    assert.equal(again(18), `${REFILLED} They will be asked for: current department.`);
+  });
+
+  it('records each person it adds under people, and nobody it only found (D-02)', async () => {
+    const { roster, upload, audited } = company();
+    await roster.upsertPerson({ email: 'bina@acme.com' });
+    const csv = [HEADER, row('asha@acme.com'), row('bina@acme.com')].join('\n');
+
+    await upload(csv, MONDAY);
+    assert.deepEqual(
+      (await audited('person')).map((entry) => [
+        entry.action,
+        entry.subjectId,
+        entry.actorId,
+        entry.actorRole,
+        entry.detail,
+      ]),
+      [
+        [
+          'created',
+          'local-asha-acme-com',
+          uploader.id,
+          'facilitator',
+          'Added asha@acme.com from line 2 of a participant upload, with the role trainee',
+        ],
+      ],
+    );
+
+    // The same file again adds nobody, so there is nobody new to record.
+    await upload(csv, WEDNESDAY);
+    assert.equal((await audited('person')).length, 1);
   });
 });
