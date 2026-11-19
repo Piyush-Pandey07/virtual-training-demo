@@ -24,7 +24,11 @@ import {
   GEMINI_ANSWER_MODEL,
   GEMINI_MODEL,
   SARVAM_TTS_MODEL,
+  cronSecret,
+  deckApprovers,
   hindiAvailable,
+  languagesForEveryone,
+  resendApiKey,
 } from '@/lib/config';
 import { platformAdminEmails } from '@/lib/auth/roles';
 import { assetStorage, deckStorage } from '@/lib/decks/registry';
@@ -145,6 +149,32 @@ export interface HealthResponse {
   backups: {
     files: 'on' | 'off';
   };
+  /**
+   * The commit this deployment was built from, shortened, or null on a developer machine.
+   *
+   * A tester has to know which build they are testing, and "is the fix live yet" had no
+   * answer anywhere in the portal (UAT dry run of 18 November).
+   */
+  build: string | null;
+  /**
+   * Deployment settings that change what a tester sees, as whether each is set.
+   *
+   * The same dry run asked for the daily job secret and the deck approver to be
+   * confirmed, since neither shows anywhere: an unset `CRON_SECRET` only means two jobs
+   * never run, and an empty `DECK_APPROVERS` only means every Technavious administrator
+   * can approve. On or off and a count, never a value. The database plan is not here,
+   * because it is a setting of the Firebase project that this server cannot see.
+   */
+  settings: {
+    /** Whether the daily retention and notification jobs can run (`CRON_SECRET`). */
+    dailyJobs: 'on' | 'off';
+    /** How many addresses may approve decks; 0 means every Technavious administrator. */
+    deckApprovers: number;
+    /** Whether email can be sent (`RESEND_API_KEY`). */
+    email: 'on' | 'off';
+    /** The languages customers are offered; the rest are for Technavious staff only. */
+    languagesForEveryone: string[];
+  };
 }
 
 function isSet(name: string): boolean {
@@ -201,6 +231,13 @@ export async function GET() {
     },
     firebase,
     backups: { files: fileBackups() },
+    build: process.env.VERCEL_GIT_COMMIT_SHA?.trim().slice(0, 7) || null,
+    settings: {
+      dailyJobs: cronSecret() ? 'on' : 'off',
+      deckApprovers: deckApprovers().size,
+      email: resendApiKey() ? 'on' : 'off',
+      languagesForEveryone: [...languagesForEveryone()].sort(),
+    },
   };
 
   return Response.json(body, {

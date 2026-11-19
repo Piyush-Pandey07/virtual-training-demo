@@ -11,6 +11,7 @@ import {
   formatDayShort,
   formatMoment,
   formatSessionTime,
+  momentFromTrainingZoneInput,
 } from './time';
 
 /**
@@ -29,6 +30,33 @@ describe('times for people', () => {
   it('dates by the day in India, which can be the day after the UTC one', () => {
     assert.equal(dayInTrainingZone('2026-11-12T20:00:00.000Z'), '2026-11-13');
     assert.equal(dayInTrainingZone('2026-11-12T10:00:00.000Z'), '2026-11-12');
+  });
+});
+
+/**
+ * The "When" box of a new session gives a time with no zone, and it is India time.
+ */
+describe('a time typed into a box', () => {
+  const savedZone = process.env.TZ;
+  afterEach(() => {
+    if (savedZone === undefined) delete process.env.TZ;
+    else process.env.TZ = savedZone;
+  });
+
+  it('is read as India time, whatever zone the browser is in', () => {
+    for (const zone of ['UTC', 'Asia/Dubai', 'Asia/Kolkata', 'America/Los_Angeles']) {
+      process.env.TZ = zone;
+      const moment = momentFromTrainingZoneInput('2026-11-20T10:00');
+      assert.equal(moment, '2026-11-20T04:30:00.000Z', zone);
+      assert.equal(formatSessionTime(moment!), 'Fri 20 Nov, 10:00 IST', zone);
+    }
+  });
+
+  it('takes seconds when the box gives them, and gives nothing for an empty or broken value', () => {
+    assert.equal(momentFromTrainingZoneInput('2026-11-20T10:00:30'), '2026-11-20T04:30:30.000Z');
+    assert.equal(momentFromTrainingZoneInput(''), undefined);
+    assert.equal(momentFromTrainingZoneInput('tomorrow at ten'), undefined);
+    assert.equal(momentFromTrainingZoneInput('2026-13-45T10:00'), undefined);
   });
 });
 

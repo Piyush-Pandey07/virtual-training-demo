@@ -100,6 +100,22 @@ function dayText(iso: string, parts: Intl.DateTimeFormatOptions): string {
   return at.toLocaleDateString('en-GB', { ...parts, timeZone: TRAINING_TIME_ZONE });
 }
 
+/**
+ * The moment a "date and time" box names, read as India time whatever zone the browser
+ * is in, or undefined for an empty or unreadable value.
+ *
+ * The box gives a wall-clock time with no zone, "2026-11-20T10:00". Handed to `Date` as
+ * it is, it is read in the browser's own zone, so an administrator in Dubai setting a
+ * session for 10:00 scheduled it for 11:30 IST and then saw 11:30 on every screen. India
+ * keeps one offset all year, so the offset is written out and no zone database is needed.
+ */
+export function momentFromTrainingZoneInput(local: string): string | undefined {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?/.exec(local.trim());
+  if (!match) return undefined;
+  const at = new Date(`${match[1]}T${match[2]}:${match[3] ?? '00'}+05:30`);
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString();
+}
+
 function clock(at: Date): string {
   return at.toLocaleTimeString('en-GB', {
     timeZone: TRAINING_TIME_ZONE,
