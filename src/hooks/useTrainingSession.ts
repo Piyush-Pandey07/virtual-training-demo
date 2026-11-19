@@ -24,6 +24,7 @@ import { detectAnswerStyle } from '@/lib/intent';
 import {
   CONNECTION_LOST_MID_TURN,
   FAILURE_MESSAGES,
+  NO_SOUND,
   connectionFailure,
   describeFailure,
   readFailure,
@@ -926,7 +927,16 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
       traineeNameRef.current = trimmed || undefined;
 
       // Playback must be unlocked from the user gesture that started the session.
-      await ttsRef.current.unlock();
+      try {
+        await ttsRef.current.unlock();
+      } catch {
+        // No sound timeline could be made: a browser with none, or one that refused.
+        // Everything after this speaks, so there is nothing to carry on to. Said, and
+        // stopped, where it used to throw from here and leave "Connecting" on screen.
+        setError(NO_SOUND);
+        setPhase('error');
+        return;
+      }
       // The microphone opens alongside the welcome rather than before it. Opening it
       // fetches a Deepgram token and asks the browser for the device, a second or two
       // on the live site, and the welcome does not need either: nobody answers a

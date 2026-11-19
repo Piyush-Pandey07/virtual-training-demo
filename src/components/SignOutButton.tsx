@@ -33,7 +33,7 @@ export function SignOutButton({ label = 'Sign out' }: { label?: string }) {
             router.refresh();
           });
       }}
-      className="text-muted hover:text-teal text-sm transition-colors disabled:opacity-50"
+      className="text-muted hover:text-teal text-sm transition-colors disabled:opacity-50 pointer-coarse:py-2.5"
     >
       {busy ? 'Signing out' : label}
     </button>
