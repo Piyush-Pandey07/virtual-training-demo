@@ -119,6 +119,27 @@ body {
   animation-delay: 0.95s;
 }
 
+/*
+ * Fields on a phone.
+ *
+ * Safari on an iPhone zooms the whole page in when a field whose text is under 16 pixels
+ * takes focus, and does not zoom back out, so each field of the profile, an assessment
+ * or the feedback form left the page enlarged and off-centre. Sixteen pixels is the size
+ * it leaves alone. Only where a finger is the main pointer, so a desktop keeps its
+ * denser fields.
+ *
+ * Outside any layer on purpose. Tailwind's utilities sit in a layer, and a rule outside
+ * every layer wins over them whatever its specificity, which is what lets this override
+ * the `text-sm` each field carries.
+ */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ring-out,
   .ring-out-delayed,

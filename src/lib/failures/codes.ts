@@ -56,6 +56,15 @@ export const FAILURE_MESSAGES: Record<FailureCode, string> = {
 export const CONNECTION_LOST_MID_TURN =
   'The connection dropped partway through. Press Explain again to hear this slide once it is back.';
 
+/**
+ * The browser would not start its sound at all, so nothing can be spoken.
+ *
+ * Said in place of the session sitting on "Connecting" for good, which is what a browser
+ * with no sound, or one that refused to open it, used to do.
+ */
+export const NO_SOUND =
+  'This browser could not start its sound, so the trainer cannot speak here. Close other tabs that are playing sound and try again, or open this page in Chrome, Safari or Edge.';
+
 /** Something the trainee said could not be sent, even after asking again. */
 export const LISTENING_LOST =
   'The connection dropped, so that was not heard. Say it again once it is back, or type it.';

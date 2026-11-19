@@ -30,7 +30,9 @@ export function SlideRail({ currentId, coveredIds, onSelect, disabled }: SlideRa
             disabled={disabled}
             aria-current={isCurrent ? 'true' : undefined}
             title={`Slide ${slide.id}: ${slide.title}`}
-            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            // Taller and wider under a finger than under a mouse: at 28 pixels the chips
+            // were under the size either phone platform asks of something to be tapped.
+            className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-10 pointer-coarse:min-w-10 ${
               isCurrent
                 ? 'bg-azure text-mist'
                 : isCovered

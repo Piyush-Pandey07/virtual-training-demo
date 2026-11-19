@@ -238,7 +238,14 @@ export function useTtsPlayer(options: Options = {}): UseTtsPlayerResult {
 
   const getContext = useCallback(() => {
     if (!contextRef.current || contextRef.current.state === 'closed') {
-      contextRef.current = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
+      try {
+        contextRef.current = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE });
+      } catch {
+        // Some phones will not open a timeline at a rate other than their own, and
+        // refuse this one outright. Their own rate plays the speech just the same:
+        // every buffer carries its rate, and the timeline resamples it as it plays.
+        contextRef.current = new AudioContext();
+      }
       playheadRef.current = 0;
     }
     return contextRef.current;

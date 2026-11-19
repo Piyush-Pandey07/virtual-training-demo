@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { SessionControls } from '@/components/SessionControls';
@@ -20,6 +20,9 @@ interface HealthState {
   ready: boolean;
   missing: string[];
 }
+
+/** For reading something about the browser that never changes while the page is open. */
+const neverChanges = () => () => undefined;
 
 /**
  * Pre-session screen. Collects an optional name, the session's language and the
@@ -65,6 +68,17 @@ function Lobby({
   }, []);
 
   const blocked = health !== null && !health.ready;
+
+  // Whether this browser can play sound from a page at all. A few cannot: some in-app
+  // browsers, opened from a link in a chat or mail app, and very old ones. Starting there
+  // threw before anything was said, and the session sat on "Connecting" for good with
+  // no word of why. Read from the browser once it is there; the server, which has none
+  // to ask, assumes it can.
+  const soundless = useSyncExternalStore(
+    neverChanges,
+    () => typeof window.AudioContext === 'undefined',
+    () => false,
+  );
 
   return (
     <div className="mx-auto w-full max-w-lg px-5 py-16">
@@ -131,10 +145,24 @@ function Lobby({
         </div>
       )}
 
+      {soundless && (
+        <div
+          role="alert"
+          className="border-logo-red/40 bg-logo-red/10 mt-6 rounded-md border p-4 text-sm"
+        >
+          <p className="font-semibold">This browser cannot play {TRAINER_NAME}&apos;s voice.</p>
+          <p className="text-muted mt-1">
+            It has no way to play sound from a page. Open this page in Chrome, Safari or Edge. If
+            you opened it from a link inside another app, use that app&apos;s &quot;Open in
+            browser&quot; option.
+          </p>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={start}
-        disabled={connecting || blocked}
+        disabled={connecting || blocked || soundless}
         className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-6 w-full rounded-md px-6 py-3 text-base font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
       >
         {connecting

@@ -173,6 +173,44 @@ Decisions already taken, which the notes below follow:
    it (**Customers**, then **Look inside**). Decks, banks, approvals, people and sessions all
    belong to one organisation and are not shared between customers.
 
+## Phones (AI-54), as checked on 19 November 2026
+
+**What was checked, and how.** In test browsers set to a phone's screen, touch and identity:
+Chrome's engine as a Pixel 7, and Safari's engine as an iPhone 14. These are not real handsets.
+
+| On a phone-sized screen | Android Chrome's engine | iPhone Safari's engine |
+| --- | --- | --- |
+| Home, My profile, the session lobby | Pass | Pass |
+| The consent and profile form: fits, takes typing, choice lists open | Pass | Pass |
+| A whole AI-led session: start, Nova speaks, microphone opens, a typed question is answered, Next | Pass | Could not be run |
+| Pre and post-session assessment, feedback | Not yet | Not yet |
+
+- **Why the iPhone session could not be run.** The test tool's Safari engine on Windows has no
+  sound and no microphone at all, so no voice session can run in it. A real iPhone has both.
+  This needs trying on a real iPhone.
+- **Why assessments and feedback are "not yet".** No test participant had one open: they need
+  an approved deck with a question bank assigned.
+
+**Changed for phones the same day.**
+
+- Fields no longer make an iPhone zoom the page: their text is 16 pixels on a touch screen.
+- The slide chips in a session are 40 pixels square under a finger (they were 28 tall), and
+  **Sign out** is 40 pixels tall.
+- A browser with no sound is told so in the lobby, "This browser cannot play Nova's voice",
+  with what to do, and cannot start. It used to sit on "Connecting" for good.
+- A phone that will not open its sound at the rate Nova's speech uses now opens it at its own.
+
+**To try on a real iPhone and a real Android phone, in a session:**
+
+1. Tap **Start the session**: Nova should speak within a few seconds.
+2. Is Nova loud enough with the microphone on? Some phones play through the earpiece while
+   recording. Headphones avoid it.
+3. Speak a question over Nova: it should stop and answer. Without headphones, check it does not
+   interrupt itself by hearing its own voice.
+4. Lock the screen and unlock it: the session should carry on or pause cleanly.
+5. Open the session link from inside a chat or mail app. If the microphone is refused there,
+   the page should say so, and typed questions should still work.
+
 ## Settings still pending
 
 These are deployment settings, not code. Each one changes what UAT can see.
