@@ -210,7 +210,7 @@ function BankPanel({
       }
       // The bank as saved, shown now. The refresh below brings the page's own copy.
       setSaved(savedOver(page, body));
-      setNotice(`Saved ${body.questions} questions.`);
+      setNotice(`Saved ${body.questions} ${body.questions === 1 ? 'question' : 'questions'}.`);
       reset();
       router.refresh();
     } catch (cause) {

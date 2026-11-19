@@ -90,8 +90,14 @@ studies were being dropped (D-01). Those values now count as part of the deck, s
 | D-14 | After a glossary term was released, "What does X mean?" on the run screen got the slide's broader meaning, though Nova quoted the entry when asked how the glossary defines it. | Fixed, in AI-led and trainer-led sessions. When a question names a glossary term, its definition is now given beside the question, not only at the end of the slide's material, and Nova is told to give that meaning first. Checked against the live model, asking about a term on the slide about that term: 14 of 14 trainer-led answers and 4 of 4 AI-led answers gave the glossary's meaning, against 1 of 6 before. |
 | D-12 | With **Who asked** set to "The group", Nova still named the only attendee. | Fixed. A question from the group is marked as such and Nova is told to address nobody by name, however few are in the room. Checked against the live model with one attendee: named in 0 of 14 answers, against 6 of 6 before. |
 | D-11 | No change on screen after **Approve this deck**, or after deleting a glossary term, until a reload. | Could not be reproduced in Chrome on the live site: the approval panel changed 1.1 s after the press and a deleted term left the list in 1.0 s. Both now show their result the moment the server accepts it, without waiting for the page to refresh, so they no longer depend on it in any browser. |
-| D-13 | The attendance audit entry named people by account id. | See the notes on attendance in AI-32. |
-| D-15 | "(1 participants)" in an audit entry. | Number now agrees. |
+| D-13 | The attendance audit entry named people by account id. | Fixed. People are named by email, as elsewhere in the audit history: "Marked asha@acme.example present; ben@acme.example absent". Somebody removed since is named by id. Adding people to a session is named the same way. |
+| D-15 | "(1 participants)" in an audit entry. | Fixed in all four entries that counted participants, for example "Downloaded the closure summary of <deck> (1 participant)", and "Saved 1 question." on the question bank page. |
+
+Also from the observations, on trainer-led sessions (see AI-01 and AI-32 for the steps):
+
+- **Closing asks first.** "Close this session? A closed session cannot be reopened, and its attendance can no longer be changed. The post-session steps open for everybody marked present."
+- **Starting early asks first.** Handing over for the first time more than 3 hours before the scheduled time asks: "Start this session now? It is scheduled for <time> IST, about <N> hours from now. ..." Running early is still allowed.
+- **The closure line always counts late joiners**, "(0 joined late)" included, as the Excel file already did.
 
 From the observations:
 
