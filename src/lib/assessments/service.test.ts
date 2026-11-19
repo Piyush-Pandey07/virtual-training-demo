@@ -9,11 +9,14 @@ import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
 import { mayManageBanks, mayOpenResults, maySeeFeedbackOf, maySeeResultsOf } from './access';
 import { refusalResponse } from './responses';
+import { bankOnScreen, savedOver, type BankOnScreen } from './saved';
 import {
   AlreadySubmitted,
   assessedLevel,
   assessmentPaper,
   assessmentPaperFor,
+  bankAsSaved,
+  bankForAdministrator,
   bankVersionsForAdministrator,
   feedbackDone,
   groupLevel,
@@ -474,6 +477,152 @@ describe('versions of a bank', () => {
     );
     // A new bank after a removal carries the numbering on.
     assert.equal((await bank('pre')).versionNumber, 4);
+  });
+});
+
+/**
+ * D-07: after "Save this bank" the panel went on showing the old version number until
+ * the page was reloaded. The save answered with a count and a date only, so there was
+ * nothing to show the new version with until the page had been fetched again. It now
+ * answers with the bank and its versions, and the panel shows those until the page
+ * catches up.
+ */
+describe('what a save answers with (D-07)', () => {
+  const TWELVE: Omit<BankQuestion, 'id'>[] = [
+    ...QUESTIONS,
+    { question: 'Question 11', options: ['Right', 'Wrong'], correctIndex: 0 },
+    { question: 'Question 12', options: ['Right', 'Wrong'], correctIndex: 0 },
+  ];
+
+  /** What the page hands the panel, read the way the page reads it. */
+  async function pageOf(kind: BankKind): Promise<BankOnScreen> {
+    return {
+      bank: await bankForAdministrator(benchmark, DECK, kind, options),
+      versions: await bankVersionsForAdministrator(benchmark, DECK, kind, options),
+    };
+  }
+
+  it('carries the new version, count and date, and every version now kept', async () => {
+    await bank('post');
+    const second = await saveBank(benchmark, DECK, 'post', TWELVE, 'upload', options);
+    const reply = await bankAsSaved(benchmark, second, options);
+    assert.equal(reply.questions, 12);
+    assert.equal(reply.savedAt, second.savedAt);
+    assert.equal(reply.bank.version, second.version);
+    assert.equal(reply.bank.versionNumber, 2);
+    assert.deepEqual(
+      reply.versions?.map((each) => [each.versionNumber, each.questions]),
+      [
+        [1, 10],
+        [2, 12],
+      ],
+    );
+    // Exactly what the page reads when it is fetched again, so the two cannot disagree.
+    assert.deepEqual({ bank: reply.bank, versions: reply.versions }, await pageOf('post'));
+  });
+
+  it('is shown by the panel at once, over the copy the page still holds', async () => {
+    await bank('post');
+    const page = await pageOf('post');
+    const second = await saveBank(benchmark, DECK, 'post', TWELVE, 'upload', options);
+    const saved = savedOver(page, await bankAsSaved(benchmark, second, options));
+    assert.ok(saved, 'the answer carried the bank and its versions');
+
+    // The page has not been fetched again: it still holds version 1.
+    const shown = bankOnScreen(page, saved);
+    assert.equal(shown.bank?.versionNumber, 2);
+    assert.equal(shown.bank?.questions.length, 12);
+    assert.equal(shown.bank?.savedAt, second.savedAt);
+    assert.deepEqual(
+      shown.versions.map((each) => each.versionNumber),
+      [1, 2],
+    );
+    // With nothing from the save, the old version is all the panel has. This was D-07.
+    assert.equal(bankOnScreen(page, null).bank?.versionNumber, 1);
+  });
+
+  it('gives way to the page as soon as the page has been fetched again', async () => {
+    await bank('post');
+    const page = await pageOf('post');
+    const second = await saveBank(benchmark, DECK, 'post', TWELVE, 'upload', options);
+    const saved = savedOver(page, await bankAsSaved(benchmark, second, options));
+
+    const fetched = await pageOf('post');
+    assert.equal(bankOnScreen(fetched, saved), fetched);
+    // And stays out of the way of anything later, such as a save made on another screen.
+    await bank('post');
+    const later = await pageOf('post');
+    assert.equal(bankOnScreen(later, saved), later);
+    assert.equal(later.bank?.versionNumber, 3);
+  });
+
+  it('shows a first bank at once, and never brings it back once it is removed', async () => {
+    const empty = await pageOf('pre');
+    assert.equal(empty.bank, null);
+    const first = await bank('pre');
+    const saved = savedOver(empty, await bankAsSaved(benchmark, first, options));
+    const shown = bankOnScreen(empty, saved);
+    assert.equal(shown.bank?.versionNumber, 1);
+    // With its bands, which the bands editor under the panel reads.
+    assert.deepEqual(shown.bank?.bands, first.bands);
+
+    await removeBank(benchmark, DECK, 'pre', options);
+    const removed = await pageOf('pre');
+    // The page has no bank again, as before the upload, but it is not the same copy:
+    // the version that was removed is still kept. So the page's word stands.
+    assert.equal(removed.bank, null);
+    assert.equal(bankOnScreen(removed, saved), removed);
+  });
+
+  it('answers without the versions rather than failing a save that happened', async () => {
+    class VersionsUnreadable extends InMemoryDocumentStore {
+      failing = false;
+      override async where<T>(collection: string, field: string, value: string): Promise<T[]> {
+        if (this.failing) throw new Error('unavailable');
+        return super.where<T>(collection, field, value);
+      }
+    }
+    const store = new VersionsUnreadable();
+    const local = { store, roster: new DocumentRosterStore(store) };
+    const first = await saveBank(benchmark, DECK, 'post', QUESTIONS, 'upload', local);
+    store.failing = true;
+    const reply = await bankAsSaved(benchmark, first, local);
+    assert.equal(reply.questions, 10);
+    assert.equal(reply.bank.versionNumber, 1);
+    assert.equal(reply.versions, undefined);
+    // The panel then waits for the page, as it did before.
+    assert.equal(savedOver({ bank: null, versions: [] }, reply), null);
+  });
+
+  it('is for the administrator alone, like the page it stands in for', async () => {
+    const saved = await bank('post');
+    for (const viewer of [companyAdmin, facilitator, asha]) {
+      await assert.rejects(
+        () => bankAsSaved(viewer, saved, options),
+        (error: unknown) => error instanceof Refused && error.status === 404,
+      );
+    }
+  });
+
+  it('is what an upload and a sample both send, and what the panel shows', () => {
+    const read = (path: string) => readFileSync(path, 'utf8');
+    assert.match(
+      read('src/app/api/decks/[id]/questions/[kind]/route.ts'),
+      /const bank = await saveBank\([\s\S]*?'upload',\s*\);\s*return Response\.json\(await bankAsSaved\(resolved\.person, bank\)\);/,
+    );
+    assert.match(
+      read('src/app/api/decks/[id]/questions/[kind]/sample/route.ts'),
+      /const bank = await saveBank\(gate\.person, id, kind, questions, 'sample'\);[\s\S]*?return Response\.json\(await bankAsSaved\(gate\.person, bank\)\);/,
+    );
+    const panel = read('src/app/decks/[id]/questions/QuestionBanks.tsx');
+    assert.equal(
+      [...panel.matchAll(/setSaved\(savedOver\(page, body\)\);/g)].length,
+      2,
+      'a save or a new sample no longer hands its answer to the panel',
+    );
+    assert.match(panel, /const \{ bank, versions \} = bankOnScreen\(page, saved\);/);
+    // Everything the panel draws comes from that one copy, never from the page's directly.
+    assert.doesNotMatch(panel.split('bankOnScreen(page, saved)')[1]!, /pageBank|pageVersions/);
   });
 });
 

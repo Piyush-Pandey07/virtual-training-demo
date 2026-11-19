@@ -14,7 +14,7 @@ import { checkUser } from '@/lib/auth/guard';
 import { mayManageBanks } from '@/lib/assessments/access';
 import { refusalResponse } from '@/lib/assessments/responses';
 import { generateSampleQuestions, SampleUnusable } from '@/lib/assessments/sample';
-import { bankForAdministrator, saveBank } from '@/lib/assessments/service';
+import { bankAsSaved, bankForAdministrator, saveBank } from '@/lib/assessments/service';
 import { isBankKind } from '@/lib/assessments/types';
 import { loadDeck } from '@/lib/decks/registry';
 import { classifyThrown, type ProviderFailure } from '@/lib/failures/classify';
@@ -76,7 +76,9 @@ export async function POST(_request: Request, { params }: RouteContext) {
 
   try {
     const bank = await saveBank(gate.person, id, kind, questions, 'sample');
-    return Response.json({ questions: bank.questions.length, savedAt: bank.savedAt });
+    // With the bank and its versions, as an upload answers, so the screen shows the new
+    // sample at once (D-07).
+    return Response.json(await bankAsSaved(gate.person, bank));
   } catch (error) {
     const refused = refusalResponse(error);
     if (refused) return refused;

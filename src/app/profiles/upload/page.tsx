@@ -80,6 +80,11 @@ export default async function UploadParticipantsPage() {
               Save as &ldquo;CSV UTF-8 (comma delimited)&rdquo;. Any number of rows, in a file of up
               to {MAX_UPLOAD_BYTES / 1_048_576} MB.
             </li>
+            <li>
+              A file can be uploaded again. Somebody who has confirmed their own profile keeps it
+              exactly as it is. A profile nobody has confirmed yet is filled in again from the newer
+              file.
+            </li>
           </ul>
           <p className="text-muted mt-3 text-xs">Columns: {TEMPLATE_COLUMNS.join(', ')}</p>
           <a
