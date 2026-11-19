@@ -63,6 +63,15 @@ export function ApproveDeck({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Set the moment the approval is accepted, so the panel says so at once.
+   *
+   * The page is refreshed as well, and that is what brings the approver's name and the
+   * assign panel up to date. The UAT dry run saw the panel unchanged until a reload
+   * (D-11), which could not be reproduced in Chrome, where the refresh landed in about a
+   * second; this way the panel never depends on it.
+   */
+  const [approvedNow, setApprovedNow] = useState(false);
 
   async function approve() {
     setBusy(true);
@@ -75,6 +84,7 @@ export function ApproveDeck({
         const result = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(result.error ?? 'That did not work.');
       }
+      setApprovedNow(true);
       router.refresh();
     } catch (cause) {
       setError((cause as Error).message);
@@ -83,8 +93,14 @@ export function ApproveDeck({
     }
   }
 
-  const { heading, body } = describe(approval);
-  const approved = approval.state === 'approved';
+  const waitingForPage = approvedNow && approval.state !== 'approved';
+  const { heading, body } = waitingForPage
+    ? {
+        heading: 'Approved just now',
+        body: 'It can be assigned. Any change to what it teaches, or unpublishing it, will need a fresh approval.',
+      }
+    : describe(approval);
+  const approved = approval.state === 'approved' || waitingForPage;
 
   return (
     <section

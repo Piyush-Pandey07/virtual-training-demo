@@ -250,6 +250,30 @@ ${entries.map((entry) => `- ${nameOf(entry)}: ${clipped(entry.definition)}.`).jo
 }
 
 /**
+ * What a question asks the meaning of, said beside the question, or empty.
+ *
+ * The glossary block sits at the end of the turn's material, after the slide and its
+ * notes. Asked "What does digital infrastructure mean?" on the slide about that very
+ * term, the trainer answered from the slide's broader meaning and not the glossary's: it
+ * had the entry, and quoted it word for word when asked how the glossary defines it, but
+ * fifteen thousand characters of slide came first (UAT dry run, D-14). So a term the
+ * question itself names is given again here, in the task, where it is read with the
+ * question. Only a term in the question, so a plain question about a slide says nothing.
+ */
+export function definitionsAsked(
+  deck: DeckRecord,
+  question: string | undefined,
+  entries: readonly GlossaryEntry[] = GLOSSARY,
+): string {
+  // The same gate as the glossary block: a deck that is not about data centres gets none.
+  if (!question?.trim() || !usesGlossary(deck, entries)) return '';
+  const asked = termsIn(question, { includeWeak: true, entries });
+  if (asked.length === 0) return '';
+  return `${asked.length === 1 ? 'The question names a term' : 'The question names terms'} the Technavious glossary defines. Where it asks what one means, this is the meaning to give, first and in your own spoken words. If the slide uses the term more broadly, you may say so afterwards, as how the slide uses it, but do not put a broader meaning in its place.
+${asked.map((entry) => `- ${nameOf(entry)}: ${clipped(entry.definition)}.`).join('\n')}`;
+}
+
+/**
  * Terms worth telling live transcription to listen for in this deck.
  *
  * Acronyms are what speech recognition mishears: "CRAH" comes back as "crow" and "HOTO"

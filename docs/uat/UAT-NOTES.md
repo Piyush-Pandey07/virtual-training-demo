@@ -83,6 +83,40 @@ studies were being dropped (D-01). Those values now count as part of the deck, s
   (0 means every Technavious administrator may approve), and which languages customers are
   offered. The database plan is a setting of the Firebase project and cannot be shown.
 
+## Fixed after update 2 of the dry run (19 November)
+
+| ID | What was found | What happens now |
+| --- | --- | --- |
+| D-14 | After a glossary term was released, "What does X mean?" on the run screen got the slide's broader meaning, though Nova quoted the entry when asked how the glossary defines it. | Fixed, in AI-led and trainer-led sessions. When a question names a glossary term, its definition is now given beside the question, not only at the end of the slide's material, and Nova is told to give that meaning first. Checked against the live model, asking about a term on the slide about that term: 14 of 14 trainer-led answers and 4 of 4 AI-led answers gave the glossary's meaning, against 1 of 6 before. |
+| D-12 | With **Who asked** set to "The group", Nova still named the only attendee. | Fixed. A question from the group is marked as such and Nova is told to address nobody by name, however few are in the room. Checked against the live model with one attendee: named in 0 of 14 answers, against 6 of 6 before. |
+| D-11 | No change on screen after **Approve this deck**, or after deleting a glossary term, until a reload. | Could not be reproduced in Chrome on the live site: the approval panel changed 1.1 s after the press and a deleted term left the list in 1.0 s. Both now show their result the moment the server accepts it, without waiting for the page to refresh, so they no longer depend on it in any browser. |
+| D-13 | The attendance audit entry named people by account id. | See the notes on attendance in AI-32. |
+| D-15 | "(1 participants)" in an audit entry. | Number now agrees. |
+
+From the observations:
+
+- **A relayed question answered as if it were a reply.** Nova is now told that a relayed question
+  is a question to answer, even straight after it has asked the group something, that its first
+  sentence is the answer, and not to remark on the question or thank anybody for it. Checked
+  against the live model, straight after an engagement question: before the change 9 of 9
+  answers opened by remarking on the question ("That is a really interesting way to think about
+  it"); after it, 0 of 9 did, and each opened with the answer ("A cloud platform is not the same
+  thing as a data centre").
+- **The white paper.** "Lessons from Data Centre and Cloud Incidents" (55 pages, fifteen anonymised
+  incident case studies) is in the Technavious white paper library, uploaded on 19 November and
+  waiting for approval. Checked before upload: no company, client, brand or place names; the
+  only names are standards bodies (NFPA, Uptime Institute, TIA, ASHRAE) and Benchmark's own.
+  UAT-16, 60 and 61 can use it: approve it, then attach it to Introduction to Data Centers.
+- **Approving decks in UAT Test Company.** `uat.admin` was added to `DECK_APPROVERS` beside
+  Srikant for the UAT period, and can approve inside UAT Test Company through **Customers**,
+  **Look inside**. Test "only the approver may approve" (UAT-13 step 2) with `uat.company`, who
+  is a Technavious administrator but not an approver. Remove `uat.admin` again after UAT.
+- **`uat.participant1` and "unverified email address".** That address has no sign-in account
+  yet, so the message cannot have come from it. Use **First time here?** with it: an address an
+  administrator added is created already verified.
+- **The lesson plan on Technavious Introduction to Data Centers** is still the old sample with
+  seven gaps. Pasting the rewritten sample in clears its approval, which then needs giving again.
+
 ## The site
 
 - URL: https://virtual-training-demo.vercel.app
