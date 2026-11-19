@@ -483,7 +483,10 @@ describe('the trainer speaking each OpenAI language', () => {
       // Changed on 11 November 2026 for AI-46 and AI-44 only. Reverting the short opening
       // line of a narration (AI-44) reproduces 05daa605..., and reverting the authority
       // rules and the approved material markers (AI-46) as well reproduces d30ac930...
-      '3628410e147ea85219dd070c14b6224d396be0ed0e7ba839a1d9a80cd1acefff',
+      // Changed on 19 November 2026 for one added rule only: the trainer refers people on
+      // in the words it is given, with no department put in front (UAT dry run).
+      // Reverting that one line reproduces 3628410e...
+      '019db686fa107d24f30145f2c9837d508aeaf821a8d082c46971d8626b3e1cac',
     );
   });
 });

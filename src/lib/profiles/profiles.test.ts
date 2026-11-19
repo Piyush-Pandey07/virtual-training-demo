@@ -265,17 +265,21 @@ describe('for anybody the switch leaves out, nothing happens', () => {
       // Changed on 11 November 2026 for AI-46 only: the rules in WHERE YOUR AUTHORITY
       // ENDS and the approved material markers. Reverting those reproduces ab2a32d1...,
       // 156f7a1a... and 8d609223... for the three below.
-      '7cc636b0faf6af1fec9b351e73d6bef90be8e2882712380ce2f56e45d1689228',
+      // Changed on 19 November 2026 for one added rule only, after the UAT dry run heard
+      // "your facilities administrator": the trainer refers people on in the words it is
+      // given, with no department put in front. Reverting that one line reproduces
+      // 7cc636b0..., 22555da9... and 824995f2... for the three below.
+      '772636ffc82191c123428736709227d320c4bf45b6fb85a2132de0f243f7767f',
     );
     assert.equal(
       sha(buildSystemInstruction(deck, undefined, undefined, loaded)),
-      '22555da90347fe94cfc40a90f9e6e09f540295475c6d69383612329ac16dd05a',
+      '0d01341e632f89530a53d247e8128a049fc2129abdca8ba07f1e62eb797c2720',
     );
     assert.equal(
       sha(
         buildSystemInstruction(deck, undefined, { language: 'hi', speaksAs: 'feminine' }, loaded),
       ),
-      '824995f2ed0542005a0ab9e9ca28724ae17f0f8a7987520977c7d1293ffb224e',
+      'cf33433fd192aa802891fa2c2b84539802b92b7bd27bb9520cfbac530b43c81b',
     );
   });
 

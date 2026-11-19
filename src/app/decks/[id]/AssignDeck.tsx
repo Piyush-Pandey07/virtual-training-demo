@@ -42,6 +42,12 @@ interface AssignDeckProps {
    * stands (AI-39). People who already have it are still listed, and can be removed.
    */
   refusal?: string | null;
+  /**
+   * Whether the deck was approved once and has been withdrawn or changed since. A deck
+   * like that is not an ordinary draft even while it is unpublished: people may already
+   * have it, and what it waits for is a fresh approval, not a first read.
+   */
+  reapproval?: boolean;
   /** Everybody who could be given this deck and does not already have it. */
   candidates: Candidate[];
   assigned: Assignee[];
@@ -63,6 +69,7 @@ export function AssignDeck({
   deckId,
   published,
   refusal = null,
+  reapproval = false,
   candidates,
   assigned,
 }: AssignDeckProps) {
@@ -156,7 +163,7 @@ export function AssignDeck({
     <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5">
       <h2 className="text-lg font-semibold">Who is doing this training</h2>
 
-      {!published ? (
+      {!published && !reapproval ? (
         <p className="text-muted mt-3 text-sm leading-relaxed">
           This deck is still a draft, so it cannot be given to anybody yet. Read what the trainer
           intends to say, then <span className="text-mist font-semibold">Publish</span>. A draft has
@@ -188,7 +195,16 @@ export function AssignDeck({
             </ul>
           )}
 
-          {refusal ? (
+          {!published ? (
+            // Unpublished after it was approved. The draft message above would be wrong
+            // here: it says the deck has not been checked by a person, and this one was.
+            <p className="text-muted mt-4 text-sm leading-relaxed">
+              <span className="text-mist font-semibold">Needs re-approval.</span> {refusal}{' '}
+              It is unpublished at the moment, so publish it first, then have it approved again.
+              {assigned.length > 0 &&
+                ` ${assigned.length === 1 ? 'The person above keeps' : 'The people above keep'} it meanwhile.`}
+            </p>
+          ) : refusal ? (
             <p className="text-muted mt-4 text-sm leading-relaxed">{refusal}</p>
           ) : candidates.length === 0 ? (
             <p className="text-muted mt-4 text-sm leading-relaxed">

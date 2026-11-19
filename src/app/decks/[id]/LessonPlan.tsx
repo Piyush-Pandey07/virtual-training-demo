@@ -254,7 +254,8 @@ export function LessonPlan({ deckId, plan, slides }: Props) {
         <a href={SAMPLE_WITH_GAP} download className="text-teal hover:underline">
           the sample with a deliberate gap
         </a>
-        .
+        . Both are written for the Introduction to Data Centers deck, so on any other deck they
+        show more differences than the one that is deliberate.
       </p>
 
       {plan && !form && (

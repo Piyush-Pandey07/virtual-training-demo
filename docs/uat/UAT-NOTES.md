@@ -129,7 +129,7 @@ All in `docs/uat/samples/`. Everything is fictional and labelled as a sample.
 | `sample-questions-isms-pre.csv` | Sample pre-session bank for the built-in ISMS deck: 10 questions |
 | `sample-questions-isms-post.csv` | Sample post-session bank for the ISMS deck: 10 questions |
 | `sample-participants-50.csv` | 50 rows for **Upload participants**, with 2 incomplete rows and 1 duplicate |
-| `public/samples/lesson-plan-data-centre.txt` and `...-with-gap.txt` | Sample lesson plans (in the app already, downloadable from a deck page; see AI-43) |
+| `public/samples/lesson-plan-data-centre.txt` and `...-with-gap.txt` | Sample lesson plans, written for the **Introduction to Data Centers** deck (in the app already, downloadable from a deck page; see AI-43) |
 
 **Sample decks.** The built-in **ISMS Awareness Session** (7 slides, in `src/lib/decks/isms/`;
 the source PowerPoint is `docs/ISMS-Awareness-Session.pptx`). The **Introduction to Data
@@ -1064,6 +1064,12 @@ from the plan, Nova follows the deck and the gap is shown to the administrator o
 and to the facilitator before and during the session. Built and tested with the sample plans in
 `public/samples/`.
 
+**Which deck.** Both samples are written for the **Introduction to Data Centers** deck, slide by
+slide. Use them on that deck. On any other deck, such as ISMS, they report many more differences,
+because they describe slides that deck does not have. (Until 19 November the samples were written
+for a different outline, and on Introduction to Data Centers the gap sample reported seven
+differences instead of one. That is fixed.)
+
 **Where to click.**
 
 1. Deck page, **Lesson plan** box: **Download the sample lesson plan** or **the sample with a
@@ -1079,14 +1085,17 @@ and to the facilitator before and during the session. Built and tested with the 
 
 - After saving: "Lesson plan saved. If the deck was approved, it needs approving again before
   anybody new is given it."
-- The gap list includes "The lesson plan's section "Fire suppression" has no slide in this deck;
-  Nova will follow the deck and not teach it."
+- With the plain sample: no differences are listed. Its eight sections match slides 1 to 2, 3 to
+  4, 5 to 6, 7 to 10, 11 to 12, 13 to 14, 15 to 17 and 18 to 19.
+- With the gap sample: the gap list is exactly one line, "The lesson plan's section "Fire
+  suppression" has no slide in this deck; Nova will follow the deck and not teach it."
 - The facilitator sees the same gaps on the session page and the run screen, with "Where they
   differ, the deck is followed. Cover anything the plan expects and the deck lacks yourself, or
   tell the group it is not part of today."
 - Removing the plan: **Remove the plan**, "Lesson plan removed."
 
-**Unit tests.** `src/lib/lesson-plan/lesson-plan.test.ts` ("finds the deliberate gap, and says the
+**Unit tests.** `src/lib/lesson-plan/lesson-plan.test.ts` ("the sample lesson plans that ship,
+against the Introduction to Data Centers deck", "finds the deliberate gap, and says the
 trainer will follow the deck", "shows the gaps to the facilitator before and during the session,
 and to the administrator").
 

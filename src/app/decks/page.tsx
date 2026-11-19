@@ -47,12 +47,12 @@ export default async function DeckLibraryPage() {
     (deck) => manages || deck.status === 'published',
   );
   const store = deckStore(admin.orgId);
-  // So a published deck that needs approving again stands out here, not only on its own
-  // page (AI-39). Unreadable approvals simply show no label.
-  const approvals = await deckApprovalStates(
-    admin.orgId,
-    decks.filter((deck) => deck.status === 'published'),
-  ).catch(() => null);
+  // So a deck that needs approving again stands out here, not only on its own page
+  // (AI-39). Drafts are asked about too, since a deck unpublished after approval is a
+  // draft that needs re-approval; it costs nothing extra, because a deck never approved,
+  // or one whose approval was cleared, is settled from the approvals alone without
+  // reading the deck. Unreadable approvals simply show no label.
+  const approvals = await deckApprovalStates(admin.orgId, decks).catch(() => null);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -106,7 +106,13 @@ export default async function DeckLibraryPage() {
                   >
                     {deck.status === 'published' ? 'Published' : 'Draft'}
                   </span>
-                  {approvals && deck.status === 'published' && (
+                  {/* A draft says nothing about approval, since a draft is approved after it
+                      is published. Unless it was approved before: a deck unpublished after
+                      approval read as a plain "Draft", which hid that it needs approving
+                      again before anybody new is given it (UAT dry run, D-06). */}
+                  {approvals &&
+                    (deck.status === 'published' ||
+                      approvals.get(deck.id)?.state === 'changed') && (
                     <span className="text-muted shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold">
                       {approvals.get(deck.id)?.state === 'approved'
                         ? 'Approved'

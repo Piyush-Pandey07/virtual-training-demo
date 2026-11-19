@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { strToU8, zipSync } from 'fflate';
 
 import { dataCentreDeck } from '../__fixtures__/data-centre-deck';
+import { introductionDeck } from '../__fixtures__/introduction-deck';
 import { AUDIT, type AuditEntry } from '../audit/log';
 import { toClientView } from '../deck';
 import type { DeckRecord } from '../deck-types';
@@ -48,9 +49,19 @@ import { lessonPlanGaps, lessonPlanView } from './view';
  * material is. Its variant adds "Fire suppression", which that deck has no slide for.
  */
 
-const SAMPLES = join('public', 'samples');
-const SAMPLE = readFileSync(join(SAMPLES, 'lesson-plan-data-centre.txt'), 'utf8');
-const SAMPLE_WITH_GAP = readFileSync(join(SAMPLES, 'lesson-plan-data-centre-with-gap.txt'), 'utf8');
+// The plan these tests were first written around, kept as a fixture beside the
+// eight-slide deck it fits. What ships in public/samples is now written for the deck on
+// the live site, and is tested against that deck's slides further down.
+const FIXTURES = join('src', 'lib', '__fixtures__', 'lesson-plans');
+const SAMPLE = readFileSync(join(FIXTURES, 'fundamentals.txt'), 'utf8');
+const SAMPLE_WITH_GAP = readFileSync(join(FIXTURES, 'fundamentals-with-gap.txt'), 'utf8');
+
+const SHIPPED = join('public', 'samples');
+const SHIPPED_SAMPLE = readFileSync(join(SHIPPED, 'lesson-plan-data-centre.txt'), 'utf8');
+const SHIPPED_WITH_GAP = readFileSync(
+  join(SHIPPED, 'lesson-plan-data-centre-with-gap.txt'),
+  'utf8',
+);
 
 function sample(text = SAMPLE): LessonPlanDraft {
   const draft = parseLessonPlanText(text);
@@ -191,6 +202,54 @@ describe('the other ways a plan arrives', () => {
       ],
     );
     assert.deepEqual(draft?.outcomes, ['Trace the power path.']);
+  });
+});
+
+/**
+ * The samples an administrator downloads from the deck page, against the deck they are
+ * for. Uploaded to the real "Introduction to Data Centers" deck, the first samples
+ * reported six and seven differences, because they were written for a different outline;
+ * the UAT dry run of 18 November expected the one deliberate gap and saw seven.
+ */
+describe('the sample lesson plans that ship, against the Introduction to Data Centers deck', () => {
+  it('matches every section of the sample to its slides, with nothing to report', () => {
+    const alignment = alignLessonPlan(sample(SHIPPED_SAMPLE), introductionDeck());
+    assert.deepEqual(
+      alignment.sections.map((entry) => entry.slides),
+      [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+        [7, 8, 9, 10],
+        [11, 12],
+        [13, 14],
+        [15, 16, 17],
+        [18, 19],
+      ],
+    );
+    assert.deepEqual(alignment.gaps, []);
+  });
+
+  it('reports the one deliberate gap of the other sample, and only that', () => {
+    const alignment = alignLessonPlan(sample(SHIPPED_WITH_GAP), introductionDeck());
+    assert.deepEqual(alignment.gaps, [{ kind: 'missing', section: 'Fire suppression' }]);
+    assert.equal(
+      describeGap(alignment.gaps[0]),
+      'The lesson plan\'s section "Fire suppression" has no slide in this deck; Nova will follow the deck and not teach it.',
+    );
+  });
+
+  it('differs from the plain sample by that one section', () => {
+    const plain = sample(SHIPPED_SAMPLE).sections.map((section) => section.title);
+    const gapped = sample(SHIPPED_WITH_GAP).sections.map((section) => section.title);
+    assert.deepEqual(
+      gapped.filter((title) => !plain.includes(title)),
+      ['Fire suppression'],
+    );
+    assert.deepEqual(
+      gapped.filter((title) => title !== 'Fire suppression'),
+      plain,
+    );
   });
 });
 

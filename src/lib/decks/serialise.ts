@@ -111,6 +111,31 @@ function parseMeta(raw: unknown, e: Errors): DeckMeta {
     }
   }
 
+  // What the administrator sets on the deck page (AI-03, AI-34), each optional. They have
+  // to be named here: this function builds the meta from a fixed list, and every read
+  // of a stored deck passes through it, so a field it does not name is dropped on the
+  // way back out. These three were saved and then lost on every read, which the UAT dry
+  // run of 18 November found as edits that showed "Saved." and were gone after a
+  // reload. It also meant the trainer never saw the course information or the case
+  // studies, and every deck completed at the default 90 per cent.
+  for (const field of ['topicInfo', 'caseStudies'] as const) {
+    const value = raw[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string') {
+      e.all.push(`meta.${field} must be a string`);
+      continue;
+    }
+    if (value.trim()) meta[field] = value;
+  }
+  if (raw.completionPercent !== undefined && raw.completionPercent !== null) {
+    const percent = raw.completionPercent;
+    if (typeof percent !== 'number' || !Number.isInteger(percent) || percent < 50 || percent > 100) {
+      e.all.push('meta.completionPercent must be a whole number from 50 to 100');
+    } else {
+      meta.completionPercent = percent;
+    }
+  }
+
   // Present only once the outline pass has run.
   if (raw.outlineAnalysedAt !== undefined) {
     meta.outlineAnalysedAt = e.str('meta.outlineAnalysedAt', raw.outlineAnalysedAt);

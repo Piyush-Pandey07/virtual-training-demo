@@ -322,6 +322,7 @@ export default async function DeckReviewPage({ params }: ReviewPageProps) {
               deckId={review.id}
               published={stored.status === 'published'}
               refusal={assignmentRefusalFor(approval)}
+              reapproval={approval.state === 'changed'}
               candidates={candidates}
               assigned={assigned}
             />
