@@ -177,6 +177,22 @@ Decisions already taken, which the notes below follow:
 
 These are deployment settings, not code. Each one changes what UAT can see.
 
+**Where each stood on 19 November 2026**, read from `/api/health` on the live site and from
+Firestore:
+
+- `CRON_SECRET`: **set**. The daily jobs run: retention at 03:00 IST, notifications at 08:00 IST.
+- `DECK_APPROVERS`: **set** to Srikant's address, who is on the Technavious roster as an
+  administrator and sets his own password with **First time here?**. No other administrator is
+  offered **Approve this deck** now. He is not platform staff, so he cannot open another
+  customer's decks to approve them; that is being decided.
+- `RESEND_API_KEY`: **set and accepted**, but no email is delivered until the sender's domain is
+  verified in Resend (see the dry-run section above).
+- `OPENAI_API_KEY`: **replaced and working**. Arabic, Malay, Indonesian, Filipino and
+  Vietnamese speak again.
+- Firestore TTL policies: **not on yet**, for any of the five collections. Turning them on
+  removes only 13 stale rate-limit counters; every other entry is inside its retention.
+- `BACKUP_BLOB_READ_WRITE_TOKEN`: not set, so uploaded files are not yet copied to a backup store.
+
 | Setting | Effect while unset | Effect once set |
 | --- | --- | --- |
 | `DECK_APPROVERS` | Every Technavious administrator may approve decks and white papers. | Only the listed addresses may approve, Technavious administrators included. Srikant's address goes here. |
@@ -1302,7 +1318,38 @@ a key on the live site. Testers can use any failure that happens, and match its 
 `src/lib/voice/fetch-speech.test.ts` ("streaming the opening sentence" and "the opening
 sentence fetched ahead").
 
-### Measured figures
+### Measured figures, 19 November 2026 (AI-53)
+
+Measured on the live site on build `3dc5745`, in Chromium, as Technavious test accounts, with
+progress not recorded. Times run to the moment the first audio was scheduled to sound.
+
+| Measure | Turns | Within target | Median | Slowest |
+| --- | --- | --- | --- | --- |
+| Slide start, from pressing **Next** (3 s target) | 10 | 10 of 10 | 0.10 s | 0.10 s |
+| Answer to a typed question, from pressing **Ask** (5 s target) | 10 | 10 of 10 | 2.85 s | 3.60 s |
+| Answer to a spoken question, from the end of the question (5 s target) | 10 | 10 of 10 | 4.25 s | 4.85 s |
+
+- **Typed questions and slide starts:** the Introduction to Data Centers deck, ten rounds of
+  **Next**, the slide heard out, then a question typed.
+- **Spoken questions:** an AI-led session on the ISMS deck. Ten questions, said aloud by one of
+  Nova's own English voices, were played into the session as its microphone, one every 70
+  seconds, and each was timed from its last word. Of the 4.25 s, 1.17 s is hearing the question
+  and deciding it has ended; the rest is the answer being written and spoken. All ten were
+  heard correctly, apart from "spear phishing" being written as "spearfishing", which did not
+  change the answer.
+- **Session start:** the welcome took 2.4 to 6.0 s across seventeen sessions that day, against
+  8.9 s on 12 November. It cannot be prepared ahead, because nothing has been said before it.
+- **Not measured:** spoken questions in a trainer-led session. A new session needs an approved
+  deck, and from 19 November only the deck approver can approve one.
+
+**Every voice, the same day.** Each of the 52 voices in the 15 languages offered to Technavious
+staff was asked for real speech on the live site: 52 of 52 spoke, with the first audio byte in
+a median of 1.49 s (slowest 2.73 s). The first voice of each language was then played back to
+the live listening route in that language: 15 of 15 were heard, each at 98% or more of the
+sentence word for word. The lobby's "hear this voice" sample played for 15 of 15. A real
+session was started in each of the 15 languages, and each spoke in its language with no error.
+
+### Measured figures, 12 November 2026
 
 Measured on the live site on 12 November 2026 at about 14:30 IST, in Chromium, on the
 "Introduction to Data Centers" deck, as a Technavious test account. In each of ten rounds,
