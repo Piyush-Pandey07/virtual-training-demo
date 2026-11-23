@@ -28,7 +28,7 @@ import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { deckWeight } from '@/lib/roster/report';
 import { RosterStoreError } from '@/lib/roster/store';
-import { completionPercentOf } from '@/lib/roster/completion';
+import { completionPercentOf, coverageOf, percentComplete } from '@/lib/roster/completion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -103,8 +103,13 @@ export async function POST(request: Request) {
       completionPercent: completionPercentOf(deck.meta),
     });
 
+    // With the percentage as the store now has it, so the end of the session can say how
+    // far through it is and whether the steps after it have opened, which wait for it to
+    // be completed (UAT issue 12). One number, as the resume state sends: the weighting
+    // behind it stays here.
     return Response.json({
       covered: attempt.covered.length,
+      percent: percentComplete(coverageOf(attempt)),
       completedAt: attempt.completedAt,
     });
   } catch (error) {

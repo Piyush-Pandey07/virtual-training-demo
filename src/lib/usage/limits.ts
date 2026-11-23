@@ -25,6 +25,42 @@ export interface CapVerdict {
   limit: number | null;
 }
 
+/**
+ * A customer's training sessions this month, for the customer to see (UAT, issue 19).
+ *
+ * The cap was shown only on Technavious's Customers page, so a company found out it had
+ * one at the moment a session was refused. Null when there is nothing honest to show:
+ * no customer list on this deployment, or the customer or its usage cannot be read.
+ */
+export interface MonthlyAllowance {
+  used: number;
+  /** Null when the customer has no monthly cap. */
+  limit: number | null;
+  /** The first moment of next month, ISO 8601, when the count starts again. */
+  resetsAt: string;
+}
+
+export async function monthlyAllowance(
+  orgId: string,
+  now: Date = new Date(),
+): Promise<MonthlyAllowance | null> {
+  if (!orgsConfigured()) return null;
+  const [organisation, usage] = await Promise.all([
+    orgStore()
+      .get(orgId)
+      .catch(() => undefined),
+    usageFor(orgId, now).catch(() => undefined),
+  ]);
+  if (!organisation || !usage) return null;
+  return {
+    used: usage.sessions,
+    limit: organisation.limits.sessionsPerMonth,
+    // The count is kept per calendar month in UTC (`monthOf`), so it starts again at
+    // midnight UTC on the first, half past five in the morning in India.
+    resetsAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
+  };
+}
+
 export async function mayStartSession(orgId: string): Promise<CapVerdict> {
   if (!orgsConfigured()) return { allowed: true, used: 0, limit: null };
 
@@ -56,7 +92,7 @@ export async function mayStartSession(orgId: string): Promise<CapVerdict> {
     return {
       allowed: false,
       reason:
-        'This organisation has reached its training limit for this month. Whoever runs your training can raise it.',
+        'This organisation has used all its training sessions for this month. The count starts again on the first of next month. Technavious sets this limit, so your training administrator can ask them to raise it.',
       used,
       limit,
     };

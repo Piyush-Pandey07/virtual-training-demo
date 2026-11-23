@@ -19,6 +19,7 @@ import { loadDeck } from '@/lib/decks/registry';
 import { lessonPlanGaps } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
+import { shownName } from '@/lib/training/names';
 import { trainingStore } from '@/lib/training/store';
 import { closureSummary } from '@/lib/training/summary';
 import { resultsHref } from '@/lib/assessments/paths';
@@ -52,10 +53,12 @@ export default async function SessionPage({ params }: Props) {
   const planGaps = lessonPlanGaps(deck);
   // Only an administrator decides who is in a session; a facilitator runs it.
   const organiser = me.platform || me.role === 'admin';
-  const nameOf = (personId: string) => {
-    const person = people.find((entry) => entry.id === personId);
-    return person ? person.name || person.email : 'Removed';
-  };
+  // The roster first, so somebody renamed shows as they are now, and the names the session
+  // kept for anybody it no longer has, so a session that took place goes on naming who
+  // was there after they leave (D-20).
+  const nameOf = (personId: string) =>
+    shownName(people.find((entry) => entry.id === personId) ?? session.people?.[personId]) ??
+    'Removed';
 
   return (
     <div className="flex min-h-screen flex-col">

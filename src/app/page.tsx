@@ -9,6 +9,7 @@
 
 import type { Metadata } from 'next';
 
+import { nextStepAfterSession, type NextStep } from '@/lib/assessments/service';
 import { requireUserPage } from '@/lib/auth/guard';
 import { DEFAULT_DECK_ID, deckStore, listDecks, loadDeck } from '@/lib/decks/registry';
 import { COMPLETION_THRESHOLD, completionPercentOf } from '@/lib/roster/completion';
@@ -17,6 +18,8 @@ import { peopleOverview, trainingFor } from '@/lib/roster/report';
 import { journeysFor } from '@/lib/training/journey';
 import { isAdministrator } from '@/lib/auth/permissions';
 import { recentProviderAlerts } from '@/lib/failures/alerts';
+import { HOME_ORG_ID } from '@/lib/orgs/types';
+import { monthlyAllowance } from '@/lib/usage/limits';
 import { HomeForAdmin } from './HomeForAdmin';
 import { HomeForTrainee } from './HomeForTrainee';
 
@@ -38,34 +41,60 @@ export default async function HomePage() {
       trainingFor(person.orgId, person),
       journeysFor(person).catch(() => []),
     ]);
-    // Each deck's own completion point (AI-34), for the cards and the note under them. A
-    // participant has a handful of decks, so reading each is cheap.
-    const completionPercents = Object.fromEntries(
-      await Promise.all(
+    // The AI-led sessions under way or completed, which are the cards that say what comes
+    // after. A deck taught in the room has its steps on its session's card instead, and
+    // one not started yet has nothing after it to speak of.
+    const inTheRoom = new Set(journeys.map((journey) => journey.deckId));
+    const aiLed = rows.filter(
+      (row) =>
+        !inTheRoom.has(row.deckId) &&
+        row.deckTitle !== null &&
+        (row.completedAt !== null || row.percent > 0),
+    );
+    const [completionPercents, afterSession] = await Promise.all([
+      // Each deck's own completion point (AI-34), for the cards and the note under them.
+      // A participant has a handful of decks, so reading each is cheap.
+      Promise.all(
         rows.map(async (row) => [
           row.deckId,
           await loadDeck(person.orgId, row.deckId)
             .then((deck) => (deck ? completionPercentOf(deck.meta) : COMPLETION_THRESHOLD))
             .catch(() => COMPLETION_THRESHOLD),
         ]),
-      ),
-    ) as Record<string, number>;
+      ).then((entries) => Object.fromEntries(entries) as Record<string, number>),
+      // What follows each of those, so its card can link the post-session assessment or
+      // feedback once the session is completed, and say until then that it opens then
+      // (UAT issue 12). Without it, somebody who left a completed session other than by
+      // its end screen had no way back to either.
+      Promise.all(
+        aiLed.map(async (row) => [
+          row.deckId,
+          await nextStepAfterSession(person.orgId, person.id, row.deckId).catch(() => null),
+        ]),
+      ).then((entries) => Object.fromEntries(entries) as Record<string, NextStep | null>),
+    ]);
     return (
       <HomeForTrainee
         person={person}
         rows={rows}
         journeys={journeys}
         completionPercents={completionPercents}
+        afterSession={afterSession}
       />
     );
   }
 
   const store = deckStore(person.orgId);
-  const [decks, people, alerts] = await Promise.all([
+  // A customer's administrator sees their own monthly allowance (UAT, issue 19).
+  // Technavious's own organisation has none, and its staff see every customer's on the
+  // Customers page; looking inside a customer, they see that customer's here.
+  const showsAllowance = person.role === 'admin' && person.orgId !== HOME_ORG_ID;
+  const [decks, people, alerts, allowance] = await Promise.all([
     listDecks(person.orgId),
     peopleOverview(person.orgId).catch(() => []),
     // Technavious administrators only: the services that need somebody to act (AI-11).
     isAdministrator(person) ? recentProviderAlerts().catch(() => []) : Promise.resolve([]),
+    showsAllowance ? monthlyAllowance(person.orgId) : Promise.resolve(null),
   ]);
 
   // Uploaded decks only. The built-in deck is reachable from the one button in the
@@ -94,6 +123,7 @@ export default async function HomePage() {
       outstanding={people.reduce((total, row) => total + row.assigned - row.completed, 0)}
       rosterReady={rosterStore(person.orgId).writable}
       alerts={alerts}
+      allowance={allowance}
     />
   );
 }

@@ -18,8 +18,10 @@ import { InMemoryDocumentStore } from '../roster/documents';
 import { resetRosterStore } from '../roster/registry';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
+import { todayInTrainingZone } from '../time';
 import { facilitatesDeck, facilitatesPerson, mayManageSession, sessionsListing } from './access';
 import { auditHistory, type AuditEntry } from '../audit/log';
+import { resultsForDeck } from '../assessments/service';
 import { assessmentStore } from '../assessments/store';
 import { closureSummary } from './summary';
 import {
@@ -27,7 +29,10 @@ import {
   changeSession,
   createBatch,
   createSession,
+  peopleOnBoard,
+  recordCurrentSlide,
   removeBatch,
+  removeFromTraining,
   removeSession,
   sessionFor,
   TrainingRuleError,
@@ -361,6 +366,33 @@ describe('which batches a person sees', () => {
       ['b-morning'],
     );
     assert.deepEqual(visibleBatches(asha, [frans, felixs, unowned]), []);
+  });
+});
+
+describe('whom the sessions board names (Issue 15)', () => {
+  const sessions = () => [
+    session({ participantIds: [asha.id] }),
+    session({ id: 's-felix', facilitatorId: felix.id, participantIds: [cara.id] }),
+  ];
+  const batches = () => [
+    batch({ participantIds: [ben.id] }),
+    batch({ id: 'b-felix', facilitatorId: felix.id, participantIds: [cara.id] }),
+  ];
+
+  it('names a facilitator themselves, and the people of their own sessions and batches', async () => {
+    const shown = peopleOnBoard(fran, sessions(), batches(), await roster.listPeople());
+    // Without Fran herself, each of her own sessions was "run by Unknown".
+    assert.deepEqual(shown.map((entry) => entry.id).sort(), [asha.id, ben.id, fran.id]);
+  });
+
+  it('names nobody from another facilitator’s sessions, nor that facilitator', async () => {
+    const shown = peopleOnBoard(fran, sessions(), batches(), await roster.listPeople());
+    assert.ok(!shown.some((entry) => entry.id === felix.id || entry.id === cara.id));
+  });
+
+  it('names the whole company for an administrator', async () => {
+    const people = await roster.listPeople();
+    assert.equal(peopleOnBoard(companyAdmin, [], [], people).length, people.length);
   });
 });
 
@@ -878,7 +910,7 @@ async function sessionAudit(): Promise<AuditEntry[]> {
   await new Promise((resolve) => setImmediate(resolve));
   return auditHistory(
     ORG,
-    { month: new Date().toISOString().slice(0, 7), subjectType: 'training-session' },
+    { month: todayInTrainingZone().slice(0, 7), subjectType: 'training-session' },
     { store },
   );
 }
@@ -956,6 +988,115 @@ describe('cancelling a session', () => {
           entry.actorId === fran.id,
       ),
     );
+  });
+});
+
+/**
+ * The slide the facilitator's run screen is on, kept on the session so reopening the
+ * screen carries on there (UAT issue 17). Written often, on the free Firestore plan, so a
+ * slide already kept costs no write.
+ */
+describe('keeping the run screen’s slide', () => {
+  /** Counts the writes that reach the store underneath, however they are made. */
+  function countWrites(): () => number {
+    let writes = 0;
+    const set = store.set.bind(store);
+    store.set = (async (collection: string, id: string, value: unknown) => {
+      writes += 1;
+      await set(collection, id, value);
+    }) as typeof store.set;
+    return () => writes;
+  }
+
+  it('is kept for the session’s facilitator and for any administrator', async () => {
+    let slide = 2;
+    for (const who of [fran, companyAdmin, technavious]) {
+      await saved({ status: 'open', openedAt: NOW });
+      assert.equal(await recordCurrentSlide(who, 's-room1', slide, options()), slide);
+      assert.equal((await stored('s-room1'))?.currentSlideId, slide, who.id);
+      slide += 1;
+    }
+  });
+
+  it('is kept before the session starts too, without starting it', async () => {
+    // Moving through the deck is not handing over: only the first hand-over opens it.
+    await saved();
+    await recordCurrentSlide(fran, 's-room1', 3, options());
+    const record = await stored('s-room1');
+    assert.equal(record?.currentSlideId, 3);
+    assert.equal(record?.status, 'scheduled');
+    assert.equal(record?.openedAt, null);
+  });
+
+  it('changes nothing else on the record', async () => {
+    const before = await saved({
+      status: 'open',
+      openedAt: NOW,
+      attendance: { [asha.id]: 'present' },
+      attendanceAt: { [asha.id]: NOW },
+    });
+    await recordCurrentSlide(fran, 's-room1', 5, options());
+    assert.deepEqual(await stored('s-room1'), { ...before, currentSlideId: 5 });
+  });
+
+  it('writes nothing for the slide it already keeps', async () => {
+    await saved({ status: 'open', openedAt: NOW, currentSlideId: 4 });
+    const writes = countWrites();
+    assert.equal(await recordCurrentSlide(fran, 's-room1', 4, options()), 4);
+    assert.equal(writes(), 0);
+    await recordCurrentSlide(fran, 's-room1', 5, options());
+    assert.equal(writes(), 1, 'one write for one move');
+  });
+
+  it('is not found for another facilitator or a participant, and nothing changes', async () => {
+    const record = await saved({ status: 'open', openedAt: NOW, currentSlideId: 2 });
+    const writes = countWrites();
+    for (const who of [felix, asha, ben]) {
+      await assert.rejects(recordCurrentSlide(who, 's-room1', 7, options()), refused(404), who.id);
+    }
+    assert.equal(writes(), 0);
+    assert.deepEqual(await stored('s-room1'), record);
+  });
+
+  it('is not found for a session that does not exist, and creates none', async () => {
+    await assert.rejects(recordCurrentSlide(fran, 's-none', 2, options()), refused(404));
+    assert.equal(await stored('s-none'), undefined);
+  });
+
+  it('is refused once the session is closed or cancelled, and the record is left as it is', async () => {
+    for (const [status, pattern] of [
+      ['closed', /closed and can no longer be run/],
+      ['cancelled', /cancelled and can never be run/],
+    ] as const) {
+      const record = await saved({ status, currentSlideId: 6 });
+      const writes = countWrites();
+      await assert.rejects(
+        recordCurrentSlide(companyAdmin, 's-room1', 2, options()),
+        refused(409, pattern),
+        status,
+      );
+      assert.equal(writes(), 0, status);
+      assert.deepEqual(await stored('s-room1'), record, status);
+    }
+  });
+
+  it('takes only a slide number', async () => {
+    const record = await saved({ status: 'open', openedAt: NOW });
+    for (const slideId of [0, -1, 2.5, '3', null, undefined, Number.NaN, 1001, { id: 3 }]) {
+      await assert.rejects(
+        recordCurrentSlide(fran, 's-room1', slideId, options()),
+        refused(400, /Name the slide by its number/),
+        String(slideId),
+      );
+    }
+    assert.deepEqual(await stored('s-room1'), record);
+  });
+
+  it('leaves a session that keeps none, written before it was kept, as it was', async () => {
+    // An old record has no such field and still reads; the run page then starts at slide 1.
+    const record = await saved({ status: 'open', openedAt: NOW });
+    assert.equal('currentSlideId' in record, false);
+    assert.deepEqual(await sessionFor(fran, 's-room1', options()), record);
   });
 });
 
@@ -1193,6 +1334,108 @@ describe('adding participants to a session', () => {
         refused(400),
       );
     }
+  });
+});
+
+describe('the names a session keeps (D-20)', () => {
+  beforeEach(async () => {
+    await approveDeck(technavious, DECK_ID, { store });
+  });
+
+  const named = (who: SignedInPerson) => ({ name: who.name, email: who.email });
+
+  /** Set up for Asha and Ben, run by Fran, opened, both marked present, and closed. */
+  async function heldAndClosed(): Promise<TrainingSession> {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    return changeSession(
+      fran,
+      created.id,
+      { attendance: { [asha.id]: 'present', [ben.id]: 'present' }, status: 'closed' },
+      { store, now: () => LATER },
+    );
+  }
+
+  it('are those of its facilitator and everybody listed, from the moment it is set up', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    assert.deepEqual(created.people, {
+      [fran.id]: named(fran),
+      [asha.id]: named(asha),
+      [ben.id]: named(ben),
+    });
+  });
+
+  it('take in anybody added later', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    const next = await addParticipants(
+      companyAdmin,
+      's-room1',
+      { participantIds: [cara.id] },
+      options(),
+    );
+    assert.deepEqual(next.people, { [cara.id]: named(cara) });
+  });
+
+  it('are refreshed from the roster as it closes, and keep anybody who has left it', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    // Asha's name changes on the roster, and Ben is removed, before it closes.
+    await roster.upsertPerson({ id: asha.id, email: asha.email, name: 'Asha Patil' });
+    await roster.removePerson(ben.id, { keepAttempts: true });
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    const closed = await changeSession(
+      fran,
+      created.id,
+      { attendance: { [asha.id]: 'present', [ben.id]: 'absent' }, status: 'closed' },
+      options(),
+    );
+    assert.deepEqual(closed.people?.[asha.id], { name: 'Asha Patil', email: asha.email });
+    assert.deepEqual(closed.people?.[ben.id], named(ben));
+  });
+
+  it('name somebody removed since on the closure summary and the results screen', async () => {
+    const closed = await heldAndClosed();
+    await roster.removePerson(asha.id, { keepAttempts: true });
+
+    const summary = await closureSummary(companyAdmin, closed.id, { store, roster });
+    const row = summary.rows.find((entry) => entry.personId === asha.id);
+    assert.equal(row?.name, 'Asha Rao', 'the summary forgot who attended');
+    assert.equal(row?.email, asha.email);
+
+    const results = await resultsForDeck(companyAdmin, DECK_ID, closed.id, { store, roster });
+    assert.equal(results.rows.find((entry) => entry.personId === asha.id)?.name, 'Asha Rao');
+    // Ben is still on the roster, and is named from it.
+    assert.equal(results.rows.find((entry) => entry.personId === ben.id)?.name, 'Ben Okafor');
+  });
+
+  it('go from a session that has not happened when somebody is removed, and stay on one that has', async () => {
+    const held = await heldAndClosed();
+    await saved({
+      id: 's-later',
+      participantIds: [asha.id, ben.id],
+      people: {
+        [fran.id]: named(fran),
+        [asha.id]: named(asha),
+        [ben.id]: named(ben),
+      },
+    });
+    await removeFromTraining(companyAdmin, asha.id, { store });
+    assert.deepEqual(Object.keys((await stored('s-later'))?.people ?? {}).sort(), [
+      ben.id,
+      fran.id,
+    ]);
+    assert.deepEqual((await stored(held.id))?.people?.[asha.id], named(asha));
   });
 });
 

@@ -11,6 +11,7 @@
 import 'server-only';
 
 import {
+  attendedSession,
   feedbackDone,
   hasQuestions,
   postAssessmentDone,
@@ -124,22 +125,36 @@ export async function journeyFor(
   );
 
   // 2. The session, in the room.
+  // Done for this participant once the facilitator has marked them present in it, even
+  // while it is still under way: there is nothing more for them to do to attend it, and
+  // "To do" beside it sent people marked present looking for something (UAT issue 14).
+  // Missed once marked absent. Still to do while it is under way and they are not marked,
+  // since joining it is exactly what they should be doing.
+  // As the assessments decide it (attendedSession): marked present, in a session that
+  // started. This also opens steps 3 and 4.
+  const attended = attendedSession(session, person.id);
   const lateNote = late ? ' You joined late.' : '';
   steps.push({
     label: 'The session',
-    state: session.status === 'closed' ? 'done' : started ? 'open' : 'locked',
+    state: absent
+      ? 'missed'
+      : attended || session.status === 'closed'
+        ? 'done'
+        : started
+          ? 'open'
+          : 'locked',
     note: absent
       ? 'You were marked absent.'
       : session.status === 'closed'
         ? `Finished.${lateNote}`
-        : started
-          ? `Under way, on the facilitator's screen.${lateNote}`
-          : `In the room${formatWhen(session.scheduledFor) ? `, ${formatWhen(session.scheduledFor)}` : ''}.`,
+        : attended
+          ? `You are marked present. Under way, on the facilitator's screen.${lateNote}`
+          : started
+            ? "Under way, on the facilitator's screen. Join it in the room, and your facilitator will mark you present."
+            : `In the room${formatWhen(session.scheduledFor) ? `, ${formatWhen(session.scheduledFor)}` : ''}.`,
   });
 
   // 3 and 4. After it, only for somebody who was there.
-  // As the assessments decide it (hasAttended): marked present, in a session that started.
-  const attended = started && session.attendance[person.id] === 'present';
   const postReady = !postBank || postDone;
   steps.push(
     !postBank

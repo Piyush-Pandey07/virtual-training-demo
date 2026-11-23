@@ -13,6 +13,7 @@ import {
 } from './codes';
 import {
   DEVLOG,
+  entriesFiledOn,
   entriesFor,
   forgetRecentFailures,
   recordFailure,
@@ -294,6 +295,32 @@ describe('the developer log', () => {
       ['p2', 'p1'],
     );
     assert.deepEqual(await entriesFor('../../etc', { store }), []);
+    assert.deepEqual(await entriesFiledOn('../../etc', { store }), []);
+  });
+
+  it('reads the day in India, which starts at 18:30 UTC the evening before (UAT issue 20)', async () => {
+    // 23:59 on 1 November in India, then 00:30 and 05:00 on the 2nd, while it is still the
+    // 1st in UTC, then 23:59 on the 2nd and midnight on the 3rd.
+    const at = [
+      ['p1', '2026-11-01T18:29:00.000Z'],
+      ['p2', '2026-11-01T19:00:00.000Z'],
+      ['p3', '2026-11-01T23:30:00.000Z'],
+      ['p4', '2026-11-02T18:29:00.000Z'],
+      ['p5', '2026-11-02T18:30:00.000Z'],
+    ] as const;
+    for (const [personId, iso] of at) {
+      await recordFailure({ ...input, personId }, { store, now: Date.parse(iso), immediate: true });
+    }
+
+    const ids = async (day: string) =>
+      (await entriesFor(day, { store })).map((entry) => entry.personId);
+    assert.deepEqual(await ids('2026-11-02'), ['p4', 'p3', 'p2']);
+    // Previous day and Next day from there have the rest, once each.
+    assert.deepEqual(await ids('2026-11-01'), ['p1']);
+    assert.deepEqual(await ids('2026-11-03'), ['p5']);
+    // Filed under the UTC day, as entries always have been.
+    const filed = await entriesFiledOn('2026-11-01', { store });
+    assert.deepEqual(filed.map((entry) => entry.personId).sort(), ['p1', 'p2', 'p3']);
   });
 });
 

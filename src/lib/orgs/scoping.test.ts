@@ -47,6 +47,9 @@ const STORES = [
   'usageFor',
   'usageHistory',
   'mayStartSession',
+  // Shows a customer its own sessions this month and its cap (UAT, issue 19). The wrong
+  // organisation here would show one customer another's usage.
+  'monthlyAllowance',
   'record',
   'recordQuietly',
   // Reads a deck's own content, including the rendered pages sent to the model.
@@ -62,6 +65,10 @@ const STORES = [
   'resume',
   // Batches and trainer-led sessions, with their attendance.
   'trainingStore',
+  // Rewriting one customer's sessions and batches when somebody's id changes, at sign-in
+  // and by the repair script (D-18).
+  'carryTrainingRecords',
+  'repairOrg',
   // The level most of a group are at, read from their assessment results.
   'groupLevel',
   'trainingDocuments',

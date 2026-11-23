@@ -80,10 +80,15 @@ describe('the sign-in routes', () => {
   it('never hand a role to the roster', () => {
     // The one line that would turn self-enrolment into self-promotion. A role reaching
     // upsertPerson from a request body is the textbook version, and it would look
-    // entirely reasonable in a diff.
+    // entirely reasonable in a diff. Both routes write the roster through
+    // upsertPersonWithTraining, which hands what it is given to upsertPerson, so that call
+    // is the one read; a route calling the roster directly is caught as well.
     for (const path of SIGN_IN) {
       const source = readFileSync(path, 'utf8');
-      const call = source.slice(source.indexOf('upsertPerson('));
+      const at = source.indexOf('upsertPersonWithTraining(');
+      assert.ok(at >= 0, `${path} no longer writes the roster through upsertPersonWithTraining`);
+      assert.doesNotMatch(source, /\.upsertPerson\(/, `${path} writes the roster directly`);
+      const call = source.slice(at);
       const args = call.slice(0, call.indexOf('});') + 1);
 
       assert.doesNotMatch(args, /\brole\b/, `${path} passes a role when creating a person`);

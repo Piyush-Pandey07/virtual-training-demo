@@ -17,6 +17,7 @@ import { InMemoryDocumentStore } from '../roster/documents';
 import { resetRosterStore } from '../roster/registry';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
+import { todayInTrainingZone } from '../time';
 import { createSession } from '../training/service';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
@@ -324,8 +325,9 @@ describe('retrying', () => {
     await attempt(record.id, { store, provider, now: clock });
 
     // The developer log is shared by every test in this file, so only this one's entry.
-    const today = new Date().toISOString().slice(0, 10);
-    const logged = (await entriesFor(today)).filter((entry) => entry.detail.includes(record.id));
+    const logged = (await entriesFor(todayInTrainingZone())).filter((entry) =>
+      entry.detail.includes(record.id),
+    );
     assert.equal(logged.length, 1);
     assert.equal(logged[0]!.provider, 'resend');
     assert.equal(logged[0]!.kind, 'not_configured');
@@ -523,8 +525,7 @@ describe('without a key', () => {
     assert.equal(report.configured, false);
     assert.equal(report.stillHeld, 1);
 
-    const today = new Date().toISOString().slice(0, 10);
-    const logged = (await entriesFor(today)).filter(
+    const logged = (await entriesFor(todayInTrainingZone())).filter(
       (entry) => entry.provider === 'resend' && entry.kind === 'not_configured',
     );
     assert.ok(logged.length >= 1);

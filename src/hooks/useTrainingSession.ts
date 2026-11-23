@@ -18,7 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clampSlideId, firstSlideId, totalSlides } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { classifyUtterance } from '@/lib/intent';
-import { reportProgress } from '@/lib/progress-client';
+import { reportProgress, standingAfter, type LiveStanding } from '@/lib/progress-client';
+import type { SessionEnding } from '@/lib/session-end';
 import { sanitiseForSpeech } from '@/lib/speech';
 import { detectAnswerStyle } from '@/lib/intent';
 import {
@@ -117,12 +118,24 @@ function makeEntry(
 
 export interface UseTrainingSessionResult {
   phase: SessionPhase;
+  /**
+   * How the session ended, once it has: the trainer wrapped up after the last slide, or
+   * the trainee pressed Stop. Null until then. Both are the `ended` phase, which is all the
+   * controls need; the end of the session says which, short of completion (UAT issue 13).
+   */
+  endedBy: SessionEnding | null;
   slideId: number;
   slideIndex: number;
   transcript: TranscriptEntry[];
   /** Live partial transcript of the trainee, shown as a caption. */
   interim: string;
   coveredSlideIds: number[];
+  /**
+   * How far through the deck the trainee is, and whether the session has been recorded
+   * as completed, as the server last said. The steps after the session open only once it
+   * has been (UAT issue 12), so the end of the session needs to know.
+   */
+  standing: LiveStanding;
   /** Running read on the trainee, sent to the model each turn. */
   learner: LearnerProfile;
   error: string | null;
@@ -191,11 +204,15 @@ export interface UseTrainingSessionResult {
  * Slide ids and one percentage. Deliberately nothing about pacing: the weighting
  * that produced the percentage is server-only, and shipping it here to recompute the
  * same number would put it in the browser for no gain.
+ *
+ * And whether that sitting completed the session, which the server recorded at the
+ * time, for the same reason.
  */
 export interface ResumeState {
   coveredSlideIds: number[];
   lastSlideId: number | null;
   percent: number;
+  complete: boolean;
 }
 
 export function useTrainingSession(resume?: ResumeState | null): UseTrainingSessionResult {
@@ -216,11 +233,16 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   })();
 
   const [phase, setPhase] = useState<SessionPhase>('idle');
+  const [endedBy, setEndedBy] = useState<SessionEnding | null>(null);
   const [slideId, setSlideId] = useState(() => resumeAt);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>(
     () => resume?.coveredSlideIds ?? [],
   );
+  const [standing, setStanding] = useState<LiveStanding>(() => ({
+    percent: resume?.percent ?? 0,
+    complete: resume?.complete ?? false,
+  }));
   const [learner, setLearner] = useState<LearnerProfile>(EMPTY_LEARNER);
   const [error, setError] = useState<string | null>(null);
   const [traineeName, setTraineeName] = useState<string | undefined>();
@@ -708,14 +730,20 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           setCoveredSlideIds(next);
           // The only place progress is reported, because this is the only place a
           // slide is known to have been taught: the audio finished, and the turn was
-          // not superseded. At most one call per slide, off the rendering path.
-          void reportProgress({ deckId: deck.meta.id, kind: 'covered', slideId: taughtSlide });
+          // not superseded. At most one call per slide, off the rendering path. The
+          // reply says whether that completed the session, for the end of it.
+          void reportProgress({ deckId: deck.meta.id, kind: 'covered', slideId: taughtSlide }).then(
+            (reply) => {
+              if (reply) setStanding((before) => standingAfter(before, reply));
+            },
+          );
         }
 
         if (kind === 'recap') {
           // A session that ends by wrapping up closes the microphone too, as Stop does.
           // Found in a browser run: after the recap the screen said the session had ended
           // and the microphone was off, while it was still open and listening (AI-45).
+          setEndedBy('wrapped-up');
           sttRef.current.stop();
           setPhase('ended');
         } else {
@@ -969,6 +997,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     pausedRef.current = false;
     setPaused(false);
     cancelCurrentTurn();
+    // So the end of the session can say they stopped, short of completion (UAT issue 13).
+    setEndedBy('stopped');
     sttRef.current.stop();
     setPhase('ended');
     // Where they stopped, so the lobby can say so next time. Every slide already
@@ -1066,11 +1096,13 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
 
   return {
     phase,
+    endedBy,
     slideId,
     slideIndex,
     transcript,
     interim: stt.interim,
     coveredSlideIds,
+    standing,
     learner,
     error,
     micState: stt.state,

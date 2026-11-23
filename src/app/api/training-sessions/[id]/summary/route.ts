@@ -11,6 +11,7 @@
 import { recordAudit } from '@/lib/audit/log';
 import { loadDeck } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
+import { shownName } from '@/lib/training/names';
 import { ruleResponse, sessionRunner } from '@/lib/training/route-helpers';
 import { closureSummary, summaryWorkbook } from '@/lib/training/summary';
 import { participantCount } from '@/lib/training/words';
@@ -37,10 +38,12 @@ export async function GET(_request: Request, { params }: RouteContext) {
     ]);
     const title = deck?.meta.title ?? 'Deck removed';
     const name = `${title.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session'}-summary.xlsx`;
+    // A facilitator who has left the roster is named as the session kept them (D-20).
     const workbook = await summaryWorkbook(
       summary,
       title,
-      facilitator ? facilitator.name || facilitator.email : 'Removed',
+      shownName(facilitator ?? summary.session.people?.[summary.session.facilitatorId]) ??
+        'Removed',
     );
     await recordAudit(person, {
       action: 'downloaded',

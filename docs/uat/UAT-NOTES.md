@@ -123,6 +123,40 @@ From the observations:
 - **The lesson plan on Technavious Introduction to Data Centers** is still the old sample with
   seven gaps. Pasting the rewritten sample in clears its approval, which then needs giving again.
 
+## Fixed after the major-issues list of 23 November
+
+| # | What was found | Cause | What happens now |
+| --- | --- | --- | --- |
+| 11 (D-18) | People added to a session before their first sign-in dropped out of it, participants and facilitators alike. | An administrator adds somebody who has never signed in under a placeholder id. At their first sign-in it is replaced by their real one, and their assignments were carried across but their sessions and batches were not. | Both sign-in routes now carry every session and batch across: the list, the facilitator, attendance and its times. Sessions already affected were repaired on the live data with `npm run repair-placeholder-ids` (see below). |
+| 12 | An AI-led post-session assessment opened as soon as the session was started. | It opened once a session had been started, by design. | It opens once the session is completed, at the deck's completion point. Before then: "The post-session assessment opens once you have completed the session. You are N% through the session. It counts as completed once M% of it has been taught." Feedback follows the same rule. Trainer-led is unchanged. |
+| 13 | After **Stop** part way, the screen said "Session complete". | Stop and finishing ended in the same state. | **Session ended**, "You stopped the session part way through.", how far through, "Your progress is saved…", and **Resume** and **Back to your training**. A finished session still says **Session complete**. |
+| 14 | A trainer-led Home card could show step 2 as "To do" after the person was marked present. | Step 2 ignored attendance while the session was open. | Marked present: **Done**, "You are marked present." Marked absent: **Missed**. Open and not yet marked: **To do**, "Join it in the room, and your facilitator will mark you present." |
+| 15 | A facilitator's own Sessions list named the facilitator "Unknown". | A facilitator was sent the names of participants only. | They are also sent the facilitators of the sessions and batches they can see, and nobody else. |
+| 16 | "Feedback pending" counted people marked absent. | Everybody listed was counted. | Only people feedback is open to are pending. The rest show "Not open: absent", "Not open: cancelled" or "Not open yet", on the results page, the closure summary and the Excel file alike. |
+| 17 | The run screen reopened at slide 1. | The current slide was never saved. | It is saved on the session, two seconds after the facilitator settles on a slide, so a reload or another device opens where they were. |
+| 18 (D-20) | After somebody was removed, closed summaries said "Somebody no longer on the roster". | Names were looked up only in the current roster. | Each session keeps the names and addresses of the people on it. The summary, the Excel file, the results page and the session page fall back to them. They are erased with the rest of a leaver's details after five years. |
+| 19 | The monthly session limit appeared only on Technavious's Customers page. | It was not shown anywhere else. | A customer's administrators see **Training sessions this month** on their home page, and administrators and facilitators on **Sessions**: used, the limit, how many are left, when the count starts again, and that Technavious sets it. |
+| 20 | Audit history showed times in UTC with no label. | The page printed the stored UTC time. | India time, labelled, for example "23:49:05 IST". The day and month chosen are India's. The developer log is India time too. |
+
+**Issue 21, publishing then approving.** Not changed. The two steps are different people's
+decisions: publishing says the review of the AI-read deck is finished, by whoever reviewed it;
+approving is the named approver's sign-off (AI-39), tied to exactly what was published, so any
+later change asks for it again. If the user team wants one step when the same person does both,
+an **Approve and publish** button for approvers can be added.
+
+**The repair of 23 November.** Before the fix, the live data held eight sessions naming
+placeholders, in UAT Test Company and Technavious. The repair rewrote them to the real accounts:
+`uat.facilitator@example.com` on three sessions, and `uat.participant1` to `4` on two. Those four had
+been removed and added back, signing in again under new accounts, and the repair gives each
+placeholder to the account on the roster now. It also kept the names on every session, the
+closed ones included.
+
+**To retest.** Add a participant and a facilitator to a session before either has signed in,
+then have both sign in: both still see it. Stop an AI-led session part way: **Session ended**,
+and the post-session assessment stays closed. Mark a participant present: step 2 reads Done.
+Reload the run screen: it opens on the same slide. Remove somebody after a session closes:
+the summary still names them.
+
 ## The site
 
 - URL: https://virtual-training-demo.vercel.app

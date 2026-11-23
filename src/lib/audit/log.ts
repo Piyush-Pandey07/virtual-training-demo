@@ -26,7 +26,8 @@
  * both collections is enabled, as for the developer log; until then nothing is
  * deleted, which errs the right way. Read a month at a time by its `month` field, or a
  * day by its `day` field, which the automatic index serves, so the page never reads
- * the whole collection.
+ * the whole collection. Both are UTC, as they always have been, and the page asks for a
+ * day or a month in India, which `periodOf` turns into the UTC ones to read.
  *
  * Writing is best effort and after the response. A failure to record that somebody
  * looked at a profile must not stop them looking, and nobody should wait on it.
@@ -42,6 +43,7 @@ import { orgsConfigured } from '../orgs/registry';
 import { scopedDocuments } from '../orgs/scope';
 import { InMemoryDocumentStore, type DocumentStore } from '../roster/documents';
 import type { Role } from '../roster/types';
+import { dayInTrainingZone, utcDaysOverlapping, utcFilingOfMonth } from '../time';
 
 /** A customer's own entries, under their prefix. */
 export const AUDIT = 'audit';
@@ -149,7 +151,10 @@ export interface AuditEntry {
   id: string;
   /** ISO 8601. */
   at: string;
-  /** `YYYY-MM-DD` and `YYYY-MM` in UTC, which is how the page reads them. */
+  /**
+   * `YYYY-MM-DD` and `YYYY-MM` in UTC, which is how entries are filed and found. The page
+   * asks for India's days and months, and reads them out of these (see `periodOf`).
+   */
   day: string;
   month: string;
   /** The customer the subject belongs to, or absent for the platform's own. */
@@ -441,59 +446,96 @@ export function recordCustomerAudit(
   return recordAudit(actor, input, options);
 }
 
-/** What the history page asks for: a day or a month, and optionally one kind of subject. */
+/**
+ * What the history page asks for: a day or a month, and optionally one kind of subject.
+ *
+ * The day and the month are India's, as every other page dates things (UAT issue 20). The
+ * history used to be read by the UTC day, so anything done between midnight and half past
+ * five in the morning in India was listed under the day before.
+ */
 export interface AuditFilter {
-  /** `YYYY-MM-DD`. Takes precedence over `month`. */
+  /** `YYYY-MM-DD` in India. Takes precedence over `month`. */
   day?: string;
-  /** `YYYY-MM`. */
+  /** `YYYY-MM` in India. */
   month?: string;
   subjectType?: AuditSubject;
 }
 
-/** The field and value a filter reads by, or null when it names no usable period. */
-function periodOf(filter: AuditFilter): { field: 'day' | 'month'; value: string } | null {
-  if (filter.day && /^\d{4}-\d{2}-\d{2}$/.test(filter.day)) {
-    return { field: 'day', value: filter.day };
+/** One read of the filed entries: everything whose UTC `day` or `month` is this. */
+interface FiledUnder {
+  field: 'day' | 'month';
+  value: string;
+}
+
+/**
+ * What a filter reads, and which of what comes back is in the period asked for, or null
+ * when it names no usable period.
+ *
+ * A day in India overlaps two UTC days, and a month in India is the UTC month with its last
+ * five and a half hours taken off and the last five and a half hours of the month before
+ * put on. Two reads, both served by the automatic index, then each entry kept or dropped by
+ * its own day in India.
+ */
+function periodOf(
+  filter: AuditFilter,
+): { reads: FiledUnder[]; holds: (entry: AuditEntry) => boolean } | null {
+  const day = filter.day;
+  if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return {
+      reads: utcDaysOverlapping(day).map((value) => ({ field: 'day', value })),
+      holds: (entry) => dayInTrainingZone(entry.at) === day,
+    };
   }
-  if (filter.month && /^\d{4}-\d{2}$/.test(filter.month)) {
-    return { field: 'month', value: filter.month };
+  const month = filter.month;
+  if (month && /^\d{4}-\d{2}$/.test(month)) {
+    const filed = utcFilingOfMonth(month);
+    return {
+      reads: [
+        { field: 'month', value: filed.month },
+        { field: 'day', value: filed.dayBefore },
+      ],
+      holds: (entry) => dayInTrainingZone(entry.at).slice(0, 7) === month,
+    };
   }
   return null;
 }
 
-function narrowed(entries: AuditEntry[], filter: AuditFilter): AuditEntry[] {
-  return entries
+/** The entries in one collection for the period a filter names, newest first. */
+async function readPeriod(
+  docs: DocumentStore,
+  collection: string,
+  filter: AuditFilter,
+): Promise<AuditEntry[]> {
+  const period = periodOf(filter);
+  if (!period) return [];
+  const found = await Promise.all(
+    period.reads.map(({ field, value }) => docs.where<AuditEntry>(collection, field, value)),
+  );
+  // Each entry once, by id. The reads do not overlap today, and a change to them that
+  // made them overlap should not show an entry twice.
+  const byId = new Map(found.flat().map((entry) => [entry.id, entry]));
+  return [...byId.values()]
+    .filter(period.holds)
     .filter((entry) => !filter.subjectType || entry.subjectType === filter.subjectType)
     .sort((a, b) => b.at.localeCompare(a.at));
 }
 
-/** One customer's entries for a day or a month, newest first. */
+/** One customer's entries for a day or a month in India, newest first. */
 export async function auditHistory(
   orgId: string,
   filter: AuditFilter,
   options: { store?: DocumentStore } = {},
 ): Promise<AuditEntry[]> {
-  const period = periodOf(filter);
-  if (!period) return [];
-  const entries = await auditDocuments(orgId, options.store).where<AuditEntry>(
-    AUDIT,
-    period.field,
-    period.value,
-  );
-  return narrowed(entries, filter);
+  return readPeriod(auditDocuments(orgId, options.store), AUDIT, filter);
 }
 
-/** The platform's own entries, the glossary's and the customers', for a day or a month. */
+/**
+ * The platform's own entries, the glossary's and the customers', for a day or a month in
+ * India.
+ */
 export async function platformAuditHistory(
   filter: AuditFilter,
   options: { store?: DocumentStore } = {},
 ): Promise<AuditEntry[]> {
-  const period = periodOf(filter);
-  if (!period) return [];
-  const entries = await base(options.store).where<AuditEntry>(
-    PLATFORM_AUDIT,
-    period.field,
-    period.value,
-  );
-  return narrowed(entries, filter);
+  return readPeriod(base(options.store), PLATFORM_AUDIT, filter);
 }

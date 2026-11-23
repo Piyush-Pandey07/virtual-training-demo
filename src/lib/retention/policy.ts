@@ -10,7 +10,9 @@
  *   pass or fail, level and dates on the result stay, as do the feedback ratings.
  * - **5 years**: everything else goes. The rest of the result and the feedback, the
  *   attempts that record completion, trainer-led sessions with their attendance, and the
- *   name and address of anybody who has left.
+ *   name and address of anybody who has left, including the copy of it a trainer-led
+ *   session keeps of each person on it, which goes on the same day as their leaver record
+ *   even while the session itself is kept for somebody else on it.
  *
  * Name, email, attendance, completion, score and pass or fail are therefore kept for five
  * years, and the personal detail around them for one. Consent records are not touched:

@@ -13,7 +13,13 @@ import { eraseLeaverAnswers } from '../retention/leaving';
 import { InMemoryDocumentStore } from '../roster/documents';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
-import { removeBatch, removeSession, sessionFor, updateBatch } from '../training/service';
+import {
+  recordCurrentSlide,
+  removeBatch,
+  removeSession,
+  sessionFor,
+  updateBatch,
+} from '../training/service';
 import { trainingStore } from '../training/store';
 import type { TrainingSession } from '../training/types';
 import {
@@ -165,6 +171,10 @@ const ID_TAKING: Record<string, { scoped: RegExp[]; why: string }> = {
   'api/training-sessions/[id]/participants/route.ts': {
     scoped: [/addParticipants\(person,/],
     why: 'addParticipants asks sessionFor first, which reads through trainingStore(person.orgId) and 404s a session from elsewhere, and only adds people on the company roster.',
+  },
+  'api/training-sessions/[id]/slide/route.ts': {
+    scoped: [/recordCurrentSlide\(person,/],
+    why: 'recordCurrentSlide reads the session through trainingStore(person.orgId) inside its transaction and 404s one from elsewhere, or one the person may not run, before writing.',
   },
   'api/training-sessions/[id]/summary/route.ts': {
     scoped: [/closureSummary\(person,/, /loadDeck\(person\.orgId/],
@@ -454,6 +464,15 @@ describe('an id from another customer', () => {
       await assert.rejects(removeSession(viewer, 's-globex', { store }), { status: 404 });
     }
     assert.ok(await trainingStore(GLOBEX, store).getSession('s-globex'), 'it was removed');
+  });
+
+  it('is a 404 for the run screen’s slide, which is written nowhere (UAT issue 17)', async () => {
+    for (const viewer of [acmeAdmin, benchmarkInAcme]) {
+      await assert.rejects(recordCurrentSlide(viewer, 's-globex', 3, { store }), { status: 404 });
+    }
+    const theirs = await trainingStore(GLOBEX, store).getSession('s-globex');
+    assert.equal(theirs?.currentSlideId, undefined);
+    assert.equal(await trainingStore(ACME, store).getSession('s-globex'), undefined);
   });
 
   it('is a 404 for a batch, and changes nothing', async () => {

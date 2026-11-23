@@ -14,6 +14,7 @@ import { useState } from 'react';
 
 import type { Role } from '@/lib/roster/types';
 import { formatSessionTime, momentFromTrainingZoneInput } from '@/lib/time';
+import { shownName } from '@/lib/training/names';
 import type { Batch, TrainingSession } from '@/lib/training/types';
 import { NO_REOPENING, STATUS_WORDS } from '@/lib/training/words';
 import { ParticipantPicker, type PersonOption as PickerOption } from './ParticipantPicker';
@@ -51,8 +52,11 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
     (person) => person.role === 'facilitator' || person.role === 'admin',
   );
   const participants = people.filter((person) => person.role === 'trainee');
-  const nameOf = (id: string | null) =>
-    people.find((person) => person.id === id)?.name ?? 'Unknown';
+  // A session's own record of a name stands in for somebody no longer on the roster (D-20).
+  const nameOf = (id: string | null, kept?: TrainingSession['people']) =>
+    people.find((person) => person.id === id)?.name ??
+    (id ? shownName(kept?.[id]) : undefined) ??
+    'Unknown';
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -148,7 +152,7 @@ export function SessionsBoard({ me, sessions, batches, decks, people }: Props) {
                   <p className="text-muted mt-1 text-sm">
                     {formatWhen(session.scheduledFor)} &middot; {session.participantIds.length}{' '}
                     {session.participantIds.length === 1 ? 'participant' : 'participants'} &middot;{' '}
-                    {nameOf(session.facilitatorId)}
+                    {nameOf(session.facilitatorId, session.people)}
                   </p>
                 </div>
                 <span

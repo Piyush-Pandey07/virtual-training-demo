@@ -21,12 +21,13 @@ import 'server-only';
 import { recordAudit } from '../audit/log';
 import { isAdministrator, isCompanyAdmin } from '../auth/permissions';
 import { isRestricted, visibleOnly, visibleTo } from '../retention/restricted';
+import { coverageOf, percentComplete } from '../roster/completion';
 import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { RosterStore } from '../roster/store';
-import type { Person, SignedInPerson } from '../roster/types';
+import type { Attempt, Person, SignedInPerson } from '../roster/types';
 import { trainingStore } from '../training/store';
-import type { TrainingSession } from '../training/types';
+import type { ListedName, TrainingSession } from '../training/types';
 import {
   mayManageBanks,
   mayOpenResults,
@@ -34,6 +35,7 @@ import {
   maySeeFeedbackAtAll,
   maySeeResultsOf,
 } from './access';
+import { opensOnceCompleted, type StepAfterSession } from './after-session';
 import { assessmentHref, feedbackHref } from './paths';
 import type { SavedBankReply } from './saved';
 import {
@@ -66,6 +68,7 @@ import {
   type BankSource,
   type BankVersionSummary,
   type FeedbackRecord,
+  type FeedbackState,
   type Level,
   type QuestionBank,
   type QuestionBankVersion,
@@ -215,7 +218,7 @@ export async function feedbackDone(
 }
 
 export interface NextStep {
-  step: 'post' | 'feedback';
+  step: StepAfterSession;
   href: string;
   label: string;
 }
@@ -223,6 +226,11 @@ export interface NextStep {
 /**
  * What a participant should do once the session ends: the post-session assessment if the
  * deck has one and they have not taken it, then feedback, then nothing.
+ *
+ * Which step is next, not whether it is open yet. For an AI-led session that waits until
+ * the session is completed (see `hasAttended`), and the screens that offer this link know
+ * how far through it the participant is, so each shows the link once it is completed and
+ * says it opens then until it is.
  */
 export async function nextStepAfterSession(
   orgId: string,
@@ -323,13 +331,76 @@ export async function participation(
 }
 
 /**
- * Whether this participant has attended the session the post-session assessment and
- * feedback are about.
+ * Whether somebody attended a trainer-led session, for the steps after it: the
+ * facilitator marked them present in a session that has started.
  *
- * AI-led, they have started it: there is an attempt. Not finished it, because a
- * participant who ends a little short of the completion mark has still sat the session
- * and is exactly who the assessment should measure. Trainer-led, the facilitator has
- * opened the session and has not marked them absent.
+ * Marked present, and nothing less: somebody not yet marked may still be on their way,
+ * doing the pre-session assessment first (AI-26), and must not reach the post-session one
+ * by its address before they have joined. A cancelled session never took place, so there
+ * is nothing to have attended.
+ *
+ * Takes the session as it stands rather than reading it, so the participant's journey and
+ * the results screen decide it exactly as the assessments do.
+ */
+export function attendedSession(
+  session: Pick<TrainingSession, 'status' | 'attendance' | 'openedAt'>,
+  personId: string,
+): boolean {
+  if (session.status === 'cancelled') return false;
+  return (
+    session.attendance[personId] === 'present' &&
+    (session.openedAt !== null || session.status !== 'scheduled')
+  );
+}
+
+/** How far through their AI-led session of a deck a participant is. */
+export interface SessionStanding {
+  /** The share of the deck's teaching time taught so far, 0 to 100; null before it started. */
+  percent: number | null;
+  /** Whether it has been recorded as reaching the deck's completion point (AI-34). */
+  complete: boolean;
+}
+
+/**
+ * Complete is the completion the attempt recorded when it reached the deck's own point,
+ * not this percentage compared with the point here, so the rule in `hasAttended`, the
+ * home page and the progress reports all read the same stamp and cannot disagree.
+ */
+function standingOf(attempt: Attempt | undefined): SessionStanding {
+  if (!attempt) return { percent: null, complete: false };
+  return {
+    percent: percentComplete(coverageOf(attempt)),
+    complete: Boolean(attempt.completedAt),
+  };
+}
+
+/**
+ * How far through their AI-led session of this deck a participant is, for the screens
+ * that tell them the post-session steps wait until it is completed.
+ */
+export async function aiLedStanding(
+  person: SignedInPerson,
+  deckId: string,
+  options: ServiceOptions = {},
+): Promise<SessionStanding> {
+  const attempt = await rosterFor(person.orgId, options)
+    .getAttempt(person.id, deckId)
+    .catch(() => undefined);
+  return standingOf(attempt);
+}
+
+/**
+ * Whether this participant has attended the session the post-session assessment and
+ * feedback are about, which is what opens them.
+ *
+ * AI-led, they have completed it: their attempt reached the deck's own completion point
+ * (AI-34, 90% of its teaching time unless the deck sets another) and recorded when. Not
+ * merely started it, which opened both the moment the session began, before anything had
+ * been taught for the assessment to measure (UAT issue 12). The point is already short of
+ * the whole deck, so somebody who stops on the closing slides has still completed it.
+ *
+ * Trainer-led, the facilitator has marked them present in a session that has started
+ * (`attendedSession`).
  */
 export async function hasAttended(
   person: SignedInPerson,
@@ -337,21 +408,8 @@ export async function hasAttended(
   session: TrainingSession | null,
   options: ServiceOptions = {},
 ): Promise<boolean> {
-  if (session) {
-    // A cancelled session never took place, so there is nothing to have attended.
-    if (session.status === 'cancelled') return false;
-    // Marked present by the facilitator, and nothing less: somebody not yet marked may
-    // still be on their way, doing the pre-session assessment first (AI-26), and must not
-    // reach the post-session one by its address before they have joined.
-    return (
-      session.attendance[person.id] === 'present' &&
-      (session.openedAt !== null || session.status !== 'scheduled')
-    );
-  }
-  const attempt = await rosterFor(person.orgId, options)
-    .getAttempt(person.id, deckId)
-    .catch(() => undefined);
-  return attempt !== undefined;
+  if (session) return attendedSession(session, person.id);
+  return (await aiLedStanding(person, deckId, options)).complete;
 }
 
 /**
@@ -437,7 +495,12 @@ export async function submitAssessment(
     );
   }
   if (input.kind === 'post' && !(await hasAttended(person, input.deckId, session, options))) {
-    throw new Refused(409, 'The post-session assessment opens once you have attended the session.');
+    throw new Refused(
+      409,
+      session
+        ? 'The post-session assessment opens once you have attended the session.'
+        : opensOnceCompleted('post'),
+    );
   }
 
   const marked = mark(taken.questions, input.answers);
@@ -513,7 +576,12 @@ export async function submitFeedback(
     throw new Refused(409, 'That feedback form is out of date. Reload the page.');
   }
   if (!(await hasAttended(person, input.deckId, session, options))) {
-    throw new Refused(409, 'Feedback opens once you have attended the session.');
+    throw new Refused(
+      409,
+      session
+        ? 'Feedback opens once you have attended the session.'
+        : opensOnceCompleted('feedback'),
+    );
   }
   const [postBank, postResult] = await Promise.all([
     store.getBank(input.deckId, 'post'),
@@ -815,6 +883,7 @@ export interface RatingAverage {
 
 export interface FeedbackSummary {
   responses: number;
+  /** Those it is open to who have not given it (see `feedbackStateOf`). */
   pending: number;
   averages: RatingAverage[];
   /** Comments as written, newest first, without names. */
@@ -830,6 +899,41 @@ export interface DeckResults {
 
 function nameless(personId: string): Pick<Person, 'name' | 'email'> & { id: string } {
   return { id: personId, name: 'Somebody no longer on the roster', email: '' };
+}
+
+/**
+ * Where one person stands with feedback, for the results screen and the closure summary.
+ *
+ * Pending only when it is open to them, as `hasAttended` opens it for the participant:
+ * marked present in a session of this deck that started, or their AI-led session
+ * completed. Everybody who had not given it used to count, which counted people marked
+ * absent, who never can (UAT issue 16). Anybody else is given the reason when it is
+ * settled: marked absent from every session of the deck they were listed for that was not
+ * cancelled, or listed only for sessions that were. Otherwise it is not open yet, and may
+ * still open: the session has not started, they have not been marked, or the AI-led
+ * session is not completed.
+ *
+ * `sessions` are the trainer-led sessions in view. `attempt` is the AI-led attempt, which
+ * counts only on the deck's own screen, since a trainer-led session's feedback is given
+ * for that session.
+ */
+export function feedbackStateOf(
+  personId: string,
+  gave: boolean,
+  sessions: TrainingSession[],
+  attempt: Pick<Attempt, 'completedAt'> | undefined,
+): FeedbackState {
+  if (gave) return 'submitted';
+  const listed = sessions.filter((each) => each.participantIds.includes(personId));
+  if (listed.some((each) => attendedSession(each, personId)) || attempt?.completedAt) {
+    return 'pending';
+  }
+  const held = listed.filter((each) => each.status !== 'cancelled');
+  if (held.length > 0 && held.every((each) => each.attendance[personId] === 'absent')) {
+    return 'absent';
+  }
+  if (listed.length > 0 && held.length === 0) return 'cancelled';
+  return 'not open';
 }
 
 /**
@@ -862,12 +966,19 @@ export async function resultsForDeck(
     session = found;
   }
 
-  const [people, assignments, sessions, stored, storedFeedback] = await Promise.all([
+  const showFeedback = maySeeFeedbackAtAll(viewer);
+  const [people, assignments, sessions, stored, storedFeedback, attempts] = await Promise.all([
     roster.listPeople().catch(() => [] as Person[]),
     session ? Promise.resolve([]) : roster.listAssignmentsForDeck(deckId).catch(() => []),
     session ? Promise.resolve([session]) : training.listSessions(),
     assessments.resultsForDeck(deckId),
     assessments.feedbackForDeck(deckId),
+    // Who has completed the AI-led session, and so may give feedback on it. Not read for
+    // one trainer-led session, whose feedback is given for that session, nor for a viewer
+    // who is not shown feedback.
+    session || !showFeedback
+      ? Promise.resolve([] as Attempt[])
+      : roster.listAttemptsForDeck(deckId).catch(() => [] as Attempt[]),
   ]);
 
   // Restricted records (AI-41) are left out for everybody but administrators, before
@@ -913,13 +1024,23 @@ export async function resultsForDeck(
   const visible = new Set(allowed);
 
   const byId = new Map(people.map((person) => [person.id, person]));
+  // The names the sessions of this deck kept (D-20), for anybody the roster no longer has:
+  // a session that took place goes on naming who was on it after they leave. The latest
+  // session's wins, should two have kept somebody differently.
+  const kept = new Map<string, ListedName>();
+  for (const each of sessions
+    .filter((entry) => entry.deckId === deckId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    for (const [personId, named] of Object.entries(each.people ?? {})) kept.set(personId, named);
+  }
   const resultFor = (personId: string, kind: BankKind) =>
     results.find((result) => result.personId === personId && result.kind === kind);
-  const showFeedback = maySeeFeedbackAtAll(viewer);
   const gaveFeedback = new Set(relevantFeedback.map((record) => record.personId));
+  const deckSessions = sessions.filter((each) => each.deckId === deckId);
+  const attemptOf = new Map(attempts.map((attempt) => [attempt.personId, attempt]));
 
   const rows: ResultsRow[] = [...visible].map((personId) => {
-    const person = byId.get(personId) ?? nameless(personId);
+    const person = byId.get(personId) ?? kept.get(personId) ?? nameless(personId);
     const pre = resultFor(personId, 'pre');
     const post = resultFor(personId, 'post');
     return {
@@ -947,7 +1068,14 @@ export async function resultsForDeck(
             versionNumber: post.bankVersionNumber ?? null,
           }
         : null,
-      feedback: showFeedback ? (gaveFeedback.has(personId) ? 'submitted' : 'pending') : null,
+      feedback: showFeedback
+        ? feedbackStateOf(
+            personId,
+            gaveFeedback.has(personId),
+            deckSessions,
+            attemptOf.get(personId),
+          )
+        : null,
       restricted: restrictedFor.has(personId),
     };
   });
