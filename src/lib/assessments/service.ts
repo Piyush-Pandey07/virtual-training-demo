@@ -27,7 +27,7 @@ import { rosterStore } from '../roster/registry';
 import type { RosterStore } from '../roster/store';
 import type { Attempt, Person, SignedInPerson } from '../roster/types';
 import { trainingStore } from '../training/store';
-import type { TrainingSession } from '../training/types';
+import type { ListedName, TrainingSession } from '../training/types';
 import {
   mayManageBanks,
   mayOpenResults,
@@ -1024,6 +1024,15 @@ export async function resultsForDeck(
   const visible = new Set(allowed);
 
   const byId = new Map(people.map((person) => [person.id, person]));
+  // The names the sessions of this deck kept (D-20), for anybody the roster no longer has:
+  // a session that took place goes on naming who was on it after they leave. The latest
+  // session's wins, should two have kept somebody differently.
+  const kept = new Map<string, ListedName>();
+  for (const each of sessions
+    .filter((entry) => entry.deckId === deckId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    for (const [personId, named] of Object.entries(each.people ?? {})) kept.set(personId, named);
+  }
   const resultFor = (personId: string, kind: BankKind) =>
     results.find((result) => result.personId === personId && result.kind === kind);
   const gaveFeedback = new Set(relevantFeedback.map((record) => record.personId));
@@ -1031,7 +1040,7 @@ export async function resultsForDeck(
   const attemptOf = new Map(attempts.map((attempt) => [attempt.personId, attempt]));
 
   const rows: ResultsRow[] = [...visible].map((personId) => {
-    const person = byId.get(personId) ?? nameless(personId);
+    const person = byId.get(personId) ?? kept.get(personId) ?? nameless(personId);
     const pre = resultFor(personId, 'pre');
     const post = resultFor(personId, 'post');
     return {

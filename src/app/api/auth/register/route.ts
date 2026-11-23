@@ -19,6 +19,7 @@ import { orgStore } from '@/lib/orgs/registry';
 import { createAccount, findAccountByEmail, firebaseAdminConfigured } from '@/lib/firebase/admin';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
+import { upsertPersonWithTraining } from '@/lib/training/carry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,6 @@ export async function POST(request: Request) {
   if (!email || !email.includes('@')) {
     return Response.json({ error: 'An email address is required.' }, { status: 400 });
   }
-
 
   try {
     // Which customer this address belongs to, before any roster is read. A domain no
@@ -102,8 +102,13 @@ export async function POST(request: Request) {
     });
 
     // Links the new account to the row an administrator already made, carrying across
-    // any training assigned before this person had ever signed in.
-    const person = await store.upsertPerson({ id: uid, email, name: body.name?.trim() });
+    // any training assigned before this person had ever signed in, and the trainer-led
+    // sessions and batches they were listed in (D-18).
+    const person = await upsertPersonWithTraining(store, orgId, {
+      id: uid,
+      email,
+      name: body.name?.trim(),
+    });
     // Technavious staff are administrators wherever they are; the row is set to match
     // so the customer's own screens describe them the same way everything else does.
     if (!known && isPlatformAdmin(email)) await store.setRole(person.id, 'admin');

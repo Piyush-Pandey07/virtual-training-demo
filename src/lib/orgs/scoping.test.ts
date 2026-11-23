@@ -65,6 +65,10 @@ const STORES = [
   'resume',
   // Batches and trainer-led sessions, with their attendance.
   'trainingStore',
+  // Rewriting one customer's sessions and batches when somebody's id changes, at sign-in
+  // and by the repair script (D-18).
+  'carryTrainingRecords',
+  'repairOrg',
   // The level most of a group are at, read from their assessment results.
   'groupLevel',
   'trainingDocuments',

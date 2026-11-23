@@ -33,6 +33,7 @@ import {
 import { orgStore } from '@/lib/orgs/registry';
 import { rosterStore } from '@/lib/roster/registry';
 import { RosterStoreError } from '@/lib/roster/store';
+import { upsertPersonWithTraining } from '@/lib/training/carry';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -133,12 +134,13 @@ export async function POST(request: Request) {
     // spell a customer's domain.
 
     // Refreshes the name and the last-seen stamp, and adopts the Firebase uid for
-    // somebody an administrator added by hand before they had ever signed in. The
+    // somebody an administrator added by hand before they had ever signed in, carrying
+    // the trainer-led sessions and batches they were listed in across to it (D-18). The
     // role is never taken from here, so signing in cannot restore access an
     // administrator has just removed. Neither is the organisation, for the same
     // reason and a sharper one: an organisation signing in could write is a way to
     // walk into another customer's data by claiming to belong there.
-    const person = await store.upsertPerson({
+    const person = await upsertPersonWithTraining(store, orgId, {
       id: decoded.uid,
       email,
       name: typeof decoded.name === 'string' ? decoded.name : undefined,

@@ -25,7 +25,8 @@
     "migrate-decks-to-firestore": "tsx --conditions react-server --env-file=.env.local scripts/migrate-decks-to-firestore.ts",
     "compare-models": "tsx --conditions react-server --env-file=.env.local scripts/compare-analysis-models.ts",
     "restore-files": "tsx --conditions react-server --env-file=.env.local scripts/restore-files.ts",
-    "compare-batch": "tsx --conditions react-server --env-file=.env.local scripts/compare-batch-size.ts"
+    "compare-batch": "tsx --conditions react-server --env-file=.env.local scripts/compare-batch-size.ts",
+    "repair-placeholder-ids": "tsx --conditions react-server --env-file=.env.local scripts/repair-placeholder-ids.ts"
   },
   "overrides": {
     "jose": "^5.10.0",
