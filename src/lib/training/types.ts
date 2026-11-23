@@ -109,5 +109,9 @@ export interface SummaryRow {
   postWrong: number | null;
   postNotAttempted: number | null;
   postVersion: string | null;
-  feedback: 'submitted' | 'pending' | null;
+  /**
+   * Where they stand with feedback for this session, as the results screen gives it
+   * (`FeedbackState`), or null when this viewer is not shown feedback.
+   */
+  feedback: 'submitted' | 'pending' | 'absent' | 'cancelled' | 'not open' | null;
 }

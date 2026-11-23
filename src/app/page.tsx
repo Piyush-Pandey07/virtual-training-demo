@@ -9,6 +9,7 @@
 
 import type { Metadata } from 'next';
 
+import { nextStepAfterSession, type NextStep } from '@/lib/assessments/service';
 import { requireUserPage } from '@/lib/auth/guard';
 import { DEFAULT_DECK_ID, deckStore, listDecks, loadDeck } from '@/lib/decks/registry';
 import { COMPLETION_THRESHOLD, completionPercentOf } from '@/lib/roster/completion';
@@ -38,24 +39,45 @@ export default async function HomePage() {
       trainingFor(person.orgId, person),
       journeysFor(person).catch(() => []),
     ]);
-    // Each deck's own completion point (AI-34), for the cards and the note under them. A
-    // participant has a handful of decks, so reading each is cheap.
-    const completionPercents = Object.fromEntries(
-      await Promise.all(
+    // The AI-led sessions under way or completed, which are the cards that say what comes
+    // after. A deck taught in the room has its steps on its session's card instead, and
+    // one not started yet has nothing after it to speak of.
+    const inTheRoom = new Set(journeys.map((journey) => journey.deckId));
+    const aiLed = rows.filter(
+      (row) =>
+        !inTheRoom.has(row.deckId) &&
+        row.deckTitle !== null &&
+        (row.completedAt !== null || row.percent > 0),
+    );
+    const [completionPercents, afterSession] = await Promise.all([
+      // Each deck's own completion point (AI-34), for the cards and the note under them.
+      // A participant has a handful of decks, so reading each is cheap.
+      Promise.all(
         rows.map(async (row) => [
           row.deckId,
           await loadDeck(person.orgId, row.deckId)
             .then((deck) => (deck ? completionPercentOf(deck.meta) : COMPLETION_THRESHOLD))
             .catch(() => COMPLETION_THRESHOLD),
         ]),
-      ),
-    ) as Record<string, number>;
+      ).then((entries) => Object.fromEntries(entries) as Record<string, number>),
+      // What follows each of those, so its card can link the post-session assessment or
+      // feedback once the session is completed, and say until then that it opens then
+      // (UAT issue 12). Without it, somebody who left a completed session other than by
+      // its end screen had no way back to either.
+      Promise.all(
+        aiLed.map(async (row) => [
+          row.deckId,
+          await nextStepAfterSession(person.orgId, person.id, row.deckId).catch(() => null),
+        ]),
+      ).then((entries) => Object.fromEntries(entries) as Record<string, NextStep | null>),
+    ]);
     return (
       <HomeForTrainee
         person={person}
         rows={rows}
         journeys={journeys}
         completionPercents={completionPercents}
+        afterSession={afterSession}
       />
     );
   }

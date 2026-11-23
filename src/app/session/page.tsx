@@ -103,7 +103,9 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
   // that produced it stays on this side of the wire.
   //
   // Beside it, where the end of the session leads: the post-session assessment, then
-  // feedback.
+  // feedback. Each opens only once the session is completed, which may happen during
+  // this sitting, so the screen decides from what the progress replies say whether to
+  // offer the link or say how far there is to go.
   //
   // And the live glossary, whose acronyms for this deck live transcription listens for.
   const [attempt, afterSession, glossary] = await Promise.all([
@@ -119,6 +121,7 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
         coveredSlideIds: attempt.covered.map((slide) => slide.slideId),
         lastSlideId: attempt.lastSlideId,
         percent: percentComplete(coverageOf(attempt)),
+        complete: Boolean(attempt.completedAt),
       }
     : null;
 
@@ -129,7 +132,13 @@ export default async function SessionPage({ searchParams }: SessionPageProps) {
       <SessionScreen
         reviewed={stored.status === 'published'}
         resume={resume}
-        afterSession={afterSession && { href: afterSession.href, label: afterSession.label }}
+        afterSession={
+          afterSession && {
+            step: afterSession.step,
+            href: afterSession.href,
+            label: afterSession.label,
+          }
+        }
       />
     </DeckProvider>
   );

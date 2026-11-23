@@ -14,8 +14,10 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
+import { howFarThrough, opensOnceCompleted } from '@/lib/assessments/after-session';
 import { assessmentHref, feedbackHref, sessionHref } from '@/lib/assessments/paths';
 import {
+  aiLedStanding,
   assessmentPaper,
   feedbackDone,
   hasAttended,
@@ -25,6 +27,7 @@ import {
 } from '@/lib/assessments/service';
 import { CURRENT_FEEDBACK_SET } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
+import { completionPercentOf } from '@/lib/roster/completion';
 import type { TrainingSession } from '@/lib/training/types';
 import { FeedbackForm } from './FeedbackForm';
 
@@ -65,6 +68,9 @@ export default async function FeedbackPage({ searchParams }: FeedbackPageProps) 
     ownResult(person.orgId, person.id, deckId, 'post'),
   ]);
   const assessmentFirst = postPaper !== null && postResult === undefined;
+  // AI-led, feedback waits for the session to be completed, as the post-session
+  // assessment does (UAT issue 12), and says how far through it they are.
+  const standing = !given && !attended && !session ? await aiLedStanding(person, deckId) : null;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -95,10 +101,19 @@ export default async function FeedbackPage({ searchParams }: FeedbackPageProps) 
             </section>
           ) : !attended ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
-              <p className="leading-relaxed">Feedback opens once you have attended the session.</p>
+              <p className="leading-relaxed">
+                {session
+                  ? 'Feedback opens once you have attended the session.'
+                  : opensOnceCompleted('feedback')}
+              </p>
+              {standing && (
+                <p className="text-muted mt-3 text-sm leading-relaxed">
+                  {howFarThrough(standing.percent, completionPercentOf(stored.record.meta))}
+                </p>
+              )}
               {!session && (
                 <Link href={sessionHref(deckId)} className={BUTTON}>
-                  Go to the session
+                  {standing?.percent ? 'Resume the session' : 'Go to the session'}
                 </Link>
               )}
             </section>

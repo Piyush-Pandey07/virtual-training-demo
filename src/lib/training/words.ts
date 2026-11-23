@@ -3,6 +3,7 @@
  * never describe the same session differently.
  */
 
+import { FEEDBACK_NOT_GIVEN } from '../assessments/types';
 import type { SummaryRow, TrainingSession } from './types';
 
 /**
@@ -72,11 +73,15 @@ export function summaryTotalsLine(totals: {
   return `${totals.present} of ${totals.listed} present (${totals.joinedLate} joined late), ${totals.passed} passed the post-session assessment, ${totals.feedbackGiven} gave feedback.`;
 }
 
+/**
+ * Feedback not given is in the results screen's words, so somebody marked absent reads
+ * "Not open: absent" in both places rather than Pending in either (UAT issue 16).
+ */
 export function feedbackWord(feedback: SummaryRow['feedback']): string {
   if (feedback === 'submitted') return 'Given';
-  if (feedback === 'pending') return 'Pending';
   // Null: this viewer is not shown feedback at all.
-  return 'Not shown';
+  if (feedback === null) return 'Not shown';
+  return FEEDBACK_NOT_GIVEN[feedback];
 }
 
 export function resultWord(

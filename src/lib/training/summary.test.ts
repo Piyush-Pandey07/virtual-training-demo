@@ -69,7 +69,7 @@ const summary: ClosureSummary = {
       postWrong: null,
       postNotAttempted: null,
       postVersion: null,
-      feedback: 'pending',
+      feedback: 'absent',
     },
     {
       personId: 'c',
@@ -179,6 +179,29 @@ describe('the closure summary download', () => {
     assert.equal(chen![3], '13 November 2026, 15:20 IST');
     assert.equal(chen![6], 'Fail');
     assert.equal(chen![7], 'Pending');
+  });
+
+  // UAT issue 16: somebody marked absent cannot give feedback, so the file does not call
+  // it pending, and says why in the words the results screen uses.
+  it('writes feedback that is not open to somebody as not open, with the reason', async () => {
+    const [, absent] = participants(await rowsOf(summary));
+    assert.equal(absent![2], 'Absent');
+    assert.equal(absent![7], 'Not open: absent');
+
+    const others = participants(
+      await rowsOf({
+        ...summary,
+        rows: [
+          { ...summary.rows[0]!, feedback: 'not open' },
+          { ...summary.rows[0]!, personId: 'x', feedback: 'cancelled' },
+          { ...summary.rows[0]!, personId: 'y', feedback: null },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      others.map((row) => row[7]),
+      ['Not open yet', 'Not open: cancelled', 'Not shown'],
+    );
   });
 
   it('gives the session, its date and times in India time, with the zone named', async () => {

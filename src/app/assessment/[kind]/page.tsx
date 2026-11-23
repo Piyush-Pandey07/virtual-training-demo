@@ -5,7 +5,8 @@
  * after it, each with `&session=...` when the session is trainer-led. The page decides
  * which of four things to show: the result, if they have already submitted; that there is
  * nothing to take, if the deck has no bank; that the post-session one opens after the
- * session, if they have not attended; otherwise the questions, without their answers.
+ * session, if they have not attended it (trainer-led) or completed it (AI-led), with how
+ * far through an AI-led one they are; otherwise the questions, without their answers.
  */
 
 import type { Metadata } from 'next';
@@ -15,9 +16,11 @@ import { notFound } from 'next/navigation';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { requireUserPage } from '@/lib/auth/guard';
+import { howFarThrough, opensOnceCompleted } from '@/lib/assessments/after-session';
 import { assessmentHref, feedbackHref, sessionHref } from '@/lib/assessments/paths';
 import { summaryOf } from '@/lib/assessments/scoring';
 import {
+  aiLedStanding,
   assessmentPaperFor,
   feedbackDone,
   hasAttended,
@@ -35,6 +38,7 @@ import {
 } from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION, visibleTo } from '@/lib/retention/restricted';
+import { completionPercentOf } from '@/lib/roster/completion';
 import type { SignedInPerson } from '@/lib/roster/types';
 import type { TrainingSession } from '@/lib/training/types';
 import { AssessmentForm } from './AssessmentForm';
@@ -52,12 +56,18 @@ export async function generateMetadata({ params }: AssessmentPageProps): Promise
   return { title: isBankKind(kind) ? BANK_KIND_LABELS[kind] : 'Assessment' };
 }
 
-/** Where a participant goes once this assessment is done, or what they wait for instead. */
+/**
+ * Where a participant goes once this assessment is done, or what they wait for instead.
+ *
+ * `notCompleted` says how far through their AI-led session somebody is who has not
+ * completed it yet, and is null otherwise.
+ */
 async function nextAfter(
   person: SignedInPerson,
   kind: BankKind,
   deckId: string,
   session: TrainingSession | null,
+  notCompleted: string | null,
 ): Promise<{ next: NextLink | null; waiting: string | null }> {
   if (kind === 'pre') {
     // A trainer-led session is started by its facilitator, in the room, so there is
@@ -76,8 +86,15 @@ async function nextAfter(
   // Feedback comes straight after the post-session assessment (AI-31), whether or not it
   // has been submitted yet, since this link is also shown on the form that submits it.
   const given = await feedbackDone(person.orgId, person.id, deckId, session?.id ?? null);
+  if (given) return { next: null, waiting: null };
+  // Feedback opens when the session is completed, as this assessment does. Somebody who
+  // took this one before then, as an AI-led participant could until UAT issue 12 was
+  // fixed, is told so here rather than sent to a feedback page that would refuse them.
+  if (notCompleted !== null) {
+    return { next: null, waiting: `${opensOnceCompleted('feedback')} ${notCompleted}` };
+  }
   return {
-    next: given ? null : { href: feedbackHref(deckId, session?.id), label: 'Give your feedback' },
+    next: { href: feedbackHref(deckId, session?.id), label: 'Give your feedback' },
     waiting: null,
   };
 }
@@ -108,7 +125,14 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
     assessmentPaperFor(person, deckId, kind),
   ]);
   const attended = kind === 'post' ? await hasAttended(person, deckId, session) : true;
-  const { next, waiting } = await nextAfter(person, kind, deckId, session);
+  // AI-led, the post-session assessment waits for the session to be completed (UAT issue
+  // 12), so somebody who arrives early is told how far through it they are and where it
+  // counts as completed, not merely that they have not finished.
+  const standing = !attended && !session ? await aiLedStanding(person, deckId) : null;
+  const notCompleted = standing
+    ? howFarThrough(standing.percent, completionPercentOf(stored.record.meta))
+    : null;
+  const { next, waiting } = await nextAfter(person, kind, deckId, session, notCompleted);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -173,15 +197,20 @@ export default async function AssessmentPage({ params, searchParams }: Assessmen
           ) : !attended ? (
             <section className="border-charcoal-line bg-charcoal-soft rounded-xl border p-6">
               <p className="leading-relaxed">
-                This assessment opens once you have attended the session. It checks what you
-                learned, so it comes straight after.
+                {session
+                  ? 'This assessment opens once you have attended the session.'
+                  : opensOnceCompleted('post')}{' '}
+                It checks what you learned, so it comes straight after.
               </p>
+              {notCompleted && (
+                <p className="text-muted mt-3 text-sm leading-relaxed">{notCompleted}</p>
+              )}
               {!session && (
                 <Link
                   href={sessionHref(deckId)}
                   className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-5 inline-block rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
                 >
-                  Go to the session
+                  {standing?.percent ? 'Resume the session' : 'Go to the session'}
                 </Link>
               )}
             </section>
