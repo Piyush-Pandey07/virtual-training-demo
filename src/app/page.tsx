@@ -17,6 +17,8 @@ import { peopleOverview, trainingFor } from '@/lib/roster/report';
 import { journeysFor } from '@/lib/training/journey';
 import { isAdministrator } from '@/lib/auth/permissions';
 import { recentProviderAlerts } from '@/lib/failures/alerts';
+import { HOME_ORG_ID } from '@/lib/orgs/types';
+import { monthlyAllowance } from '@/lib/usage/limits';
 import { HomeForAdmin } from './HomeForAdmin';
 import { HomeForTrainee } from './HomeForTrainee';
 
@@ -61,11 +63,16 @@ export default async function HomePage() {
   }
 
   const store = deckStore(person.orgId);
-  const [decks, people, alerts] = await Promise.all([
+  // A customer's administrator sees their own monthly allowance (UAT, issue 19).
+  // Technavious's own organisation has none, and its staff see every customer's on the
+  // Customers page; looking inside a customer, they see that customer's here.
+  const showsAllowance = person.role === 'admin' && person.orgId !== HOME_ORG_ID;
+  const [decks, people, alerts, allowance] = await Promise.all([
     listDecks(person.orgId),
     peopleOverview(person.orgId).catch(() => []),
     // Technavious administrators only: the services that need somebody to act (AI-11).
     isAdministrator(person) ? recentProviderAlerts().catch(() => []) : Promise.resolve([]),
+    showsAllowance ? monthlyAllowance(person.orgId) : Promise.resolve(null),
   ]);
 
   // Uploaded decks only. The built-in deck is reachable from the one button in the
@@ -94,6 +101,7 @@ export default async function HomePage() {
       outstanding={people.reduce((total, row) => total + row.assigned - row.completed, 0)}
       rosterReady={rosterStore(person.orgId).writable}
       alerts={alerts}
+      allowance={allowance}
     />
   );
 }

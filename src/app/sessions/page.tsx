@@ -11,13 +11,16 @@ import { notFound } from 'next/navigation';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
+import { MonthlyAllowance } from '@/components/MonthlyAllowance';
 import { requireUserPage } from '@/lib/auth/guard';
 import { mayRunSessions } from '@/lib/auth/permissions';
 import { deckApprovalStates } from '@/lib/decks/approval';
 import { listDecks } from '@/lib/decks/registry';
+import { HOME_ORG_ID } from '@/lib/orgs/types';
 import { rosterStore } from '@/lib/roster/registry';
 import { visibleBatches, visibleSessions } from '@/lib/training/service';
 import { trainingStore } from '@/lib/training/store';
+import { monthlyAllowance } from '@/lib/usage/limits';
 import { SessionsBoard } from './SessionsBoard';
 
 export const dynamic = 'force-dynamic';
@@ -29,11 +32,15 @@ export default async function SessionsPage() {
   if (!mayRunSessions(me)) notFound();
 
   const store = trainingStore(me.orgId);
-  const [sessions, batches, decks, people] = await Promise.all([
+  const [sessions, batches, decks, people, allowance] = await Promise.all([
     store.listSessions(),
     store.listBatches(),
     listDecks(me.orgId),
     rosterStore(me.orgId).listPeople(),
+    // The customer's sessions this month (UAT, issue 19), for whoever sets them up or runs
+    // them there: a session refused for the cap is refused at its first hand-over, in front
+    // of the room, so the facilitator needs to know as much as the administrator does.
+    me.orgId === HOME_ORG_ID ? Promise.resolve(null) : monthlyAllowance(me.orgId),
   ]);
   // A deck can only be run once it is published and approved as it stands (AI-39). The
   // others stay listed, disabled with the reason, so nobody wonders where a deck went.
@@ -76,6 +83,11 @@ export default async function SessionsPage() {
           Each participant does their own consent, assessments and feedback on their own device.
           Batches are groups you set a session up from.
         </p>
+        {allowance && (
+          <div className="mt-6 max-w-2xl">
+            <MonthlyAllowance allowance={allowance} />
+          </div>
+        )}
         <div className="mt-8">
           <SessionsBoard
             me={{ id: me.id, role: me.role, platform: me.platform }}

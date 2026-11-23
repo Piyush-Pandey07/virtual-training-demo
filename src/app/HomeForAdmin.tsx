@@ -13,12 +13,14 @@ import Link from 'next/link';
 
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
+import { MonthlyAllowance } from '@/components/MonthlyAllowance';
 import type { DeckSummary } from '@/lib/decks/store';
 import { mayUseOpenAiTest } from '@/lib/openai-test/access';
 import type { SignedInPerson } from '@/lib/roster/types';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { ProviderAlert } from '@/lib/failures/alerts';
 import { formatMoment } from '@/lib/time';
+import type { MonthlyAllowance as Allowance } from '@/lib/usage/limits';
 
 const STEPS = [
   {
@@ -51,6 +53,8 @@ export interface AdminHomeData {
   rosterReady: boolean;
   /** For Technavious administrators only: providers that need somebody to act (AI-11). */
   alerts?: ProviderAlert[];
+  /** A customer's training sessions this month, for its own administrators (issue 19). */
+  allowance?: Allowance | null;
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -94,6 +98,7 @@ export function HomeForAdmin({
   outstanding,
   rosterReady,
   alerts = [],
+  allowance = null,
 }: AdminHomeData) {
   return (
     <div className="flex min-h-screen flex-col">
@@ -131,6 +136,11 @@ export function HomeForAdmin({
               </Link>{' '}
               for the provider&apos;s own words.
             </p>
+          </div>
+        )}
+        {allowance && (
+          <div className="mb-8">
+            <MonthlyAllowance allowance={allowance} />
           </div>
         )}
         <p className="text-teal text-sm font-semibold tracking-wide uppercase">
