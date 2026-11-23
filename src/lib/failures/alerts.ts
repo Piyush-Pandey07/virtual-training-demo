@@ -9,7 +9,7 @@
 
 import 'server-only';
 
-import { entriesFor, type DevLogEntry } from './devlog';
+import { entriesFiledOn, type DevLogEntry } from './devlog';
 
 /** The kinds that do not clear on their own. */
 const NEEDS_A_PERSON = new Set(['out_of_credit', 'bad_key', 'not_configured']);
@@ -37,13 +37,19 @@ export function alertsFrom(entries: readonly DevLogEntry[]): ProviderAlert[] {
   return [...byKey.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
-/** Today's and yesterday's alerts. Empty if the log cannot be read. */
+/**
+ * The last two days' alerts. Empty if the log cannot be read.
+ *
+ * The two UTC days the log is filed under, read as filed: a window rather than a day
+ * anybody named, so it has no need of India's days, and reading India's two would take
+ * four reads, one UTC day of them twice. Each alert is shown with its time in India.
+ */
 export async function recentProviderAlerts(now = new Date()): Promise<ProviderAlert[]> {
   const today = now.toISOString().slice(0, 10);
   const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
   const [a, b] = await Promise.all([
-    entriesFor(today).catch(() => []),
-    entriesFor(yesterday).catch(() => []),
+    entriesFiledOn(today).catch(() => []),
+    entriesFiledOn(yesterday).catch(() => []),
   ]);
   return alertsFrom([...a, ...b]);
 }

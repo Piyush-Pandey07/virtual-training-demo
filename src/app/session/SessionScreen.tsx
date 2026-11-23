@@ -10,15 +10,12 @@ import { SlideStage } from '@/components/SlideStage';
 import { TrainerPanel } from '@/components/TrainerPanel';
 import { VoicePicker } from '@/components/VoicePicker';
 import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
-import {
-  howFarThrough,
-  opensOnceCompleted,
-  type StepAfterSession,
-} from '@/lib/assessments/after-session';
+import type { StepAfterSession } from '@/lib/assessments/after-session';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { describeFailure } from '@/lib/failures/codes';
 import { completionPercentOf } from '@/lib/roster/completion';
+import { shortOfCompletion } from '@/lib/session-end';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { SessionLanguage } from '@/lib/types';
 
@@ -390,20 +387,46 @@ export function SessionScreen({
                   <p className="text-muted mt-1 text-sm">
                     You covered {session.coveredSlideIds.length} of {deck.totalSlides} slides.
                   </p>
-                  {stepWaits && afterSession && (
+                  {/*
+                    Short of completion, whatever ended it, the card says how far through they
+                    are and that what was taught is kept, and, after Stop, that they stopped
+                    (UAT issue 13). The step waiting, if any, is said in the same breath.
+                  */}
+                  {!session.standing.complete && (
                     <p className="text-muted mt-2 text-sm leading-relaxed">
-                      {opensOnceCompleted(afterSession.step)}{' '}
-                      {howFarThrough(session.standing.percent, completionPercentOf(deck.meta))}
+                      {shortOfCompletion({
+                        endedBy: session.endedBy ?? 'stopped',
+                        step: afterSession?.step ?? null,
+                        percent: session.standing.percent,
+                        completeAt: completionPercentOf(deck.meta),
+                        taught: session.coveredSlideIds.length,
+                      }).join(' ')}
                     </p>
                   )}
-                  <Link
-                    href={stepWaits ? '/' : (afterSession?.href ?? '/')}
-                    className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
-                  >
-                    {stepWaits
-                      ? 'Back to your training'
-                      : (afterSession?.label ?? 'Back to the start')}
-                  </Link>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href={stepWaits ? '/' : (afterSession?.href ?? '/')}
+                      className="bg-azure text-mist hover:bg-teal hover:text-charcoal inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                    >
+                      {stepWaits
+                        ? 'Back to your training'
+                        : (afterSession?.label ?? 'Back to the start')}
+                    </Link>
+                    {/*
+                      Resuming from this page is a fresh load rather than a way back to the
+                      lobby inside it: the lobby then shows what the server now holds, and a
+                      running session never returns to the lobby (see voice.test.ts).
+                    */}
+                    {!session.standing.complete && (
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="ring-charcoal-line text-mist hover:ring-teal rounded-md px-4 py-2 text-sm font-semibold ring-1 transition-colors ring-inset"
+                      >
+                        {session.coveredSlideIds.length > 0 ? 'Resume' : 'Start again'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </aside>

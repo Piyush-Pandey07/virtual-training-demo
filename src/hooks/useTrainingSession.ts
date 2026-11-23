@@ -19,6 +19,7 @@ import { clampSlideId, firstSlideId, totalSlides } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { classifyUtterance } from '@/lib/intent';
 import { reportProgress, standingAfter, type LiveStanding } from '@/lib/progress-client';
+import type { SessionEnding } from '@/lib/session-end';
 import { sanitiseForSpeech } from '@/lib/speech';
 import { detectAnswerStyle } from '@/lib/intent';
 import {
@@ -117,6 +118,12 @@ function makeEntry(
 
 export interface UseTrainingSessionResult {
   phase: SessionPhase;
+  /**
+   * How the session ended, once it has: the trainer wrapped up after the last slide, or
+   * the trainee pressed Stop. Null until then. Both are the `ended` phase, which is all the
+   * controls need; the end of the session says which, short of completion (UAT issue 13).
+   */
+  endedBy: SessionEnding | null;
   slideId: number;
   slideIndex: number;
   transcript: TranscriptEntry[];
@@ -226,6 +233,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
   })();
 
   const [phase, setPhase] = useState<SessionPhase>('idle');
+  const [endedBy, setEndedBy] = useState<SessionEnding | null>(null);
   const [slideId, setSlideId] = useState(() => resumeAt);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [coveredSlideIds, setCoveredSlideIds] = useState<number[]>(
@@ -735,6 +743,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
           // A session that ends by wrapping up closes the microphone too, as Stop does.
           // Found in a browser run: after the recap the screen said the session had ended
           // and the microphone was off, while it was still open and listening (AI-45).
+          setEndedBy('wrapped-up');
           sttRef.current.stop();
           setPhase('ended');
         } else {
@@ -988,6 +997,8 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
     pausedRef.current = false;
     setPaused(false);
     cancelCurrentTurn();
+    // So the end of the session can say they stopped, short of completion (UAT issue 13).
+    setEndedBy('stopped');
     sttRef.current.stop();
     setPhase('ended');
     // Where they stopped, so the lobby can say so next time. Every slide already
@@ -1085,6 +1096,7 @@ export function useTrainingSession(resume?: ResumeState | null): UseTrainingSess
 
   return {
     phase,
+    endedBy,
     slideId,
     slideIndex,
     transcript,

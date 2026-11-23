@@ -9,6 +9,11 @@
  * One day at a time, read by the `day` field the log writes for exactly this, so the
  * page never reads the whole collection. A 404 for anybody else, as on the customer
  * list, so a customer's administrator cannot learn the page exists.
+ *
+ * In India time, labelled, as the audit history is and every other page (UAT issue 20).
+ * It showed UTC, said so only in the sentence at the top, and read by the UTC day, while
+ * the administrator's home page names a provider's failure by its time in India: a failure
+ * at one in the morning there was on the home page as the 20th and in this log as the 19th.
  */
 
 import type { Metadata } from 'next';
@@ -21,6 +26,7 @@ import { requireUserPage } from '@/lib/auth/guard';
 import { isAdministrator } from '@/lib/auth/permissions';
 import { DEVLOG_RETENTION_DAYS, entriesFor } from '@/lib/failures/devlog';
 import { orgsConfigured } from '@/lib/orgs/registry';
+import { formatTimeOfDay, shiftDay, todayInTrainingZone } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,19 +36,14 @@ interface ErrorsPageProps {
   searchParams: Promise<{ day?: string }>;
 }
 
-function shiftDay(day: string, by: number): string {
-  const date = new Date(`${day}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + by);
-  return date.toISOString().slice(0, 10);
-}
-
 export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
   const person = await requireUserPage('/platform/errors');
   // Every Technavious administrator, not only platform staff (AI-11): they are the ones
   // who follow up with whoever runs each service, to recharge credit for instance.
   if (!isAdministrator(person)) notFound();
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Today in India, so Next day stops at the day it is there, not the day it is in UTC.
+  const today = todayInTrainingZone();
   const { day: requested } = await searchParams;
   const day = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : today;
   const entries = orgsConfigured() ? await entriesFor(day).catch(() => null) : [];
@@ -58,8 +59,8 @@ export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Developer log</h1>
         <p className="text-muted mt-3 max-w-3xl text-base leading-relaxed">
           Every failure a trainee or admin met, with what the provider or the browser actually said.
-          They were shown a standard message and the reference in the first column. Times are UTC,
-          and entries are kept for {DEVLOG_RETENTION_DAYS} days.
+          They were shown a standard message and the reference in the first column. Times and days
+          are India time (IST), and entries are kept for {DEVLOG_RETENTION_DAYS} days.
         </p>
 
         <nav className="mt-6 flex flex-wrap items-center gap-4 text-sm" aria-label="Choose a day">
@@ -117,7 +118,7 @@ export default async function ErrorsPage({ searchParams }: ErrorsPageProps) {
                   <tr key={entry.id} className="border-charcoal-line border-b align-top">
                     <td className="py-2 pr-4 font-mono">{entry.id}</td>
                     <td className="py-2 pr-4 whitespace-nowrap">
-                      {entry.at.slice(11, 19)}
+                      {formatTimeOfDay(entry.at)}
                       {entry.repeats > 1 && (
                         <span className="text-muted block text-xs">x{entry.repeats}</span>
                       )}

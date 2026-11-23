@@ -14,7 +14,8 @@
  * Kept 90 days. Each entry carries `expireAt`, and Firestore deletes it once a TTL
  * policy on the `expireAt` field of the `devlog` collection is enabled, as for the rate
  * limit counts. Read a day at a time by its `day` field, which the automatic index
- * serves, so the page never reads the whole collection.
+ * serves, so the page never reads the whole collection. That field is the UTC day, and the
+ * page asks for a day in India, which is read from the two UTC days it overlaps.
  *
  * Writing is best effort. A failure to log a failure must never become the trainee's
  * problem, so every write is caught and, inside a request, made after the response.
@@ -27,6 +28,7 @@ import { after } from 'next/server';
 import { firestoreDocuments } from '../firebase/firestore';
 import { orgsConfigured } from '../orgs/registry';
 import { InMemoryDocumentStore, type DocumentStore } from '../roster/documents';
+import { dayInTrainingZone, utcDaysOverlapping } from '../time';
 import type { FailureCode } from './codes';
 
 export const DEVLOG = 'devlog';
@@ -39,7 +41,7 @@ export interface DevLogEntry {
   id: string;
   /** ISO 8601. */
   at: string;
-  /** `YYYY-MM-DD` in UTC, which is how the page reads a day. */
+  /** `YYYY-MM-DD` in UTC, which is how entries are filed and found. See `entriesFor`. */
   day: string;
   /** Who noticed: our server talking to a provider, or the browser talking to us. */
   source: 'server' | 'browser';
@@ -178,11 +180,37 @@ function withoutUndefined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as T;
 }
 
-/** One day's entries, newest first. */
+/**
+ * One day's entries, the day in India, newest first.
+ *
+ * The page asks for India's day, as every other page dates things (UAT issue 20): read by
+ * the UTC day, a failure at one in the morning in India was under the day before, while the
+ * administrator's home page named it by its time in India. Entries are filed by their UTC
+ * day, so the two UTC days India's overlaps are read, and each entry kept by its own day.
+ */
 export async function entriesFor(day: string, options: { store?: DocumentStore } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
-  const entries = await store(options.store).where<DevLogEntry>(DEVLOG, 'day', day);
-  return entries.sort((a, b) => b.at.localeCompare(a.at));
+  const filed = await Promise.all(
+    utcDaysOverlapping(day).map((utcDay) => entriesFiledOn(utcDay, options)),
+  );
+  return filed
+    .flat()
+    .filter((entry) => dayInTrainingZone(entry.at) === day)
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/**
+ * Every entry filed under one UTC day, as stored, in no order.
+ *
+ * For a window that is not a day anybody named, such as the alerts' last two days, which
+ * read through `entriesFor` would read the UTC day between two of India's twice.
+ */
+export async function entriesFiledOn(
+  utcDay: string,
+  options: { store?: DocumentStore } = {},
+): Promise<DevLogEntry[]> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(utcDay)) return [];
+  return store(options.store).where<DevLogEntry>(DEVLOG, 'day', utcDay);
 }
 
 /** For tests, which need each case to start without remembered failures. */

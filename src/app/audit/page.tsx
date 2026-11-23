@@ -14,6 +14,11 @@
  * Read a month or a day at a time, by the fields each entry carries for exactly this,
  * so the page never reads the whole collection. A plain form with GET, so a filtered
  * view is a link that can be sent to somebody else who may see it.
+ *
+ * In India time throughout, as every other page is (UAT issue 20): each time says IST, and
+ * the day and month chosen are India's. It used to show UTC cut out of the ISO string, with
+ * only the sentence at the top to say so, and to read by the UTC day, so something done
+ * just after midnight in India was listed under the day before.
  */
 
 import type { Metadata } from 'next';
@@ -35,6 +40,7 @@ import {
 } from '@/lib/audit/log';
 import { requireUserPage } from '@/lib/auth/guard';
 import { isAdministrator } from '@/lib/auth/permissions';
+import { dayInTrainingZone, formatTimeOfDay, todayInTrainingZone } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,10 +74,12 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
   const { type, month: requestedMonth, day: requestedDay } = await searchParams;
   const subjectType = isAuditSubject(type) ? type : undefined;
   const day = requestedDay && /^\d{4}-\d{2}-\d{2}$/.test(requestedDay) ? requestedDay : undefined;
+  // This month in India by default, which is the next one from half past six in the
+  // evening UTC on the last day of a month.
   const month =
     requestedMonth && /^\d{4}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : new Date().toISOString().slice(0, 7);
+      : todayInTrainingZone().slice(0, 7);
 
   const filter: AuditFilter = { subjectType, ...(day ? { day } : { month }) };
   const entries = await read(person.orgId, filter);
@@ -91,7 +99,8 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
           administrators&apos; own actions on decks, assignments, batches, sessions and participant
           uploads, in <span className="text-mist font-semibold">{person.orgId}</span>; and who
           changed the glossary, which belongs to no customer, and who suspended, reinstated or
-          closed any customer. Times are UTC, and entries are kept for {AUDIT_RETENTION_DAYS} days.
+          closed any customer. Times, days and months are India time (IST), and entries are kept for{' '}
+          {AUDIT_RETENTION_DAYS} days.
         </p>
 
         <form method="get" className="mt-6 flex flex-wrap items-end gap-3 text-sm">
@@ -150,7 +159,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         </form>
 
         <p className="text-muted mt-4 text-sm">
-          {day ? `Showing ${day}` : `Showing ${month}`}
+          {day ? `Showing ${day}` : `Showing ${month}`} in India time
           {subjectType ? `, ${AUDIT_SUBJECT_LABELS[subjectType].toLowerCase()} only` : ''}.
         </p>
 
@@ -180,8 +189,8 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
                 {entries.map((entry) => (
                   <tr key={entry.id} className="border-charcoal-line border-b align-top">
                     <td className="py-2 pr-4 whitespace-nowrap">
-                      {entry.at.slice(0, 10)}
-                      <span className="text-muted block text-xs">{entry.at.slice(11, 19)}</span>
+                      {dayInTrainingZone(entry.at)}
+                      <span className="text-muted block text-xs">{formatTimeOfDay(entry.at)}</span>
                     </td>
                     <td className="py-2 pr-4">
                       <span className="text-mist break-all">{entry.actorEmail}</span>

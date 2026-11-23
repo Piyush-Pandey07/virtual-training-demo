@@ -15,6 +15,7 @@ import { InMemoryDocumentStore } from '../roster/documents';
 import { resetRosterStore } from '../roster/registry';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
+import { todayInTrainingZone } from '../time';
 import { changeSession, createSession, TrainingRuleError } from './service';
 import { trainingStore } from './store';
 import type { TrainingSession } from './types';
@@ -440,7 +441,7 @@ describe("a trainer-led session's level bands", () => {
     await new Promise((resolve) => setImmediate(resolve));
     const entries = await auditHistory(
       ORG,
-      { month: new Date().toISOString().slice(0, 7), subjectType: 'training-session' },
+      { month: todayInTrainingZone().slice(0, 7), subjectType: 'training-session' },
       { store },
     );
     assert.deepEqual(

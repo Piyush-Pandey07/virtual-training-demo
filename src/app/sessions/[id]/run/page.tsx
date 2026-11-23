@@ -22,6 +22,7 @@ import { lessonPlanGaps } from '@/lib/lesson-plan/view';
 import { rosterStore } from '@/lib/roster/registry';
 import { mayManageSession } from '@/lib/training/access';
 import { addressName } from '@/lib/training/facilitation';
+import { slideToRunFrom } from '@/lib/training/run-position';
 import { trainingStore } from '@/lib/training/store';
 import { FacilitatorScreen } from './FacilitatorScreen';
 
@@ -81,6 +82,12 @@ export default async function RunSessionPage({ params }: Props) {
             sessionId={session.id}
             scheduledFor={session.scheduledFor}
             started={session.status === 'open'}
+            // Where the facilitator was, so a reload or another device carries on there
+            // rather than at slide 1 (UAT issue 17).
+            startSlideId={slideToRunFrom(
+              deck.slides.map((slide) => slide.id),
+              session.currentSlideId,
+            )}
             attendees={attendees}
             planGaps={lessonPlanGaps(deck)}
           />

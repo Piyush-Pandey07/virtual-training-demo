@@ -46,6 +46,66 @@ export function formatMoment(iso: string): string {
   return `${date}, ${clock(at)} ${ZONE_LABEL}`;
 }
 
+/**
+ * "23:49:05 IST": the time of day alone, to the second, for a record listed under its day.
+ *
+ * The audit history and the developer log show one entry a line with its day beside it,
+ * and their times were cut out of the ISO string, which is UTC, with nothing on the line to
+ * say so (UAT issue 20). To the second because two entries a few seconds apart are often
+ * the point of reading a log at all. Nothing for a value that is not a date.
+ */
+export function formatTimeOfDay(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const time = at.toLocaleTimeString('en-GB', {
+    timeZone: TRAINING_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  return `${time} ${ZONE_LABEL}`;
+}
+
+/** Today in India, as `YYYY-MM-DD`, which is the day the pages read by default. */
+export function todayInTrainingZone(now: Date = new Date()): string {
+  return dayInTrainingZone(now.toISOString());
+}
+
+/**
+ * A `YYYY-MM-DD` day moved by some whole days, for the Previous day and Next day links.
+ *
+ * Counting on the calendar alone, so it has no zone to name: the day after 31 October is
+ * 1 November wherever one is standing, and India keeps no summer time to skip an hour.
+ */
+export function shiftDay(day: string, by: number): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + by);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The UTC days a day in India overlaps, earliest first, for reading records filed under
+ * their UTC day, as the audit history and the developer log are.
+ *
+ * India is five and a half hours ahead of UTC all year, so its day runs from 18:30 UTC the
+ * evening before to 18:30 UTC on the day itself: part of each of two UTC days. The reader
+ * asks for both and keeps the entries whose own day in India is the one asked for. Filed
+ * entries are left as they are, so the history written before this reads the same way.
+ */
+export function utcDaysOverlapping(day: string): string[] {
+  return [shiftDay(day, -1), day];
+}
+
+/**
+ * The same for a month in India: the UTC month itself, and the last UTC day before it,
+ * whose final five and a half hours are the first of this month in India. The last five and
+ * a half hours of the UTC month belong to the next month in India, so the reader drops them.
+ */
+export function utcFilingOfMonth(month: string): { month: string; dayBefore: string } {
+  return { month, dayBefore: shiftDay(`${month}-01`, -1) };
+}
+
 /** The calendar day in India, as `YYYY-MM-DD`, for a download that sorts by date. */
 export function dayInTrainingZone(iso: string): string {
   // en-CA writes dates year first, as ISO 8601 does.

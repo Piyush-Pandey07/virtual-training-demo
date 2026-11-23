@@ -11,8 +11,13 @@ import {
   formatDayShort,
   formatMoment,
   formatSessionTime,
+  formatTimeOfDay,
   hoursAhead,
   momentFromTrainingZoneInput,
+  shiftDay,
+  todayInTrainingZone,
+  utcDaysOverlapping,
+  utcFilingOfMonth,
 } from './time';
 
 /**
@@ -31,6 +36,87 @@ describe('times for people', () => {
   it('dates by the day in India, which can be the day after the UTC one', () => {
     assert.equal(dayInTrainingZone('2026-11-12T20:00:00.000Z'), '2026-11-13');
     assert.equal(dayInTrainingZone('2026-11-12T10:00:00.000Z'), '2026-11-12');
+  });
+});
+
+/**
+ * The audit history and the developer log in India time (UAT issue 20). They showed UTC,
+ * cut out of the ISO string, with no label on the time, and were read by the UTC day.
+ */
+describe('times and days on the audit history and the developer log', () => {
+  const savedZone = process.env.TZ;
+  afterEach(() => {
+    if (savedZone === undefined) delete process.env.TZ;
+    else process.env.TZ = savedZone;
+  });
+
+  it('gives the time of day in India, to the second, saying so', () => {
+    assert.equal(formatTimeOfDay('2026-11-10T18:19:29.000Z'), '23:49:29 IST');
+    // Midnight is 00, not 24, and the day has turned over in India.
+    assert.equal(formatTimeOfDay('2026-11-18T18:30:00.000Z'), '00:00:00 IST');
+    assert.equal(formatTimeOfDay('not a date'), '');
+  });
+
+  it('gives the same time whatever zone the machine is in', () => {
+    for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Kolkata', 'Pacific/Auckland']) {
+      process.env.TZ = zone;
+      assert.equal(formatTimeOfDay('2026-11-18T20:00:05.000Z'), '01:30:05 IST', zone);
+    }
+  });
+
+  it('takes today as the day in India, which turns over at 18:30 UTC', () => {
+    assert.equal(todayInTrainingZone(new Date('2026-11-20T18:29:59.000Z')), '2026-11-20');
+    assert.equal(todayInTrainingZone(new Date('2026-11-20T18:30:00.000Z')), '2026-11-21');
+    // The first of a month in India while it is still the last of the month before in UTC.
+    assert.equal(todayInTrainingZone(new Date('2026-11-30T20:00:00.000Z')), '2026-12-01');
+  });
+
+  it('moves between days across the ends of months and years, and a leap day', () => {
+    assert.equal(shiftDay('2026-11-21', -1), '2026-11-20');
+    assert.equal(shiftDay('2026-11-30', 1), '2026-12-01');
+    assert.equal(shiftDay('2026-12-01', -1), '2026-11-30');
+    assert.equal(shiftDay('2026-12-31', 1), '2027-01-01');
+    assert.equal(shiftDay('2027-01-01', -1), '2026-12-31');
+    assert.equal(shiftDay('2028-03-01', -1), '2028-02-29');
+  });
+
+  it('moves the same whatever zone the machine is in', () => {
+    for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Kolkata', 'Pacific/Auckland']) {
+      process.env.TZ = zone;
+      assert.equal(shiftDay('2026-11-01', -1), '2026-10-31', zone);
+      assert.equal(shiftDay('2026-10-31', 1), '2026-11-01', zone);
+    }
+  });
+
+  it('finds every moment of a day in India among the UTC days it is read from', () => {
+    const day = '2026-11-20';
+    const filed = utcDaysOverlapping(day);
+    assert.deepEqual(filed, ['2026-11-19', '2026-11-20']);
+    // Its first and last moments, and its middle.
+    for (const iso of [
+      '2026-11-19T18:30:00.000Z',
+      '2026-11-20T06:00:00.000Z',
+      '2026-11-20T18:29:59.999Z',
+    ]) {
+      assert.equal(dayInTrainingZone(iso), day, iso);
+      assert.ok(filed.includes(iso.slice(0, 10)), iso);
+    }
+    // Across a month end, where the day before is in the month before.
+    assert.deepEqual(utcDaysOverlapping('2026-12-01'), ['2026-11-30', '2026-12-01']);
+  });
+
+  it('finds every moment of a month in India among the UTC month and day it is read from', () => {
+    const filed = utcFilingOfMonth('2026-12');
+    assert.deepEqual(filed, { month: '2026-12', dayBefore: '2026-11-30' });
+    // Its first moment is on the last UTC day of November, and its last is in December.
+    const first = '2026-11-30T18:30:00.000Z';
+    const last = '2026-12-31T18:29:59.999Z';
+    assert.equal(dayInTrainingZone(first), '2026-12-01');
+    assert.equal(first.slice(0, 10), filed.dayBefore);
+    assert.equal(dayInTrainingZone(last), '2026-12-31');
+    assert.equal(last.slice(0, 7), filed.month);
+    assert.equal(utcFilingOfMonth('2027-01').dayBefore, '2026-12-31');
+    assert.equal(utcFilingOfMonth('2028-03').dayBefore, '2028-02-29');
   });
 });
 
@@ -169,8 +255,11 @@ describe('how far ahead a moment is', () => {
  * a zone, which is how D-04 came to be on so many pages at once. A new one would bring
  * it back on whichever page it was added to, and nothing else would notice: the text is
  * right for most of the day. Numbers are another matter, and `toLocaleString` on a count
- * of characters is left alone. So are the developer log and the audit history, which
- * show UTC on purpose, say so, and cut the day out of the ISO string to do it.
+ * of characters is left alone.
+ *
+ * The developer log and the audit history used to be left alone too, showing UTC cut out
+ * of the ISO string with a sentence at the top to say so. UAT read them as unlabelled
+ * (issue 20), and they are India time now, through the helpers here, like everything else.
  */
 describe('dates are formatted in one place', () => {
   function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -195,6 +284,17 @@ describe('dates are formatted in one place', () => {
       [],
       'format dates with the helpers in src/lib/time.ts, which name the training zone',
     );
+  });
+
+  it('never shows a time cut out of an ISO string, which is UTC, on the audit history or the developer log', () => {
+    for (const path of ['src/app/audit/page.tsx', 'src/app/platform/errors/page.tsx']) {
+      const text = readFileSync(path, 'utf8');
+      assert.doesNotMatch(text, /\.at\.slice\(/, path);
+      assert.doesNotMatch(text, /toISOString\(\)\.slice\(/, path);
+      assert.doesNotMatch(text, /Times are UTC/, path);
+      assert.match(text, /formatTimeOfDay\(entry\.at\)/, path);
+      assert.match(text, /India time \(IST\)/, path);
+    }
   });
 
   it('never formats a new Date with toLocaleString, which takes the zone of the machine', () => {

@@ -33,6 +33,13 @@ import { useDeck } from '@/lib/deck-context';
 import { FAILURE_MESSAGES, describeFailure, readFailure } from '@/lib/failures/codes';
 import { TRAINER_NAME } from '@/lib/trainer';
 import { earlyStartQuestion } from '@/lib/training/confirmations';
+import {
+  openingSlide,
+  rememberOpening,
+  rememberSlide,
+  slideRecorder,
+  type SlideRecorder,
+} from '@/lib/training/run-position';
 import type { ChatEvent, HistoryTurn } from '@/lib/types';
 
 type Turn = 'explain' | 'answer' | 'greet' | 'engage';
@@ -44,6 +51,8 @@ interface Props {
   scheduledFor: string | null;
   /** Whether it has started already, in which case nothing is asked. */
   started: boolean;
+  /** The slide the session record keeps, or the first when it keeps none (UAT issue 17). */
+  startSlideId: number;
   attendees: string[];
   /**
    * Where the deck differs from its lesson plan, in words (AI-43). Shown for the whole
@@ -68,11 +77,22 @@ export function FacilitatorScreen({
   sessionId,
   scheduledFor,
   started,
+  startSlideId,
   attendees,
   planGaps = [],
 }: Props) {
   const deck = useDeck();
-  const [slideId, setSlideId] = useState(deck.slides[0]?.id ?? 1);
+  // Where the facilitator was. It used to be slide 1 every time the screen opened. The
+  // record is what a reload or another device reads; this tab's own last slide is used
+  // after the browser's Back button, which brings the page back with the slide it was
+  // first given (see run-position.ts).
+  const [slideId, setSlideId] = useState(() =>
+    openingSlide(
+      sessionId,
+      startSlideId,
+      deck.slides.map((slide) => slide.id),
+    ),
+  );
   const [floor, setFloor] = useState<Floor>('facilitator');
   const [askedBy, setAskedBy] = useState('');
   const [typed, setTyped] = useState('');
@@ -224,6 +244,46 @@ export function FacilitatorScreen({
 
   useEffect(() => () => takeBack(), [takeBack]);
 
+  /**
+   * Keeps the session record on the slide this screen is on, so the screen reopens there.
+   *
+   * A move is sent once it has settled, so pressing Next through several slides is one
+   * write on the free plan rather than one each, and one back to the slide the record
+   * holds is none. Whatever is still waiting goes at once when the page is hidden, closed
+   * or left, with keepalive so a reload does not cancel it. Best effort: a move that does
+   * not arrive costs only where a reopened screen starts.
+   */
+  const recorderRef = useRef<SlideRecorder | null>(null);
+  useEffect(() => {
+    const recorder = slideRecorder({
+      kept: startSlideId,
+      send: (to) => {
+        void fetch(`/api/training-sessions/${encodeURIComponent(sessionId)}/slide`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slideId: to }),
+          keepalive: true,
+        }).catch(() => undefined);
+      },
+    });
+    recorderRef.current = recorder;
+    rememberOpening(sessionId, startSlideId, slideRef.current);
+    // Opened on this tab's own last slide, which the record may not have caught up with.
+    recorder.moved(slideRef.current);
+    const leaving = () => recorder.flush();
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') recorder.flush();
+    };
+    window.addEventListener('pagehide', leaving);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', leaving);
+      document.removeEventListener('visibilitychange', hidden);
+      recorder.flush();
+      if (recorderRef.current === recorder) recorderRef.current = null;
+    };
+  }, [sessionId, startSlideId]);
+
   const slide = getClientSlide(deck, slideId);
   const index = deck.slides.findIndex((entry) => entry.id === slideId);
   const busy = floor !== 'facilitator';
@@ -231,6 +291,8 @@ export function FacilitatorScreen({
     if (to === undefined) return;
     takeBack();
     setSlideId(to);
+    rememberSlide(sessionId, to);
+    recorderRef.current?.moved(to);
   };
 
   return (
