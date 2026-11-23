@@ -20,6 +20,7 @@ import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
 import { facilitatesDeck, facilitatesPerson, mayManageSession, sessionsListing } from './access';
 import { auditHistory, type AuditEntry } from '../audit/log';
+import { resultsForDeck } from '../assessments/service';
 import { assessmentStore } from '../assessments/store';
 import { closureSummary } from './summary';
 import {
@@ -27,7 +28,9 @@ import {
   changeSession,
   createBatch,
   createSession,
+  peopleOnBoard,
   removeBatch,
+  removeFromTraining,
   removeSession,
   sessionFor,
   TrainingRuleError,
@@ -361,6 +364,33 @@ describe('which batches a person sees', () => {
       ['b-morning'],
     );
     assert.deepEqual(visibleBatches(asha, [frans, felixs, unowned]), []);
+  });
+});
+
+describe('whom the sessions board names (Issue 15)', () => {
+  const sessions = () => [
+    session({ participantIds: [asha.id] }),
+    session({ id: 's-felix', facilitatorId: felix.id, participantIds: [cara.id] }),
+  ];
+  const batches = () => [
+    batch({ participantIds: [ben.id] }),
+    batch({ id: 'b-felix', facilitatorId: felix.id, participantIds: [cara.id] }),
+  ];
+
+  it('names a facilitator themselves, and the people of their own sessions and batches', async () => {
+    const shown = peopleOnBoard(fran, sessions(), batches(), await roster.listPeople());
+    // Without Fran herself, each of her own sessions was "run by Unknown".
+    assert.deepEqual(shown.map((entry) => entry.id).sort(), [asha.id, ben.id, fran.id]);
+  });
+
+  it('names nobody from another facilitator’s sessions, nor that facilitator', async () => {
+    const shown = peopleOnBoard(fran, sessions(), batches(), await roster.listPeople());
+    assert.ok(!shown.some((entry) => entry.id === felix.id || entry.id === cara.id));
+  });
+
+  it('names the whole company for an administrator', async () => {
+    const people = await roster.listPeople();
+    assert.equal(peopleOnBoard(companyAdmin, [], [], people).length, people.length);
   });
 });
 
@@ -1193,6 +1223,108 @@ describe('adding participants to a session', () => {
         refused(400),
       );
     }
+  });
+});
+
+describe('the names a session keeps (D-20)', () => {
+  beforeEach(async () => {
+    await approveDeck(technavious, DECK_ID, { store });
+  });
+
+  const named = (who: SignedInPerson) => ({ name: who.name, email: who.email });
+
+  /** Set up for Asha and Ben, run by Fran, opened, both marked present, and closed. */
+  async function heldAndClosed(): Promise<TrainingSession> {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    return changeSession(
+      fran,
+      created.id,
+      { attendance: { [asha.id]: 'present', [ben.id]: 'present' }, status: 'closed' },
+      { store, now: () => LATER },
+    );
+  }
+
+  it('are those of its facilitator and everybody listed, from the moment it is set up', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    assert.deepEqual(created.people, {
+      [fran.id]: named(fran),
+      [asha.id]: named(asha),
+      [ben.id]: named(ben),
+    });
+  });
+
+  it('take in anybody added later', async () => {
+    await saved({ status: 'open', openedAt: NOW });
+    const next = await addParticipants(
+      companyAdmin,
+      's-room1',
+      { participantIds: [cara.id] },
+      options(),
+    );
+    assert.deepEqual(next.people, { [cara.id]: named(cara) });
+  });
+
+  it('are refreshed from the roster as it closes, and keep anybody who has left it', async () => {
+    const created = await createSession(
+      companyAdmin,
+      { deckId: DECK_ID, facilitatorId: fran.id, participantIds: [asha.id, ben.id] },
+      options(),
+    );
+    // Asha's name changes on the roster, and Ben is removed, before it closes.
+    await roster.upsertPerson({ id: asha.id, email: asha.email, name: 'Asha Patil' });
+    await roster.removePerson(ben.id, { keepAttempts: true });
+    await changeSession(fran, created.id, { status: 'open' }, options());
+    const closed = await changeSession(
+      fran,
+      created.id,
+      { attendance: { [asha.id]: 'present', [ben.id]: 'absent' }, status: 'closed' },
+      options(),
+    );
+    assert.deepEqual(closed.people?.[asha.id], { name: 'Asha Patil', email: asha.email });
+    assert.deepEqual(closed.people?.[ben.id], named(ben));
+  });
+
+  it('name somebody removed since on the closure summary and the results screen', async () => {
+    const closed = await heldAndClosed();
+    await roster.removePerson(asha.id, { keepAttempts: true });
+
+    const summary = await closureSummary(companyAdmin, closed.id, { store, roster });
+    const row = summary.rows.find((entry) => entry.personId === asha.id);
+    assert.equal(row?.name, 'Asha Rao', 'the summary forgot who attended');
+    assert.equal(row?.email, asha.email);
+
+    const results = await resultsForDeck(companyAdmin, DECK_ID, closed.id, { store, roster });
+    assert.equal(results.rows.find((entry) => entry.personId === asha.id)?.name, 'Asha Rao');
+    // Ben is still on the roster, and is named from it.
+    assert.equal(results.rows.find((entry) => entry.personId === ben.id)?.name, 'Ben Okafor');
+  });
+
+  it('go from a session that has not happened when somebody is removed, and stay on one that has', async () => {
+    const held = await heldAndClosed();
+    await saved({
+      id: 's-later',
+      participantIds: [asha.id, ben.id],
+      people: {
+        [fran.id]: named(fran),
+        [asha.id]: named(asha),
+        [ben.id]: named(ben),
+      },
+    });
+    await removeFromTraining(companyAdmin, asha.id, { store });
+    assert.deepEqual(Object.keys((await stored('s-later'))?.people ?? {}).sort(), [
+      ben.id,
+      fran.id,
+    ]);
+    assert.deepEqual((await stored(held.id))?.people?.[asha.id], named(asha));
   });
 });
 

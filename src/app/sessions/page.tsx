@@ -16,7 +16,7 @@ import { mayRunSessions } from '@/lib/auth/permissions';
 import { deckApprovalStates } from '@/lib/decks/approval';
 import { listDecks } from '@/lib/decks/registry';
 import { rosterStore } from '@/lib/roster/registry';
-import { visibleBatches, visibleSessions } from '@/lib/training/service';
+import { peopleOnBoard, visibleBatches, visibleSessions } from '@/lib/training/service';
 import { trainingStore } from '@/lib/training/store';
 import { SessionsBoard } from './SessionsBoard';
 
@@ -40,15 +40,7 @@ export default async function SessionsPage() {
   // A failure to read approvals disables them all; the server refuses them anyway.
   // A facilitator is shown only the people in their own sessions and batches, for the
   // names on them, never the whole company.
-  const organiser = me.platform || me.role === 'admin';
-  const mine = new Set(
-    organiser
-      ? []
-      : [...visibleSessions(me, sessions), ...visibleBatches(me, batches)].flatMap(
-          (entry) => entry.participantIds,
-        ),
-  );
-  const shownPeople = organiser ? people : people.filter((person) => mine.has(person.id));
+  const shownPeople = peopleOnBoard(me, sessions, batches, people);
   const approvals = await deckApprovalStates(me.orgId, decks).catch(() => null);
   const deckChoices = decks.map((deck) => {
     const approval = approvals?.get(deck.id);

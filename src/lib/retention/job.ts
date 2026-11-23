@@ -9,7 +9,9 @@
  * attempts, trainer-led sessions and the people who have left. It works out each
  * record's last use from the participant's last session and then does one of these to
  * it: nothing, restrict it, lift a restriction a later session has made stale, delete its
- * personal detail, or delete it.
+ * personal detail, or delete it. A trainer-led session kept for somebody on it also loses,
+ * one person at a time, the name and address it keeps of anybody whose own five years are
+ * up.
  *
  * Three properties matter more than speed:
  *
@@ -108,7 +110,11 @@ export interface OrgRetentionReport {
   restricted: Counts;
   /** Restrictions taken off, because a later session put the record back in use. */
   lifted: Counts;
-  /** Results and feedback whose answers or free text were deleted, a year after last use. */
+  /**
+   * Results and feedback whose answers or free text were deleted, a year after last use,
+   * and trainer-led sessions, still kept for somebody else on them, that lost the name and
+   * address of somebody five years past their own last use.
+   */
   erased: Counts;
   deleted: Counts;
   /** Records left alone today because something about them could not be read. */
@@ -378,6 +384,8 @@ async function retainOrg(orgId: string, run: Run): Promise<OrgRetentionReport> {
     }
   }
 
+  // Sessions deleted whole today, whose names need no erasing afterwards.
+  const deletedSessions = new Set<string>();
   for (const candidate of candidates) {
     if (unknown.has(candidate)) {
       report.skipped += 1;
@@ -397,6 +405,7 @@ async function retainOrg(orgId: string, run: Run): Promise<OrgRetentionReport> {
         note(`delete ${kind} ${id}`);
         if (!run.dryRun) await remove(run, roster, candidate);
         report.deleted[kind] += 1;
+        if (kind === 'sessions') deletedSessions.add(id);
       } else if (!RESTRICTABLE.has(kind)) {
         // Attempts, sessions and leavers are only ever deleted, which is above.
         continue;
@@ -429,7 +438,59 @@ async function retainOrg(orgId: string, run: Run): Promise<OrgRetentionReport> {
       report.skipped += 1;
     }
   }
+
+  // The names a session keeps of the people on it (D-20) go person by person, on the day
+  // each person's name is due to go, rather than with the session: somebody who trained
+  // last month keeps a shared session for five more years, and the others' names must not
+  // wait for them. A leaver's is measured exactly as their leaver record is, from when
+  // they left or last trained, so the two go on the same day. Anybody else's is measured
+  // from the session's own date or their last session, whichever is later. Their id and
+  // attendance stay with the session, which is deleted whole as before.
+  const leftAt = new Map(leavers.map((leaver) => [leaver.personId, timeOf(leaver.leftAt)]));
+  const lastSessions = new Map<string, number | null>();
+  const lastSessionOf = (personId: string) => {
+    if (!lastSessions.has(personId)) {
+      lastSessions.set(personId, lastSessionAt(personId, attempts, sessions));
+    }
+    return lastSessions.get(personId) ?? null;
+  };
+  for (const session of sessions) {
+    if (!session.people || deletedSessions.has(session.id)) continue;
+    const ownDate = sessionDate(session);
+    const due = Object.keys(session.people).filter((personId) => {
+      const own = leftAt.get(personId) ?? ownDate;
+      // Due only once its own date is five years old, which is cheap to ask, so the last
+      // session, which is not, is worked out only for a name that might be due.
+      if (own === null || run.now < yearsAfter(own, RECORD_KEPT_YEARS)) return false;
+      return stepFor(latest(own, lastSessionOf(personId)), run.now) === 'delete';
+    });
+    if (due.length === 0) continue;
+    try {
+      note(`erase sessions ${session.id}`);
+      if (!run.dryRun) await eraseNames(run, sessionDocs, session.id, due);
+      report.erased.sessions += 1;
+    } catch (error) {
+      if (error instanceof OutOfBudget) throw error;
+      report.skipped += 1;
+    }
+  }
   return report;
+}
+
+/** Takes these people's names out of what a session keeps, and nothing else. */
+async function eraseNames(
+  run: Run,
+  docs: DocumentStore,
+  sessionId: string,
+  personIds: readonly string[],
+): Promise<void> {
+  spend(run);
+  await docs.update<TrainingSession>(TRAINING_SESSIONS, sessionId, (current) => {
+    if (!current) throw new Moved();
+    const people = { ...current.people };
+    for (const personId of personIds) delete people[personId];
+    return { ...current, people };
+  });
 }
 
 async function restrict(run: Run, candidate: Candidate, mark: RetentionMark): Promise<void> {

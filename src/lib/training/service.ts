@@ -19,6 +19,7 @@ import type { DocumentStore } from '../roster/documents';
 import { rosterStore } from '../roster/registry';
 import type { Person, SignedInPerson } from '../roster/types';
 import { mayManageSession } from './access';
+import { namesOf, refreshedNames } from './names';
 import { newTrainingId, trainingStore } from './store';
 import type { AttendanceMark, Batch, TrainingSession } from './types';
 import { joinedLate, participantCount } from './words';
@@ -193,6 +194,30 @@ export function visibleSessions(
   return sessions.filter((session) => mayManageSession(person, session));
 }
 
+/**
+ * The people of the roster given whom the sessions board names for this viewer.
+ *
+ * An administrator sees the whole company. A facilitator sees only the people of the
+ * sessions and batches they can see, never the whole company: everybody listed on them,
+ * and whoever runs each, which for a facilitator's own is themselves. Without the
+ * facilitators, every one of a facilitator's own sessions named its facilitator
+ * "Unknown" (Issue 15).
+ */
+export function peopleOnBoard<P extends { id: string }>(
+  person: SignedInPerson,
+  sessions: TrainingSession[],
+  batches: Batch[],
+  people: readonly P[],
+): P[] {
+  if (person.platform || person.role === 'admin') return [...people];
+  const named = new Set(
+    [...visibleSessions(person, sessions), ...visibleBatches(person, batches)].flatMap((entry) =>
+      entry.facilitatorId ? [entry.facilitatorId, ...entry.participantIds] : entry.participantIds,
+    ),
+  );
+  return people.filter((entry) => named.has(entry.id));
+}
+
 export async function createSession(
   person: SignedInPerson,
   input: {
@@ -216,8 +241,10 @@ export async function createSession(
 
   const facilitatorId = await chosenFacilitator(person, input.facilitatorId);
 
+  // Listed once, for both who may be on it and the names it keeps of them (D-20).
+  const roster = await rosterStore(person.orgId).listPeople();
   let batchId: string | null = null;
-  let participantIds = await knownPeople(person, input.participantIds);
+  let participantIds = await knownPeople(person, input.participantIds, roster);
   if (typeof input.batchId === 'string' && input.batchId) {
     const batch = await store.getBatch(input.batchId);
     if (!batch || !visibleBatches(person, [batch]).length) {
@@ -258,6 +285,7 @@ export async function createSession(
     closedAt: null,
     closedBy: null,
     levelBands,
+    people: namesOf(roster, [facilitatorId, ...participantIds]),
   };
   await store.saveSession(session);
 
@@ -310,6 +338,16 @@ export async function changeSession(
     levelBands = checked.bands;
   }
   const now = (options.now ?? nowIso)();
+  // Closing refreshes the names the session keeps from the roster (D-20), so the record
+  // names everybody as they were when it closed. Read before the write, since the change
+  // inside it may run more than once and must not wait on a read, and a roster that cannot
+  // be read leaves the names as they were kept rather than stopping the session closing.
+  const roster =
+    input.status === 'closed'
+      ? await rosterStore(person.orgId)
+          .listPeople()
+          .catch(() => null)
+      : null;
   // What this request changed, for the audit history. Worked out inside the write, so it
   // describes the session as it stood when the change was made.
   let marked: [string, AttendanceMark][] = [];
@@ -387,6 +425,7 @@ export async function changeSession(
         openedAt: next.openedAt ?? now,
         closedAt: now,
         closedBy: person.id,
+        ...(roster ? { people: refreshedNames(next, roster) } : {}),
       };
     }
     return next;
@@ -410,9 +449,10 @@ export async function changeSession(
     // so a roster that cannot be read leaves the ids in the entry rather than losing it.
     const people =
       marked.length <= NAMED_AT_MOST
-        ? await rosterStore(person.orgId)
+        ? (roster ??
+          (await rosterStore(person.orgId)
             .listPeople()
-            .catch(() => [] as Person[])
+            .catch(() => [] as Person[])))
         : [];
     await recordAudit(
       person,
@@ -501,7 +541,12 @@ export async function addParticipants(
       throw new TrainingRuleError(409, 'This session has finished, so nobody can be added.');
     }
     added = wanted.filter((personId) => !current.participantIds.includes(personId));
-    return { ...current, participantIds: [...current.participantIds, ...added] };
+    return {
+      ...current,
+      participantIds: [...current.participantIds, ...added],
+      // Their names kept with the record from now on, as setting it up keeps them (D-20).
+      people: { ...current.people, ...namesOf(people, added) },
+    };
   });
 
   await assignDeck(person, saved.deckId, added);
@@ -539,6 +584,13 @@ async function assignDeck(person: SignedInPerson, deckId: string, participantIds
 }
 
 const ASSIGN_AT_ONCE = 10;
+
+/** A copy of a map keyed by person id without one person's entry. */
+function withoutKey<T>(map: Record<string, T>, key: string): Record<string, T> {
+  const rest = { ...map };
+  delete rest[key];
+  return rest;
+}
 
 /** A session that has not happened, and never will have once it is cancelled. */
 const notHeld = (status: TrainingSession['status']) =>
@@ -584,7 +636,15 @@ export async function removeFromTraining(
           store.updateSession(session.id, (current) => {
             if (!current) throw gone;
             if (!notHeld(current.status)) return current;
-            return { ...current, participantIds: without(current.participantIds) };
+            return {
+              ...current,
+              participantIds: without(current.participantIds),
+              // No longer on it, so it has no reason to keep their name either, unless
+              // they also run it.
+              ...(current.people && current.facilitatorId !== personId
+                ? { people: withoutKey(current.people, personId) }
+                : {}),
+            };
           }),
         ),
       ),

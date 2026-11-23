@@ -18,6 +18,7 @@ import { assessmentStore } from '../assessments/store';
 import { LEVEL_LABELS, type AssessmentResult, type Level } from '../assessments/types';
 import { visibleTo } from '../retention/restricted';
 import type { SignedInPerson } from '../roster/types';
+import { shownName } from './names';
 import { sessionFor } from './service';
 import { dayInTrainingZone, formatMoment } from '../time';
 import type { SummaryRow, TrainingSession } from './types';
@@ -92,10 +93,14 @@ export async function closureSummary(
     const result = byPerson.get(personId);
     const pre = record(personId, 'pre', result?.pre);
     const post = record(personId, 'post', result?.post);
+    // The results screen names them from the roster, or from the names this session kept
+    // once the roster no longer has them (D-20). A row it did not show this viewer is still
+    // somebody on the list, named as the session kept them.
+    const kept = session.people?.[personId];
     return {
       personId,
-      name: result?.name ?? 'Unknown',
-      email: result?.email ?? '',
+      name: result?.name ?? shownName(kept) ?? 'Unknown',
+      email: result?.email ?? kept?.email ?? '',
       attendance: session.attendance[personId] ?? 'not marked',
       joinedLate: joinedLate(session, personId),
       markedAt: session.attendanceAt?.[personId] ?? null,

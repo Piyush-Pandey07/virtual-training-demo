@@ -393,6 +393,40 @@ describe('the daily job', () => {
     assert.equal(await leaverDocuments(ORG, store).get(LEAVERS, asha.id), undefined);
   });
 
+  it('erases each name a session keeps when that person’s five years are up, while the session stays for another', async () => {
+    const named = (id: string) => ({ name: id, email: `${id}@acme.example` });
+    await trainingStore(ORG, store).saveSession(
+      trainerLed({
+        participantIds: [asha.id, 'ben'],
+        attendance: { asha: 'present', ben: 'present' },
+        people: { [facilitator.id]: named(facilitator.id), asha: named('asha'), ben: named('ben') },
+      }),
+    );
+    // Asha last trained on day 10 and left on day 20. Ben trained again in year four,
+    // which keeps the session, and his name on it, for five years from then.
+    await recordLeaver(ORG, asha, companyAdmin.id, { store, now: at(20) });
+    const attempts = [attempt(asha.id, 10), attempt('ben', 4 * 365)];
+    const roster = () => fakeRoster(attempts);
+    const kept = async () =>
+      Object.keys((await trainingStore(ORG, store).getSession('s-1'))?.people ?? {}).sort();
+
+    // Five years after the session the facilitator's name goes: they have sat nothing
+    // since, and the roster still names them while they are on it. Asha's waits for her
+    // leaver record, which is measured from the day she left.
+    const first = await run(0, { roster, asOf: yearsOn(5, 10) });
+    assert.equal(first.totals.erased.sessions, 1);
+    assert.deepEqual(await kept(), ['asha', 'ben']);
+
+    const second = await run(0, { roster, asOf: yearsOn(5, 20) });
+    assert.equal(second.totals.deleted.leavers, 1);
+    assert.equal(second.totals.erased.sessions, 1);
+    assert.equal(second.totals.deleted.sessions, 0, 'the session went with Ben still in use');
+    assert.deepEqual(await kept(), ['ben'], 'a leaver’s name outlived their leaver record');
+
+    const again = await run(0, { roster, asOf: yearsOn(5, 21) });
+    assert.equal(again.totals.erased.sessions, 0);
+  });
+
   it('lifts a restriction once a later session puts the records back in use', async () => {
     await run(101);
     const report = await run(120, { roster: () => fakeRoster([attempt(asha.id, 115)]) });

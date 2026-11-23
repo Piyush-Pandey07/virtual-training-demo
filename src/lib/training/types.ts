@@ -32,6 +32,12 @@ export type TrainingSessionStatus = 'scheduled' | 'open' | 'closed' | 'cancelled
 
 export type AttendanceMark = 'present' | 'absent';
 
+/** A person's name and address as a session keeps them, beside their id. */
+export interface ListedName {
+  name: string;
+  email: string;
+}
+
 /** One trainer-led session: a deck, a facilitator, a list of participants and a date. */
 export interface TrainingSession {
   id: string;
@@ -80,6 +86,16 @@ export interface TrainingSession {
    */
   cancelledAt?: string;
   cancelledBy?: string;
+  /**
+   * The name and address of everybody listed, and of the facilitator, keyed by person id
+   * (D-20). Written as people are listed and refreshed from the roster as the session
+   * closes, so a session that took place goes on naming who was there after somebody
+   * leaves the roster. Every screen reads the roster first and this only when the roster
+   * no longer has the person. The retention job erases each person's entry when their
+   * name is due to go, five years after their last use, as it deletes a leaver's record.
+   * Absent from sessions set up before it was kept, until the repair script fills it.
+   */
+  people?: Record<string, ListedName>;
 }
 
 /** One participant's line in a session's closure summary (AI-33). */

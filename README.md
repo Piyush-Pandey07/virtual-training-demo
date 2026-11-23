@@ -499,6 +499,12 @@ Consent records are never touched by the job; the notice keeps them for at least
 trainer-led session is deleted only once every participant on it is past five years, so somebody who
 trained recently keeps the record of a session they shared.
 
+A trainer-led session also keeps the name and email of everybody on it, its facilitator included
+(`people` on the session), so a closed session goes on naming who was there after they leave the
+roster. The job takes each person's entry out on its own, five years after their last use, on the
+same day as their `leavers` record (or, for somebody who never left, five years after the session or
+their last session, whichever is later), even while the session is kept for somebody else on it.
+
 **Removing somebody** (`DELETE /api/people/{id}`) applies the one-year step at once: their login,
 learner profile, assessment answers and feedback comments are deleted. Their name and email go into
 the `leavers` collection, and their attempts, scores, pass or fail, ratings and attendance are kept,
