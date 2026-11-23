@@ -10,9 +10,15 @@ import { SlideStage } from '@/components/SlideStage';
 import { TrainerPanel } from '@/components/TrainerPanel';
 import { VoicePicker } from '@/components/VoicePicker';
 import { useTrainingSession, type ResumeState } from '@/hooks/useTrainingSession';
+import {
+  howFarThrough,
+  opensOnceCompleted,
+  type StepAfterSession,
+} from '@/lib/assessments/after-session';
 import { getClientSlide } from '@/lib/deck';
 import { useDeck } from '@/lib/deck-context';
 import { describeFailure } from '@/lib/failures/codes';
+import { completionPercentOf } from '@/lib/roster/completion';
 import { TRAINER_NAME } from '@/lib/trainer';
 import type { SessionLanguage } from '@/lib/types';
 
@@ -196,13 +202,18 @@ export function SessionScreen({
   reviewed: boolean;
   resume?: ResumeState | null;
   /** The post-session assessment or feedback, when either is still to do. */
-  afterSession?: { href: string; label: string } | null;
+  afterSession?: { step: StepAfterSession; href: string; label: string } | null;
 }) {
   const deck = useDeck();
   const session = useTrainingSession(resume);
   const slide = getClientSlide(deck, session.slideId);
   const showLobby = session.phase === 'idle';
   const busy = session.phase === 'thinking' || session.phase === 'connecting';
+  // The step after the session opens only once it is completed (UAT issue 12). Ended
+  // short of that, the link it offered led to a page that turned them away, so the card
+  // says so instead, with how far through they are. The last slide's reply may still be
+  // on its way when they press Stop, and the card changes when it lands.
+  const stepWaits = afterSession !== null && !session.standing.complete;
 
   /**
    * The slide rail was gated on `busy`, which is the wrong condition twice over.
@@ -373,15 +384,25 @@ export function SessionScreen({
 
               {session.phase === 'ended' && (
                 <div className="border-charcoal-line bg-charcoal-soft rounded-xl border p-4">
-                  <p className="text-sm font-semibold">Session complete</p>
+                  <p className="text-sm font-semibold">
+                    {session.standing.complete ? 'Session complete' : 'Session ended'}
+                  </p>
                   <p className="text-muted mt-1 text-sm">
                     You covered {session.coveredSlideIds.length} of {deck.totalSlides} slides.
                   </p>
+                  {stepWaits && afterSession && (
+                    <p className="text-muted mt-2 text-sm leading-relaxed">
+                      {opensOnceCompleted(afterSession.step)}{' '}
+                      {howFarThrough(session.standing.percent, completionPercentOf(deck.meta))}
+                    </p>
+                  )}
                   <Link
-                    href={afterSession?.href ?? '/'}
+                    href={stepWaits ? '/' : (afterSession?.href ?? '/')}
                     className="bg-azure text-mist hover:bg-teal hover:text-charcoal mt-3 inline-block rounded-md px-4 py-2 text-sm font-semibold transition-colors"
                   >
-                    {afterSession?.label ?? 'Back to the start'}
+                    {stepWaits
+                      ? 'Back to your training'
+                      : (afterSession?.label ?? 'Back to the start')}
                   </Link>
                 </div>
               )}

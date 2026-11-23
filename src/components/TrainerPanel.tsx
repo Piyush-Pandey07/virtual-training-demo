@@ -29,7 +29,9 @@ function statusFor(
   if (phase === 'connecting') return { label: 'Connecting', tone: 'text-muted' };
   if (phase === 'thinking') return { label: 'Thinking', tone: 'text-teal' };
   if (phase === 'speaking') return { label: `${TRAINER_NAME} is speaking`, tone: 'text-teal' };
-  if (phase === 'ended') return { label: 'Session complete', tone: 'text-muted' };
+  // Ended, not complete: stopping early ends it too, and complete is a word the steps
+  // after the session use for reaching the deck's completion point (UAT issue 12).
+  if (phase === 'ended') return { label: 'Session ended', tone: 'text-muted' };
   if (phase === 'listening') {
     if (micState === 'live') return { label: 'Listening, go ahead', tone: 'text-azure-bright' };
     if (micState === 'denied') return { label: 'Microphone blocked', tone: 'text-logo-red' };

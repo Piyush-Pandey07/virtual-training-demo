@@ -32,7 +32,13 @@ import {
   type DeckResults,
 } from '@/lib/assessments/service';
 import { describeBands } from '@/lib/assessments/scoring';
-import { LEVEL_LABELS, PASS_MARK, RATING_MAX, SAMPLE_LABEL } from '@/lib/assessments/types';
+import {
+  FEEDBACK_NOT_GIVEN,
+  LEVEL_LABELS,
+  PASS_MARK,
+  RATING_MAX,
+  SAMPLE_LABEL,
+} from '@/lib/assessments/types';
 import { loadStoredDeck } from '@/lib/decks/registry';
 import { RESTRICTED_EXPLANATION } from '@/lib/retention/restricted';
 import { formatDayShort } from '@/lib/time';
@@ -349,7 +355,11 @@ export default async function ResultsPage({ params, searchParams }: ResultsPageP
                           ) : row.restricted ? (
                             <Restricted />
                           ) : (
-                            <span className="text-muted">Pending</span>
+                            // Pending only for somebody it is open to. Anybody else says
+                            // why not, rather than being counted as owing it (UAT issue 16).
+                            <span className="text-muted">
+                              {FEEDBACK_NOT_GIVEN[row.feedback ?? 'not open']}
+                            </span>
                           )}
                         </td>
                       )}

@@ -6,11 +6,14 @@ import { InMemoryDocumentStore } from '../roster/documents';
 import { DocumentRosterStore } from '../roster/store-documents';
 import type { Role, SignedInPerson } from '../roster/types';
 import { trainingStore } from '../training/store';
+import { closureSummary } from '../training/summary';
 import type { TrainingSession } from '../training/types';
+import { feedbackWord } from '../training/words';
 import { mayManageBanks, mayOpenResults, maySeeFeedbackOf, maySeeResultsOf } from './access';
 import { refusalResponse } from './responses';
 import { bankOnScreen, savedOver, type BankOnScreen } from './saved';
 import {
+  aiLedStanding,
   AlreadySubmitted,
   assessedLevel,
   assessmentPaper,
@@ -19,7 +22,9 @@ import {
   bankForAdministrator,
   bankVersionsForAdministrator,
   feedbackDone,
+  feedbackStateOf,
   groupLevel,
+  hasAttended,
   nextStepAfterSession,
   postAssessmentDone,
   preAssessmentDone,
@@ -31,6 +36,7 @@ import {
   setLevelBands,
   submitAssessment,
   submitFeedback,
+  type DeckResults,
   type ServiceOptions,
 } from './service';
 import { assessmentStore, QUESTION_BANKS } from './store';
@@ -146,14 +152,30 @@ beforeEach(async () => {
   }
 });
 
-/** Starts the AI-led session, which is what attending means for the assessments. */
+/**
+ * Starts the AI-led session and has the trainer teach this many of its five slides, a
+ * minute each, through the same store call the progress route makes. Four is 80%, short
+ * of the default completion point; all five complete it.
+ */
+async function start(who: SignedInPerson, taught = 0, completionPercent?: number) {
+  const deck = { personId: who.id, deckId: DECK, slideCount: 5, totalSeconds: 300 };
+  await options.roster.touchAttempt(deck);
+  for (let slideId = 1; slideId <= taught; slideId += 1) {
+    await options.roster.recordCovered({
+      ...deck,
+      slideId,
+      targetSeconds: 60,
+      ...(completionPercent === undefined ? {} : { completionPercent }),
+    });
+  }
+}
+
+/**
+ * Completes the AI-led session, which is what attending it means for the steps after it.
+ * Starting it is not enough (UAT issue 12).
+ */
 async function attend(who: SignedInPerson) {
-  await options.roster.touchAttempt({
-    personId: who.id,
-    deckId: DECK,
-    slideCount: 5,
-    totalSeconds: 300,
-  });
+  await start(who, 5);
 }
 
 describe('the pre-session assessment', () => {
@@ -637,6 +659,70 @@ describe('the post-session assessment', () => {
     assert.equal((await take(asha, 'post', 10)).passed, true);
   });
 
+  // UAT issue 12: an AI-led post-session assessment opened as soon as the session was
+  // started. It opens once the session is completed, at the deck's own completion point.
+  describe('after an AI-led session (UAT issue 12)', () => {
+    const completedFirst = (error: unknown) =>
+      error instanceof Refused &&
+      error.status === 409 &&
+      error.message === 'The post-session assessment opens once you have completed the session.';
+
+    it('is closed to somebody who has started the session but not completed it', async () => {
+      await bank('post');
+      await start(asha);
+      assert.equal(await hasAttended(asha, DECK, null, options), false);
+      await assert.rejects(take(asha, 'post', 10), completedFirst);
+
+      // Four slides of five is 80%, short of the default 90%.
+      await start(asha, 4);
+      assert.deepEqual(await aiLedStanding(asha, DECK, options), { percent: 80, complete: false });
+      assert.equal(await hasAttended(asha, DECK, null, options), false);
+      await assert.rejects(take(asha, 'post', 10), completedFirst);
+      assert.equal(await postAssessmentDone(ORG, asha.id, DECK, options), false);
+    });
+
+    it('opens once the session is completed', async () => {
+      await bank('post');
+      await start(asha, 4);
+      await start(asha, 5);
+      assert.deepEqual(await aiLedStanding(asha, DECK, options), { percent: 100, complete: true });
+      assert.equal(await hasAttended(asha, DECK, null, options), true);
+      assert.equal((await take(asha, 'post', 8)).passed, true);
+    });
+
+    it("opens at the deck's own completion point, short of the whole deck", async () => {
+      await bank('post');
+      // A deck that counts as completed at 75%: four slides of five is enough.
+      await start(asha, 4, 75);
+      assert.deepEqual(await aiLedStanding(asha, DECK, options), { percent: 80, complete: true });
+      assert.equal((await take(asha, 'post', 8)).passed, true);
+    });
+
+    it('says how far through somebody is who has not started at all', async () => {
+      assert.deepEqual(await aiLedStanding(asha, DECK, options), {
+        percent: null,
+        complete: false,
+      });
+      assert.equal(await hasAttended(asha, DECK, null, options), false);
+    });
+  });
+
+  it('stays as it was for a trainer-led session: marked present in one that started', async () => {
+    await bank('post');
+    // No AI-led attempt at all: in the room, being marked present is what attending is.
+    const session = await trainerLed({ attendance: { [asha.id]: 'present' } });
+    assert.equal(await aiLedStanding(asha, DECK, options).then((s) => s.percent), null);
+    assert.equal(await hasAttended(asha, DECK, session, options), true);
+    assert.equal(await hasAttended(ben, DECK, session, options), false);
+    await assert.rejects(
+      take(ben, 'post', 8, session.id),
+      (e: unknown) =>
+        e instanceof Refused &&
+        e.message === 'The post-session assessment opens once you have attended the session.',
+    );
+    assert.equal((await take(asha, 'post', 8, session.id)).sessionId, session.id);
+  });
+
   it('passes at 70% and fails below it', async () => {
     await bank('post');
     await attend(asha);
@@ -881,6 +967,30 @@ describe('feedback', () => {
     await feedback(asha);
   });
 
+  it('opens after an AI-led session only once it is completed, as the assessment does (UAT issue 12)', async () => {
+    const completedFirst = (e: unknown) =>
+      e instanceof Refused &&
+      e.status === 409 &&
+      e.message === 'Feedback opens once you have completed the session.';
+    await start(asha);
+    await assert.rejects(feedback(asha), completedFirst);
+    await start(asha, 4);
+    await assert.rejects(feedback(asha), completedFirst);
+    await start(asha, 5);
+    await feedback(asha);
+    assert.equal(await feedbackDone(ORG, asha.id, DECK, null, options), true);
+  });
+
+  it('opens after a trainer-led session for those marked present, as before', async () => {
+    const session = await trainerLed({ attendance: { [asha.id]: 'present', [ben.id]: 'absent' } });
+    await feedback(asha, session.id);
+    await assert.rejects(
+      feedback(ben, session.id),
+      (e: unknown) =>
+        e instanceof Refused && e.message === 'Feedback opens once you have attended the session.',
+    );
+  });
+
   it('refuses a missing rating and a form from an old question set', async () => {
     await attend(asha);
     await assert.rejects(
@@ -1031,5 +1141,148 @@ describe('who sees results and feedback', () => {
     const report = await resultsForDeck(facilitator, DECK, 's-room1', options);
     assert.equal(report.rows.find((row) => row.personId === 'asha')!.feedback, 'submitted');
     assert.equal(report.rows.find((row) => row.personId === 'ben')!.feedback, 'pending');
+  });
+});
+
+// UAT issue 16: "Feedback pending" counted everybody who had not given feedback, people
+// marked absent included, who never can. Pending is now only those it is open to.
+describe('who is still to give feedback (UAT issue 16)', () => {
+  const stateOf = (report: DeckResults, personId: string) =>
+    report.rows.find((row) => row.personId === personId)?.feedback;
+
+  it('counts only those marked present in a trainer-led session that started', async () => {
+    const session = await trainerLed({
+      participantIds: [asha.id, ben.id, cara.id],
+      attendance: { [asha.id]: 'present', [ben.id]: 'absent' },
+    });
+    const report = await resultsForDeck(facilitator, DECK, session.id, options);
+    assert.equal(stateOf(report, asha.id), 'pending');
+    assert.equal(stateOf(report, ben.id), 'absent');
+    // Not marked yet: they may still arrive, so it is not open to them yet.
+    assert.equal(stateOf(report, cara.id), 'not open');
+    assert.equal(report.feedback?.pending, 1);
+
+    await feedback(asha, session.id);
+    const after = await resultsForDeck(facilitator, DECK, session.id, options);
+    assert.equal(stateOf(after, asha.id), 'submitted');
+    assert.equal(after.feedback?.pending, 0);
+    assert.equal(after.feedback?.responses, 1);
+  });
+
+  it('counts nobody before the session starts, or in a session that was cancelled', async () => {
+    const scheduled = await trainerLed({
+      status: 'scheduled',
+      openedAt: null,
+      attendance: { [asha.id]: 'present' },
+    });
+    const before = await resultsForDeck(facilitator, DECK, scheduled.id, options);
+    assert.deepEqual(
+      before.rows.map((row) => row.feedback),
+      ['not open', 'not open'],
+    );
+    assert.equal(before.feedback?.pending, 0);
+
+    const cancelled = await trainerLed({
+      id: 's-off',
+      status: 'cancelled',
+      openedAt: null,
+      attendance: {},
+      cancelledAt: '2026-11-12T09:00:00.000Z',
+      cancelledBy: companyAdmin.id,
+    });
+    const off = await resultsForDeck(facilitator, DECK, cancelled.id, options);
+    assert.deepEqual(
+      off.rows.map((row) => row.feedback),
+      ['cancelled', 'cancelled'],
+    );
+    assert.equal(off.feedback?.pending, 0);
+  });
+
+  it('counts an AI-led participant only once their session is completed', async () => {
+    // Nobody here is in a trainer-led session: each was assigned the deck to attend alone.
+    const caraOn = async () => {
+      const report = await resultsForDeck(benchmark, DECK, null, options);
+      return { state: stateOf(report, cara.id), pending: report.feedback?.pending };
+    };
+    assert.deepEqual(await caraOn(), { state: 'not open', pending: 0 });
+    await start(cara, 4);
+    assert.deepEqual(await caraOn(), { state: 'not open', pending: 0 });
+    await start(cara, 5);
+    assert.deepEqual(await caraOn(), { state: 'pending', pending: 1 });
+    await feedback(cara);
+    assert.deepEqual(await caraOn(), { state: 'submitted', pending: 0 });
+  });
+
+  it("names absence on the deck's own screen only when nothing else could still open it", async () => {
+    await trainerLed({ attendance: { [asha.id]: 'present', [ben.id]: 'absent' } });
+    const deckWide = () => resultsForDeck(benchmark, DECK, null, options);
+    let report = await deckWide();
+    assert.equal(stateOf(report, asha.id), 'pending');
+    assert.equal(stateOf(report, ben.id), 'absent');
+    assert.equal(report.feedback?.pending, 1);
+
+    // Listed again for a later session, not yet started: it may still open for him.
+    await trainerLed({ id: 's-room2', status: 'scheduled', openedAt: null, attendance: {} });
+    report = await deckWide();
+    assert.equal(stateOf(report, ben.id), 'not open');
+
+    // Marked present once that one starts.
+    await trainerLed({ id: 's-room2', attendance: { [ben.id]: 'present' } });
+    report = await deckWide();
+    assert.equal(stateOf(report, ben.id), 'pending');
+    assert.equal(report.feedback?.pending, 2);
+  });
+
+  it('agrees with the closure summary and its download', async () => {
+    const session = await trainerLed({
+      status: 'closed',
+      closedAt: '2026-11-13T11:00:00.000Z',
+      closedBy: facilitator.id,
+      attendance: { [asha.id]: 'present', [ben.id]: 'absent' },
+    });
+    const summary = await closureSummary(facilitator, session.id, options);
+    assert.deepEqual(
+      summary.rows.map((row) => [row.personId, row.feedback, feedbackWord(row.feedback)]),
+      [
+        [asha.id, 'pending', 'Pending'],
+        [ben.id, 'absent', 'Not open: absent'],
+      ],
+    );
+    const results = await resultsForDeck(facilitator, DECK, session.id, options);
+    assert.equal(results.feedback?.pending, 1);
+  });
+
+  it('is decided the same way for each kind of session, given what is in view', () => {
+    const room = (overrides: Partial<TrainingSession>): TrainingSession => ({
+      id: 's-x',
+      deckId: DECK,
+      facilitatorId: facilitator.id,
+      batchId: null,
+      participantIds: ['p'],
+      scheduledFor: null,
+      status: 'open',
+      attendance: {},
+      createdBy: companyAdmin.id,
+      createdAt: '2026-11-08T00:00:00.000Z',
+      openedAt: '2026-11-13T09:00:00.000Z',
+      closedAt: null,
+      closedBy: null,
+      ...overrides,
+    });
+    const present = room({ attendance: { p: 'present' } });
+    const absent = room({ id: 's-y', attendance: { p: 'absent' } });
+    const off = room({ id: 's-z', status: 'cancelled', openedAt: null });
+    const done = { completedAt: '2026-11-13T10:00:00.000Z' };
+    const going = { completedAt: null };
+
+    assert.equal(feedbackStateOf('p', true, [absent], undefined), 'submitted');
+    assert.equal(feedbackStateOf('p', false, [absent, present], undefined), 'pending');
+    assert.equal(feedbackStateOf('p', false, [absent, off], undefined), 'absent');
+    assert.equal(feedbackStateOf('p', false, [off], undefined), 'cancelled');
+    assert.equal(feedbackStateOf('p', false, [], done), 'pending');
+    assert.equal(feedbackStateOf('p', false, [], going), 'not open');
+    assert.equal(feedbackStateOf('p', false, [], undefined), 'not open');
+    // Listed for nothing in view: somebody else's session says nothing about them.
+    assert.equal(feedbackStateOf('q', false, [present, absent], undefined), 'not open');
   });
 });

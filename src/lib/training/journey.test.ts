@@ -177,7 +177,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
 
     it('opens feedback once the session has started', async () => {
       const here = { attendance: { [asha.id]: 'present' as const } };
-      assert.deepEqual(await statesOf(opened(here)), ['not needed', 'open', 'not needed', 'open']);
+      assert.deepEqual(await statesOf(opened(here)), ['not needed', 'done', 'not needed', 'open']);
       // Not yet marked present: they may still be on their way, so nothing after opens.
       assert.deepEqual(await statesOf(opened()), ['not needed', 'open', 'not needed', 'locked']);
       const steps = await stepsOf(closed());
@@ -226,7 +226,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       const steps = await stepsOf(opened({ attendance: { [asha.id]: 'present' } }));
       assert.deepEqual(
         steps.map((step) => step.state),
-        ['done', 'open', 'open', 'locked'],
+        ['done', 'done', 'open', 'locked'],
       );
       assert.equal(steps[2]?.href, assessmentHref('post', deckId, 's-room1'));
     });
@@ -251,7 +251,10 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
 
     it('tells the session apart while waiting, under way and finished', async () => {
       assert.match((await stepsOf(session()))[1]?.note ?? '', /^In the room/);
-      assert.equal((await stepsOf(opened()))[1]?.note, "Under way, on the facilitator's screen.");
+      assert.equal(
+        (await stepsOf(opened()))[1]?.note,
+        "Under way, on the facilitator's screen. Join it in the room, and your facilitator will mark you present.",
+      );
       assert.equal((await stepsOf(closed()))[1]?.note, 'Finished.');
     });
   });
@@ -283,7 +286,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       assert.equal(journey.joinedLate, true);
       assert.deepEqual(
         journey.steps.map((step) => step.state),
-        ['done', 'open', 'open', 'locked'],
+        ['done', 'done', 'open', 'locked'],
       );
       assert.match(journey.steps[1]?.note ?? '', /You joined late\./);
 
@@ -306,7 +309,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       const steps = await stepsOf(marked);
       assert.deepEqual(
         steps.map((step) => step.state),
-        ['missed', 'open', 'open', 'locked'],
+        ['missed', 'done', 'open', 'locked'],
       );
       assert.equal(steps[0]?.note, 'Closed when you were marked present.');
     });
@@ -335,7 +338,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       const steps = await stepsOf(closed({ attendance: absent }));
       assert.deepEqual(
         steps.map((step) => step.state),
-        ['done', 'done', 'locked', 'locked'],
+        ['done', 'missed', 'locked', 'locked'],
       );
       assert.equal(steps[1]?.note, 'You were marked absent.');
     });
@@ -344,7 +347,7 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
       await bank('post');
       assert.deepEqual(await statesOf(opened({ attendance: absent })), [
         'not needed',
-        'open',
+        'missed',
         'locked',
         'locked',
       ]);
@@ -353,10 +356,64 @@ describe('a participant’s journey through a trainer-led session', { skip: skip
     it('locks feedback even for a deck with no banks', async () => {
       assert.deepEqual(await statesOf(closed({ attendance: absent })), [
         'not needed',
-        'done',
+        'missed',
         'not needed',
         'locked',
       ]);
+    });
+  });
+
+  // UAT issue 14: the session step read "To do" for as long as the session was open,
+  // whatever the facilitator had marked, so somebody marked present was still told to do it.
+  describe('the session step, once the facilitator has marked them (UAT issue 14)', () => {
+    beforeEach(async () => {
+      await bank('pre');
+      await bank('post');
+      await result('pre');
+    });
+
+    it('is done once they are marked present, while the session is still under way', async () => {
+      const steps = await stepsOf(opened({ attendance: { [asha.id]: 'present' } }));
+      assert.equal(steps[1]?.state, 'done');
+      assert.equal(
+        steps[1]?.note,
+        "You are marked present. Under way, on the facilitator's screen.",
+      );
+    });
+
+    it('stays to do while it is under way and they are not marked, and tells them to join', async () => {
+      const steps = await stepsOf(opened({ attendance: { ben: 'present' } }));
+      assert.equal(steps[1]?.state, 'open');
+      assert.match(
+        steps[1]?.note ?? '',
+        /Join it in the room, and your facilitator will mark you present\./,
+      );
+      assert.equal(steps[2]?.state, 'locked');
+      assert.equal(steps[2]?.note, 'Opens once the facilitator marks you present.');
+    });
+
+    it('is missed once they are marked absent, under way or closed, with the reason', async () => {
+      for (const value of [
+        opened({ attendance: { [asha.id]: 'absent' } }),
+        closed({ attendance: { [asha.id]: 'absent', ben: 'present' } }),
+      ]) {
+        const steps = await stepsOf(value);
+        assert.equal(steps[1]?.state, 'missed', value.status);
+        assert.equal(steps[1]?.note, 'You were marked absent.', value.status);
+      }
+    });
+
+    it('is not done yet when they are marked present before it starts', async () => {
+      const steps = await stepsOf(session({ attendance: { [asha.id]: 'present' } }));
+      assert.equal(steps[1]?.state, 'locked');
+      assert.match(steps[1]?.note ?? '', /^In the room/);
+      assert.equal(steps[2]?.state, 'locked');
+    });
+
+    it('is done once the session closes, as before', async () => {
+      const steps = await stepsOf(closed());
+      assert.equal(steps[1]?.state, 'done');
+      assert.equal(steps[1]?.note, 'Finished.');
     });
   });
 

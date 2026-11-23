@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { BrandHeader } from '@/components/BrandHeader';
 import { MainNav } from '@/components/MainNav';
 import { ProgressBar } from '@/components/ProgressBar';
+import { opensOnceCompleted, type StepAfterSession } from '@/lib/assessments/after-session';
 import { COMPLETION_THRESHOLD } from '@/lib/roster/completion';
 import type { ProgressRow, SignedInPerson } from '@/lib/roster/types';
 import { dayHasPassed, formatDay } from '@/lib/time';
@@ -37,10 +38,29 @@ function dueLabel(
   return { text: `${late ? 'Was due' : 'Due'} ${formatDate(dueAt)}`, late };
 }
 
-function TrainingCard({ row, completeAt }: { row: ProgressRow; completeAt?: number }) {
+/** The post-session assessment or feedback that follows an AI-led session. */
+interface AfterSessionLink {
+  step: StepAfterSession;
+  href: string;
+  label: string;
+}
+
+function TrainingCard({
+  row,
+  completeAt,
+  next = null,
+}: {
+  row: ProgressRow;
+  completeAt?: number;
+  /** What follows the session, when something does and it is under way or completed. */
+  next?: AfterSessionLink | null;
+}) {
   const complete = row.completedAt !== null;
   const started = row.startedAt !== null && row.percent > 0;
   const due = dueLabel(row.dueAt, complete);
+  // Open once the session is completed and not before (UAT issue 12), as the step's own
+  // page decides it. The card already says how far through the session they are.
+  const nextOpen = next !== null && complete;
 
   return (
     <li className="border-charcoal-line bg-charcoal-soft rounded-xl border p-5">
@@ -89,6 +109,15 @@ function TrainingCard({ row, completeAt }: { row: ProgressRow; completeAt?: numb
           </span>
         ) : (
           <>
+            {nextOpen && (
+              <Link
+                href={next.href}
+                className="bg-azure text-mist hover:bg-teal hover:text-charcoal rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+              >
+                {next.label}
+              </Link>
+            )}
+
             <Link
               href={`/session?deck=${encodeURIComponent(row.deckId)}`}
               className={`rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
@@ -117,6 +146,10 @@ function TrainingCard({ row, completeAt }: { row: ProgressRow; completeAt?: numb
           </>
         )}
       </div>
+
+      {next !== null && !complete && row.deckTitle !== null && (
+        <p className="text-muted mt-3 text-sm">{opensOnceCompleted(next.step)}</p>
+      )}
     </li>
   );
 }
@@ -197,12 +230,18 @@ export function HomeForTrainee({
   rows: allRows,
   journeys = [],
   completionPercents = {},
+  afterSession = {},
 }: {
   person: SignedInPerson;
   rows: ProgressRow[];
   journeys?: SessionJourney[];
   /** Each deck's completion point (AI-34), by deck id. */
   completionPercents?: Record<string, number>;
+  /**
+   * What follows each AI-led session under way or completed, by deck id: the
+   * post-session assessment or feedback, or null once both are done.
+   */
+  afterSession?: Record<string, AfterSessionLink | null>;
 }) {
   // Each deck may set its own completion point (AI-34). One figure in the note when they
   // agree; otherwise each card says its own.
@@ -219,6 +258,9 @@ export function HomeForTrainee({
   const rows = allRows.filter((row) => !inTheRoom.has(row.deckId));
   const outstanding = rows.filter((row) => row.completedAt === null);
   const done = rows.filter((row) => row.completedAt !== null);
+  // A completed session can still have its post-session assessment or feedback to do, and
+  // "up to date" would tell somebody with either open that there was nothing left.
+  const stepsAfter = done.filter((row) => afterSession[row.deckId]).length;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -239,7 +281,9 @@ export function HomeForTrainee({
           {rows.length === 0
             ? 'Nothing has been assigned to you yet. When it is, it will appear here.'
             : outstanding.length === 0
-              ? 'You are up to date. Everything assigned to you is complete.'
+              ? stepsAfter > 0
+                ? `Every session assigned to you is complete. ${stepsAfter === 1 ? 'One still has' : `${stepsAfter} still have`} a post-session step to do, shown on ${stepsAfter === 1 ? 'its card' : 'their cards'} below.`
+                : 'You are up to date. Everything assigned to you is complete.'
               : `${outstanding.length} ${outstanding.length === 1 ? 'session' : 'sessions'} to attend. ${TRAINER_NAME} presents each one and answers your questions out loud, and you can stop and pick up where you left off.`}
         </p>
 
@@ -271,6 +315,7 @@ export function HomeForTrainee({
                     <TrainingCard
                       key={row.deckId}
                       row={row}
+                      next={afterSession[row.deckId] ?? null}
                       {...(mixed ? { completeAt: completeAtOf(row.deckId) } : {})}
                     />
                   ))}
@@ -286,6 +331,7 @@ export function HomeForTrainee({
                     <TrainingCard
                       key={row.deckId}
                       row={row}
+                      next={afterSession[row.deckId] ?? null}
                       {...(mixed ? { completeAt: completeAtOf(row.deckId) } : {})}
                     />
                   ))}

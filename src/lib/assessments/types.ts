@@ -357,6 +357,27 @@ export interface FeedbackRecord {
 
 // ---------------------------------------------------------------- the report
 
+/**
+ * Where a participant stands with feedback, on the results screen and in the closure
+ * summary.
+ *
+ * Pending only for somebody it is open to who has not given it yet. Somebody it is not
+ * open to cannot give it, so is not waiting on it, and counting them as pending chased
+ * people marked absent for feedback they never could give (UAT issue 16). They are shown
+ * with the reason instead: marked absent, listed only for a session that was cancelled,
+ * or not open yet, which is a session that has not started, a mark not yet made, or an
+ * AI-led session not yet completed.
+ */
+export type FeedbackState = 'submitted' | 'pending' | 'absent' | 'cancelled' | 'not open';
+
+/** What the results screen and the closure summary say for feedback not given. */
+export const FEEDBACK_NOT_GIVEN: Record<Exclude<FeedbackState, 'submitted'>, string> = {
+  pending: 'Pending',
+  absent: 'Not open: absent',
+  cancelled: 'Not open: cancelled',
+  'not open': 'Not open yet',
+};
+
 /** One participant's row on the results and feedback screen. */
 export interface ResultsRow {
   personId: string;
@@ -381,8 +402,8 @@ export interface ResultsRow {
         versionNumber: number | null;
       })
     | null;
-  /** Null when the viewer may not see feedback; otherwise whether it has been given. */
-  feedback: 'submitted' | 'pending' | null;
+  /** Null when the viewer may not see feedback; otherwise where they stand with it. */
+  feedback: FeedbackState | null;
   /**
    * Whether any of their results or feedback for this deck is restricted under the
    * retention policy. For anybody but an administrator, those are then absent above.
