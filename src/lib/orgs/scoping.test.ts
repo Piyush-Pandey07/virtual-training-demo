@@ -47,6 +47,9 @@ const STORES = [
   'usageFor',
   'usageHistory',
   'mayStartSession',
+  // Shows a customer its own sessions this month and its cap (UAT, issue 19). The wrong
+  // organisation here would show one customer another's usage.
+  'monthlyAllowance',
   'record',
   'recordQuietly',
   // Reads a deck's own content, including the rendered pages sent to the model.
