@@ -502,6 +502,65 @@ function attendanceDetail(
   return `Marked ${participantCount(marked.length)}: ${present} present, ${marked.length - present} absent`;
 }
 
+/** The highest slide a request may record: far beyond any deck, and a bound on what is kept. */
+const HIGHEST_SLIDE = 1000;
+
+/**
+ * Keeps the slide the facilitator's run screen is on, so reopening the screen carries on
+ * there (UAT issue 17). It used to start at slide 1 every time, on a reload, on coming back
+ * from the attendance page, or on another device.
+ *
+ * Only the session's facilitator, or an administrator, may move it, as for every other
+ * change to a session, and only while the session can still be run: a closed or cancelled
+ * one has no run screen, and its record is left as it is.
+ *
+ * Written on the free Firestore plan, so it costs as little as it can. The run screen
+ * sends a move only once it has settled (see run-position.ts), so a run of Next presses is
+ * one write rather than one each. Here the check and the write are one transaction, one
+ * read and at most one write, and a slide the record already holds writes nothing: the
+ * change gives up before the write, as `removeFromTraining` does for a session gone.
+ *
+ * The slide is not checked against the deck. That would read the deck on every move, and
+ * the run page reads the deck anyway and starts at the first slide when the one kept is no
+ * longer in it.
+ */
+export async function recordCurrentSlide(
+  person: SignedInPerson,
+  id: string,
+  slideId: unknown,
+  options: Options = {},
+): Promise<number> {
+  if (
+    typeof slideId !== 'number' ||
+    !Number.isInteger(slideId) ||
+    slideId < 1 ||
+    slideId > HIGHEST_SLIDE
+  ) {
+    throw new TrainingRuleError(400, 'Name the slide by its number.');
+  }
+  const unchanged = Symbol('unchanged');
+  try {
+    await trainingStore(person.orgId, options.store).updateSession(id, (current) => {
+      // The same answer for a session that does not exist and one this person may not run,
+      // as `sessionFor` gives, so a facilitator cannot learn of another's.
+      if (!current || !mayManageSession(person, current)) {
+        throw new TrainingRuleError(404, 'No such session.');
+      }
+      if (current.status === 'closed') {
+        throw new TrainingRuleError(409, 'This session is closed and can no longer be run.');
+      }
+      if (current.status === 'cancelled') {
+        throw new TrainingRuleError(409, 'This session was cancelled and can never be run.');
+      }
+      if (current.currentSlideId === slideId) throw unchanged;
+      return { ...current, currentSlideId: slideId };
+    });
+  } catch (error) {
+    if (error !== unchanged) throw error;
+  }
+  return slideId;
+}
+
 /**
  * Adds participants to a session that has not finished (AI-26).
  *

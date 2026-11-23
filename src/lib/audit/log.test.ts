@@ -168,12 +168,20 @@ describe('reading the history', () => {
     );
   });
 
-  it('reads a month, newest first, and only this customer', async () => {
+  it('reads a month in India, newest first, and only this customer', async () => {
     const month = await auditHistory(ORG, { month: '2026-11' }, { store });
+    // 23:00 UTC on 31 October is half past four in the morning of 1 November in India, so
+    // it is November's (UAT issue 20), though it is filed under October's UTC month.
     assert.deepEqual(
       month.map((entry) => entry.subjectId),
-      ['2026-11-20T10:00:00.000Z', '2026-11-02T11:00:00.000Z', '2026-11-02T10:00:00.000Z'],
+      [
+        '2026-11-20T10:00:00.000Z',
+        '2026-11-02T11:00:00.000Z',
+        '2026-11-02T10:00:00.000Z',
+        '2026-10-31T23:00:00.000Z',
+      ],
     );
+    assert.deepEqual(await auditHistory(ORG, { month: '2026-10' }, { store }), []);
   });
 
   it('reads a day, and one kind of subject', async () => {
@@ -181,6 +189,58 @@ describe('reading the history', () => {
     assert.deepEqual(
       day.map((entry) => entry.subjectId),
       ['2026-11-02T10:00:00.000Z'],
+    );
+  });
+
+  it('reads a day in India, from the evening before in UTC to the evening of the day', async () => {
+    const write = (iso: string) =>
+      recordAudit(
+        companyAdmin,
+        { action: 'viewed', subjectType: 'profile', subjectId: iso },
+        { store, now: Date.parse(iso), immediate: true },
+      );
+    // 23:59 on the 14th in India; midnight and 23:59 on the 15th; midnight on the 16th.
+    for (const iso of [
+      '2026-11-14T18:29:00.000Z',
+      '2026-11-14T18:30:00.000Z',
+      '2026-11-15T18:29:00.000Z',
+      '2026-11-15T18:30:00.000Z',
+    ]) {
+      await write(iso);
+    }
+    const day = await auditHistory(ORG, { day: '2026-11-15' }, { store });
+    assert.deepEqual(
+      day.map((entry) => entry.subjectId),
+      ['2026-11-15T18:29:00.000Z', '2026-11-14T18:30:00.000Z'],
+    );
+    // And the next and previous days in India have the rest, so stepping a day at a time
+    // across midnight in India loses nothing and shows nothing twice.
+    assert.deepEqual(
+      (await auditHistory(ORG, { day: '2026-11-16' }, { store })).map((entry) => entry.subjectId),
+      ['2026-11-15T18:30:00.000Z'],
+    );
+    assert.deepEqual(
+      (await auditHistory(ORG, { day: '2026-11-14' }, { store })).map((entry) => entry.subjectId),
+      ['2026-11-14T18:29:00.000Z'],
+    );
+  });
+
+  it('files each entry under its UTC day and month, as entries always have been', async () => {
+    // Left as it was, so the history written before the page moved to India time reads the
+    // same way as what is written after.
+    await recordAudit(
+      companyAdmin,
+      { action: 'viewed', subjectType: 'profile', subjectId: 'late' },
+      { store, now: Date.parse('2026-11-30T20:00:00.000Z'), immediate: true },
+    );
+    const late = (await entries()).find((entry) => entry.subjectId === 'late');
+    assert.equal(late?.day, '2026-11-30');
+    assert.equal(late?.month, '2026-11');
+    // In India it is the first of December, and it is read as December's.
+    const december = await auditHistory(ORG, { month: '2026-12' }, { store });
+    assert.deepEqual(
+      december.map((entry) => entry.subjectId),
+      ['late'],
     );
   });
 

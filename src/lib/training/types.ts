@@ -96,6 +96,14 @@ export interface TrainingSession {
    * Absent from sessions set up before it was kept, until the repair script fills it.
    */
   people?: Record<string, ListedName>;
+  /**
+   * The slide the facilitator's run screen was last on, so reopening it, on a reload or
+   * another device, carries on there rather than at slide 1 (UAT issue 17). Written by
+   * the run screen once a move has settled, and only while the session can still be run.
+   * Absent on a session nobody has moved through yet, and on every one before it was
+   * kept; the run screen then starts at the first slide, as it always did.
+   */
+  currentSlideId?: number;
 }
 
 /** One participant's line in a session's closure summary (AI-33). */

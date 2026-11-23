@@ -7,6 +7,7 @@ import type { DeckRecord, DeckSlide } from '../deck-types';
 import { ISMS_DECK } from '../decks/isms';
 import { InMemoryDocumentStore } from '../roster/documents';
 import type { Role, SignedInPerson } from '../roster/types';
+import { todayInTrainingZone } from '../time';
 import { buildFacilitatedTurnPrompt, buildTurnPrompt } from '../trainer-prompt';
 import { GLOSSARY } from './entries';
 import { keytermsFor, renderGlossary, termsForTurn, termsIn } from './index';
@@ -561,7 +562,8 @@ describe('the glossary page and routes', () => {
     // Outside a request the entries are written straight after, not awaited.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const month = new Date().toISOString().slice(0, 7);
+    // This month in India, which is what the history is read by.
+    const month = todayInTrainingZone().slice(0, 7);
     const history = await platformAuditHistory({ month, subjectType: 'glossary-term' }, { store });
     assert.deepEqual(history.map((entry) => entry.action).sort(), [
       'created',
