@@ -116,7 +116,17 @@ export async function repairOrg(orgId: string, options: RepairOptions = {}): Pro
   const owners = new Map<string, Owner>();
   const unclear = new Map<string, string>();
   for (const [placeholder, claimed] of claims) {
-    if (claimed.size > 1) {
+    const claimants = [...claimed.values()];
+    const addresses = new Set(claimants.map((owner) => owner.email.trim().toLowerCase()));
+    if (claimed.size > 1 && addresses.size === 1) {
+      // One address, so one person, under more than one id: removed, then added again
+      // and signed in afresh, which gives them a new account. Found on the live data on
+      // 23 November for four test participants. Whoever is on the roster now is who the
+      // placeholder was made for, since it was made when they were added back.
+      const current = claimants.find((owner) => !owner.left);
+      if (current) owners.set(placeholder, current);
+      else unclear.set(placeholder, 'the same address left more than once, under different ids');
+    } else if (claimed.size > 1) {
       unclear.set(placeholder, `${claimed.size} people's addresses give this placeholder`);
     } else if (leftUnder.has(placeholder)) {
       unclear.set(placeholder, 'somebody was removed under this id before ever signing in');

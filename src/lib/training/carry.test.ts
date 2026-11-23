@@ -379,4 +379,24 @@ describe('repairing what was left behind (scripts/repair-placeholder-ids.ts)', (
     );
     assert.deepEqual((await training().getSession('s-shared'))!.participantIds, [shared]);
   });
+
+  it('gives the placeholder to the person on the roster when one address was removed and added back', async () => {
+    // Found on the live data: Dev signed in, was removed, was added again and signed in
+    // afresh under a new account. Same address, two ids, so the same person; the
+    // placeholder was made when he was added back, so it is the current account's.
+    await recordLeaver(
+      ORG,
+      { id: 'dev-first', name: 'Dev', email: 'dev@acme.example', emailKey: 'dev@acme.example' },
+      'hr',
+      { store },
+    );
+    await roster.upsertPerson({ email: 'dev@acme.example', name: 'Dev' });
+    await roster.upsertPerson({ id: 'dev-second', email: 'dev@acme.example', name: 'Dev' });
+    const placeholder = localPersonId('dev@acme.example');
+    await training().saveSession(session({ id: 's-dev', participantIds: [placeholder] }));
+
+    const report = await repair(true);
+    assert.ok(!report.leftAlone.some((each) => each.placeholder === placeholder));
+    assert.deepEqual((await training().getSession('s-dev'))!.participantIds, ['dev-second']);
+  });
 });
